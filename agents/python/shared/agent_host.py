@@ -71,6 +71,63 @@ async def _run_agent_native_stream(
             yield text
 
 
+# ─────────────────────── Session rehydration ──────────────────────
+
+
+# Cap pulled from shared/session.py::PostgresSessionHistoryProvider.max_history.
+# Keep in lockstep — the orchestrator and the specialist host both read up to
+# this many past messages. Changing it here without updating session.py (or
+# vice versa) produces silently-different context windows between code paths.
+_SESSION_HISTORY_LIMIT = 50
+
+
+async def _rehydrate_history_from_session(session_id: str) -> list[dict] | None:
+    """Fetch recent messages for ``session_id`` (= conversation UUID) as A2A
+    ``{"role", "content"}`` dicts. Returns ``None`` on any failure so the
+    caller falls back to a no-history run rather than erroring out.
+
+    Audit fix #14: replaces the ``conv_history[-10:]`` + ``[:500]`` truncation
+    that lived in ``orchestrator.agent.call_specialist_agent``. The orchestrator
+    now forwards only the session id header; specialists rehydrate here.
+    """
+    if not session_id:
+        return None
+
+    try:
+        from shared.db import get_pool
+    except Exception:
+        return None
+
+    try:
+        pool = get_pool()
+    except Exception:
+        return None
+
+    try:
+        rows = await pool.fetch(
+            """
+            SELECT role, content
+            FROM messages
+            WHERE conversation_id = $1::uuid
+            ORDER BY created_at ASC
+            LIMIT $2
+            """,
+            session_id,
+            _SESSION_HISTORY_LIMIT,
+        )
+    except Exception:
+        logger.exception("session.rehydrate_failed session_id=%s", session_id)
+        return None
+
+    history: list[dict] = []
+    for row in rows:
+        role = row["role"]
+        content = row["content"]
+        if role in ("user", "assistant") and content:
+            history.append({"role": role, "content": content})
+    return history
+
+
 # ─────────────────────── FastAPI host ───────────────────────
 
 
@@ -129,7 +186,13 @@ def create_agent_app(
             if not message:
                 return JSONResponse({"error": "No message provided"}, status_code=400)
 
+            # Prefer forwarded history (legacy A2A callers); fall back to
+            # Postgres rehydration via the session id header (audit fix #14).
             history = body.get("history", None)
+            if not history:
+                session_id = request.headers.get("x-session-id", "")
+                if session_id:
+                    history = await _rehydrate_history_from_session(session_id)
 
             from shared.telemetry import agent_run_span
             with agent_run_span(agent_name):

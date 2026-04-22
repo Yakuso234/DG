@@ -31,6 +31,7 @@ maf_bootstrap.bootstrap()
 
 from shared.agent_host import (  # noqa: E402
     _history_as_maf_messages,
+    _rehydrate_history_from_session,
     _run_agent_native,
     _run_agent_native_stream,
 )
@@ -66,6 +67,69 @@ def test_history_builder_skips_other_roles_and_empty_content() -> None:
         user_message="final",
     )
     assert [m.text for m in msgs] == ["kept", "final"]
+
+
+# ─────────────────────── Session rehydration ─────────────
+
+
+class _FakePool:
+    def __init__(self, rows: list[dict] | None = None, raise_on_fetch: Exception | None = None) -> None:
+        self._rows = rows or []
+        self._raise = raise_on_fetch
+        self.last_query: str | None = None
+        self.last_args: tuple | None = None
+
+    async def fetch(self, query: str, *args):
+        self.last_query = query
+        self.last_args = args
+        if self._raise is not None:
+            raise self._raise
+        return self._rows
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_returns_none_when_session_id_missing() -> None:
+    assert await _rehydrate_history_from_session("") is None
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_reads_messages_by_conversation_id(monkeypatch) -> None:
+    rows = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi back"},
+        {"role": "tool", "content": "ignored"},       # non-user/assistant filtered
+        {"role": "user", "content": ""},              # empty content filtered
+        {"role": "user", "content": "still here"},
+    ]
+    fake_pool = _FakePool(rows=rows)
+    monkeypatch.setattr("shared.db.get_pool", lambda: fake_pool)
+
+    history = await _rehydrate_history_from_session("11111111-1111-1111-1111-111111111111")
+
+    assert history == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi back"},
+        {"role": "user", "content": "still here"},
+    ]
+    # uses the $2 LIMIT parameter — no string interpolation.
+    assert "LIMIT $2" in (fake_pool.last_query or "")
+    assert fake_pool.last_args == ("11111111-1111-1111-1111-111111111111", 50)
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_swallows_db_errors(monkeypatch) -> None:
+    fake_pool = _FakePool(raise_on_fetch=RuntimeError("db down"))
+    monkeypatch.setattr("shared.db.get_pool", lambda: fake_pool)
+    assert await _rehydrate_history_from_session("any-id") is None
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_swallows_missing_pool(monkeypatch) -> None:
+    def _boom():
+        raise RuntimeError("pool not initialised")
+
+    monkeypatch.setattr("shared.db.get_pool", _boom)
+    assert await _rehydrate_history_from_session("any-id") is None
 
 
 # ─────────────────────── Native path (stubbed agent) ──────
