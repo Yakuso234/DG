@@ -111,6 +111,36 @@ class ProcessRefundInput(BaseModel):
 # ─────────────────────── Helper ───────────────────────
 
 
+def clamp_limit(
+    limit: Any,
+    *,
+    default: int = 10,
+    maximum: int = 100,
+) -> int:
+    """Coerce an LLM-controlled ``LIMIT`` parameter into a safe integer.
+
+    Audit fix for P0-1: several tools interpolated the raw ``limit`` kwarg
+    directly into their SQL string (``f"LIMIT {limit}"``). That was only
+    safe because ``limit`` is typed ``int`` on the function signature —
+    but MAF's tool bridge accepts whatever JSON the model emits and
+    coerces it, so a string like ``"100 UNION SELECT …"`` or a giant
+    ``999999`` value could reach the SQL formatter.
+
+    Rules:
+    - Non-integers fall back to ``default``.
+    - Values ``<= 0`` fall back to ``default``.
+    - Values above ``maximum`` are clamped.
+    - Always returns a plain ``int`` safe for string interpolation.
+    """
+    try:
+        value = int(limit) if limit is not None else default
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return default
+    return min(value, maximum)
+
+
 def validation_error_payload(name: str, exc: ValidationError) -> dict[str, Any]:
     """Shape a Pydantic ValidationError into a tool-friendly error dict.
 

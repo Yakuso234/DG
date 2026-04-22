@@ -10,6 +10,7 @@ from pydantic import Field
 
 from shared.agent_factory import create_embedding_client, get_embedding_model
 from shared.db import get_pool
+from shared.tool_inputs import clamp_limit
 
 
 @tool(name="search_products", description="Search the product catalog using natural language. Supports filtering by category, price range, and rating.")
@@ -23,6 +24,7 @@ async def search_products(
     limit: Annotated[int, Field(description="Max results to return")] = 10,
 ) -> list[dict]:
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=10, maximum=100)
     conditions = ["p.is_active = TRUE"]
     args: list = []
     idx = 1
@@ -70,7 +72,7 @@ async def search_products(
         FROM products p
         WHERE {where}
         ORDER BY {order}
-        LIMIT {limit}
+        LIMIT {safe_limit}
     """
 
     async with pool.acquire() as conn:
@@ -236,6 +238,7 @@ async def get_trending_products(
     limit: Annotated[int, Field(description="Max results")] = 10,
 ) -> list[dict]:
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=10, maximum=50)
     conditions = ["o.created_at >= NOW() - ($1 || ' days')::interval"]
     args: list = [str(days)]
     idx = 2
@@ -256,7 +259,7 @@ async def get_trending_products(
         WHERE {where}
         GROUP BY p.id, p.name, p.category, p.brand, p.price, p.rating
         ORDER BY units_sold DESC
-        LIMIT {limit}
+        LIMIT {safe_limit}
     """
 
     async with pool.acquire() as conn:

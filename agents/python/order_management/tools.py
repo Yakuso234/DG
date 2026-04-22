@@ -13,6 +13,7 @@ from shared.db import get_pool
 from shared.tool_inputs import (
     CancelOrderInput,
     ModifyOrderInput,
+    clamp_limit,
     validation_error_payload,
 )
 
@@ -27,6 +28,7 @@ async def get_user_orders(
         return [{"error": "No user context available"}]
 
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=10, maximum=100)
     conditions = ["u.email = $1"]
     args: list = [email]
     idx = 2
@@ -48,7 +50,7 @@ async def get_user_orders(
         GROUP BY o.id, o.status, o.total, o.discount_amount, o.coupon_code,
                  o.shipping_carrier, o.tracking_number, o.created_at
         ORDER BY o.created_at DESC
-        LIMIT {limit}
+        LIMIT {safe_limit}
     """
 
     async with pool.acquire() as conn:

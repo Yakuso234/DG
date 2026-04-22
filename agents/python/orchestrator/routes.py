@@ -16,6 +16,7 @@ from starlette.responses import StreamingResponse
 
 from shared.context import current_user_email, current_user_role, current_session_id, current_conversation_history
 from shared.db import get_pool
+from shared.tool_inputs import clamp_limit
 from shared.jwt_utils import (
     create_access_token,
     create_refresh_token,
@@ -1119,6 +1120,8 @@ async def list_products(
     _user: dict = Depends(require_auth),
 ):
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=50, maximum=200)
+    safe_offset = max(0, int(offset))
     conditions = ["p.is_active = TRUE"]
     args: list = []
     idx = 1
@@ -1154,7 +1157,7 @@ async def list_products(
                    p.original_price, p.image_url, p.rating, p.review_count
             FROM products p WHERE {where}
             ORDER BY {order}
-            LIMIT {limit} OFFSET {offset}""",
+            LIMIT {safe_limit} OFFSET {safe_offset}""",
         *args,
     )
     total = await pool.fetchval(f"SELECT COUNT(*) FROM products p WHERE {where}", *args)
@@ -1262,6 +1265,8 @@ async def list_orders(
     user: dict = Depends(require_auth),
 ):
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=20, maximum=200)
+    safe_offset = max(0, int(offset))
     email = current_user_email.get()
     conditions = ["u.email = $1"]
     args: list = [email]
@@ -1282,7 +1287,7 @@ async def list_orders(
             WHERE {where}
             GROUP BY o.id
             ORDER BY o.created_at DESC
-            LIMIT {limit} OFFSET {offset}""",
+            LIMIT {safe_limit} OFFSET {safe_offset}""",
         *args,
     )
     total = await pool.fetchval(
@@ -2247,6 +2252,8 @@ async def list_seller_products(
 ) -> dict[str, Any]:
     """List products owned by the authenticated seller."""
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=50, maximum=200)
+    safe_offset = max(0, int(offset))
     user_id = user.get("user_id", "")
 
     conditions = ["p.seller_id = $1"]
@@ -2264,7 +2271,7 @@ async def list_seller_products(
                    p.original_price, p.image_url, p.rating, p.review_count, p.is_active
             FROM products p WHERE {where}
             ORDER BY p.created_at DESC
-            LIMIT {limit} OFFSET {offset}""",
+            LIMIT {safe_limit} OFFSET {safe_offset}""",
         *args,
     )
     total = await pool.fetchval(f"SELECT COUNT(*) FROM products p WHERE {where}", *args)
@@ -2299,6 +2306,8 @@ async def list_seller_orders(
 ) -> dict[str, Any]:
     """List orders containing the authenticated seller's products."""
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=20, maximum=200)
+    safe_offset = max(0, int(offset))
     user_id = user.get("user_id", "")
 
     conditions = ["p.seller_id = $1"]
@@ -2322,7 +2331,7 @@ async def list_seller_orders(
             WHERE {where}
             GROUP BY o.id, o.status, o.total, o.created_at, buyer.name, buyer.email
             ORDER BY o.created_at DESC
-            LIMIT {limit} OFFSET {offset}""",
+            LIMIT {safe_limit} OFFSET {safe_offset}""",
         *args,
     )
     total = await pool.fetchval(

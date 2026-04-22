@@ -9,6 +9,7 @@ from pydantic import Field
 
 from shared.context import current_user_email
 from shared.db import get_pool
+from shared.tool_inputs import clamp_limit
 
 
 @tool(name="store_memory", description="Store a memory about the current user's preferences, behavior, or feedback for future reference.")
@@ -45,6 +46,7 @@ async def recall_memories(
     if not email:
         return [{"error": "No authenticated user"}]
 
+    safe_limit = clamp_limit(limit, default=10, maximum=50)
     conditions = ["m.is_active = TRUE", "u.email = $1", "(m.expires_at IS NULL OR m.expires_at > NOW())"]
     args: list = [email]
     idx = 2
@@ -61,7 +63,7 @@ async def recall_memories(
         JOIN users u ON m.user_id = u.id
         WHERE {where}
         ORDER BY m.importance DESC, m.created_at DESC
-        LIMIT {limit}
+        LIMIT {safe_limit}
     """
 
     async with pool.acquire() as conn:

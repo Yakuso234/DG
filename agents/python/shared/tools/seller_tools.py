@@ -9,6 +9,7 @@ from pydantic import Field
 
 from shared.context import current_user_email
 from shared.db import get_pool
+from shared.tool_inputs import clamp_limit
 
 
 @tool(
@@ -21,6 +22,7 @@ async def get_my_products(
 ) -> list[dict]:
     email = current_user_email.get()
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=50, maximum=200)
     conditions = ["p.seller_id = u.id", "u.email = $1"]
     args: list = [email]
     idx = 2
@@ -35,7 +37,7 @@ async def get_my_products(
             f"""SELECT p.id, p.name, p.category, p.brand, p.price, p.rating,
                        p.review_count, p.is_active
                 FROM products p JOIN users u ON p.seller_id = u.id
-                WHERE {where} ORDER BY p.created_at DESC LIMIT {limit}""",
+                WHERE {where} ORDER BY p.created_at DESC LIMIT {safe_limit}""",
             *args,
         )
         return [
@@ -63,6 +65,7 @@ async def get_seller_orders(
 ) -> list[dict]:
     email = current_user_email.get()
     pool = get_pool()
+    safe_limit = clamp_limit(limit, default=20, maximum=200)
     conditions = ["p.seller_id = seller.id", "seller.email = $1"]
     args: list = [email]
     idx = 2
@@ -84,7 +87,7 @@ async def get_seller_orders(
                 JOIN users buyer ON o.user_id = buyer.id
                 WHERE {where}
                 GROUP BY o.id, o.status, o.total, o.created_at, buyer.name, buyer.email
-                ORDER BY o.created_at DESC LIMIT {limit}""",
+                ORDER BY o.created_at DESC LIMIT {safe_limit}""",
             *args,
         )
         return [
