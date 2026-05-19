@@ -111,7 +111,7 @@ class RecentOrdersProvider(ContextProvider):
 
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """SELECT id, status, total, created_at
+                """SELECT o.id, o.status, o.total, o.created_at
                    FROM orders o
                    JOIN users u ON o.user_id = u.id
                    WHERE u.email = $1
@@ -139,7 +139,7 @@ class RecentOrdersProvider(ContextProvider):
             for order in orders:
                 date = order["created_at"].strftime("%Y-%m-%d")
                 lines.append(
-                    f"  - Order {order['id'][:8]}... | {order['status']} "
+                    f"  - order_id={order['id']} | {order['status']} "
                     f"| ${order['total']:.2f} | {date}"
                 )
             context.extend_instructions("recent-orders", "\n".join(lines))
@@ -251,7 +251,7 @@ class ECommerceContextProvider(ContextProvider):
             for order in orders:
                 date = order["created_at"].strftime("%Y-%m-%d")
                 lines.append(
-                    f"  - Order {order['id'][:8]}... | {order['status']} "
+                    f"  - order_id={order['id']} | {order['status']} "
                     f"| ${order['total']:.2f} | {date}"
                 )
 

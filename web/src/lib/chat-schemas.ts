@@ -39,16 +39,20 @@ export const ProductDataSchema = z
     description: z.string().max(4000).optional(),
     on_sale: z.boolean().optional(),
   })
-  .strict();
+  .passthrough();
 
 export const OrderItemSchema = z
   .object({
     name: optionalSafeString,
     quantity: z.number().int().positive().optional(),
     price: positiveNumber.optional(),
+    unit_price: positiveNumber.optional(),
+    subtotal: positiveNumber.optional(),
+    brand: optionalSafeString,
+    category: optionalSafeString,
     image_url: optionalSafeString,
   })
-  .strict();
+  .passthrough();
 
 export const TimelineEventSchema = z
   .object({
@@ -56,7 +60,17 @@ export const TimelineEventSchema = z
     date: optionalSafeString,
     completed: z.boolean().optional(),
   })
-  .strict();
+  .passthrough();
+
+const ShippingAddressObj = z
+  .object({
+    street: optionalSafeString,
+    city: optionalSafeString,
+    state: optionalSafeString,
+    zip: optionalSafeString,
+    country: optionalSafeString,
+  })
+  .passthrough();
 
 export const OrderDataSchema = z
   .object({
@@ -69,20 +83,10 @@ export const OrderDataSchema = z
     items: z.array(OrderItemSchema).max(50).optional(),
     tracking: optionalSafeString,
     carrier: optionalSafeString,
-    shipping_address: optionalSafeString,
+    shipping_address: z.union([safeString, ShippingAddressObj]).optional(),
     timeline: z.array(TimelineEventSchema).max(20).optional(),
   })
-  .strict();
-
-const ShippingAddressObj = z
-  .object({
-    street: optionalSafeString,
-    city: optionalSafeString,
-    state: optionalSafeString,
-    zip: optionalSafeString,
-    country: optionalSafeString,
-  })
-  .strict();
+  .passthrough();
 
 export const CheckoutDataSchema = z
   .object({
@@ -96,17 +100,20 @@ export const CheckoutDataSchema = z
         z
           .object({
             name: optionalSafeString,
+            brand: optionalSafeString,
             quantity: z.number().int().positive().optional(),
             price: positiveNumber.optional(),
+            unit_price: positiveNumber.optional(),
+            subtotal: positiveNumber.optional(),
           })
-          .strict()
+          .passthrough()
       )
       .max(50)
       .optional(),
     shipping_address: z.union([safeString, ShippingAddressObj]).optional(),
     address_ready: z.boolean().optional(),
   })
-  .strict();
+  .passthrough();
 
 export const ReturnDataSchema = z
   .object({
@@ -118,7 +125,7 @@ export const ReturnDataSchema = z
     refund_method: optionalSafeString,
     refund_timeline: optionalSafeString,
   })
-  .strict();
+  .passthrough();
 
 export type CardKind = "product" | "order" | "checkout" | "return";
 
