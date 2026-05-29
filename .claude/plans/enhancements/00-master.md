@@ -40,18 +40,32 @@ yet at the level the work deserves. Three gaps:
 
 ## Phases & sub-plans
 
-| Phase | Sub-plan | Outcome |
-|---|---|---|
-| 1 | [01-ui-foundation.md](01-ui-foundation.md) | Motion system, grouped sidebar shell + top bar + theme toggle, primitives (StatCard/Skeleton/Chart), Cmd-K palette |
-| 2 | [02-dashboard-home.md](02-dashboard-home.md) | Authenticated concierge home + public recruiter landing |
-| 3 | [03-agent-workspaces.md](03-agent-workspaces.md) | Per-agent workspace pages `(app)/agents/[slug]` |
-| 4 | [04-agentic-timeline.md](04-agentic-timeline.md) | Built-in agent timeline (backend capture + SSE + UI) |
-| 5 | [05-chat-uplift.md](05-chat-uplift.md) | Prompt-box modes/suggestions, per-agent thinking states, message actions |
-| 6 | [06-docs-refresh.md](06-docs-refresh.md) | Frontend doc, troubleshooting, CONTRIBUTING, dedup, screenshot tour |
-| — | [07-new-features.md](07-new-features.md) | Feature backlog, each sequenced after its unblocking phase |
+Execution order (revised 2026-05-29 after building 1–2 and a Playwright UI audit):
 
-Phases are sequenced so each is independently demo-able. Phase 1 is the substrate; Phase 4 is the
-highest-leverage credibility feature.
+| Order | Phase | Sub-plan | Outcome | Status |
+|---|---|---|---|---|
+| 1 | 1 | [01-ui-foundation.md](01-ui-foundation.md) | Motion, grouped sidebar shell + top bar + theme toggle, primitives, Cmd-K palette | ✅ done |
+| 2 | 2 | [02-dashboard-home.md](02-dashboard-home.md) | Authenticated concierge home + public recruiter landing | ✅ done |
+| 3 | 1.5 | [08-dark-mode-migration.md](08-dark-mode-migration.md) | Token-migrate the ~10 pages that still break in dark mode | ⏳ next |
+| 4 | 4 | [04-agentic-timeline.md](04-agentic-timeline.md) | Built-in agent timeline (backend capture + SSE + UI) — highest leverage | ⏳ queued |
+| 5 | 3 | [03-agent-workspaces.md](03-agent-workspaces.md) | **Lean** per-agent detail pages (after Phase 4 so stats/runs are real) | ⏳ queued |
+| 6 | 5 | [05-chat-uplift.md](05-chat-uplift.md) | Prompt-box modes/suggestions, per-agent thinking states, message actions | ⏳ queued |
+| 7 | 6 | [06-docs-refresh.md](06-docs-refresh.md) | Frontend doc, troubleshooting, CONTRIBUTING, dedup, screenshot tour, badges | ⏳ queued |
+| — | 7 | [07-new-features.md](07-new-features.md) | Feature backlog, each sequenced after its unblocking phase | backlog |
+
+Each phase is independently demo-able. Phase 1 is the substrate; **Phase 4 (agentic timeline) is
+the highest-leverage credibility feature and now runs before Phase 3** so the agent pages are
+data-rich rather than full of zeros.
+
+**Reorder rationale (2026-05-29):**
+- A Playwright dark-mode audit found ~10 pages still using hardcoded `slate`/`white` colors that
+  break in dark mode (only home/chat/admin-usage/landing/login/signup are token-clean). The global
+  theme toggle makes this user-visible, so the **dark-mode migration (Phase 1.5)** is the next
+  fix — see [08-dark-mode-migration.md](08-dark-mode-migration.md).
+- **Phase 3 trimmed to a lean agent-detail page** (capabilities + example prompts + real
+  stats/runs), dropping the heavy WorkGraph-style two-pane "config → results" — our agents are
+  conversational (orchestrator-routed), so a form-driven workspace would be forced. It depends on
+  Phase 4's `usage_logs`/`agent_execution_steps` for live data, hence it follows Phase 4.
 
 ## Verification (per phase)
 

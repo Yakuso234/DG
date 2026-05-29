@@ -1,18 +1,26 @@
-# Phase 3 — Per-Agent Workspace Pages
+# Phase 3 — Per-Agent Detail Pages (lean)
 
-**Status:** not started · **Depends on:** Phase 1 (primitives), benefits from Phase 4 (stats)
+**Status:** not started · **Runs AFTER Phase 4** (needs real stats/runs) · **Depends on:** Phase 1
+primitives + Phase 4 `usage_logs`/`agent_execution_steps`.
+
+> Scope revised 2026-05-29: trimmed from a full "workspace" to a **lean agent-detail page**. Our
+> agents are conversational and orchestrator-routed (users don't drive a specialist directly), so
+> the WorkGraph-style two-pane "config → results" workspace would feel forced. Build the detail
+> page instead, and only consider a two-pane later for a genuinely form-shaped agent (e.g. pricing)
+> as a Phase 7 item if it earns its keep.
 
 ## Goal
 
-Give each specialist agent a dedicated workspace page (the QA-Buddy pattern from the WorkGraph
-reference): capability hero, example-prompt chips, a live stats strip, recent runs, and an
-optional two-pane "config → results" workspace for action-oriented agents.
+Give each specialist a recruiter-friendly detail page: capability hero + badges, **example-prompt
+chips** (deep-link into chat scoped to that agent), a **live stats strip**, and **recent runs** —
+proving "here's what each agent does, and evidence it's used."
 
 ## Scope
 
-In: dynamic route `(app)/agents/[slug]`, agent metadata source, stats strip, recent runs, prompt
-chips, optional two-pane for 1–2 agents, marketplace "Open" wiring.
-Out: building brand-new agent capabilities (that's Phase 7); this surfaces existing agents.
+In: dynamic route `(app)/agents/[slug]`, an index grid, shared agent metadata, stats strip + recent
+runs (from Phase 4 data), example-prompt chips, marketplace "Open" wiring.
+Out: the heavy two-pane "config → results" workspace (dropped); building new agent capabilities
+(Phase 7); this only surfaces existing agents.
 
 ## Agents (slugs)
 
@@ -25,7 +33,8 @@ orchestrator already uses (`AGENT_REGISTRY` / agent-card metadata).
 - `web/src/app/(app)/agents/page.tsx` — index grid (reuse marketplace card styling).
 - `web/src/app/(app)/agents/[slug]/page.tsx` — new workspace.
 - `web/src/components/agents/` — new: `agent-hero.tsx`, `capability-badges.tsx`,
-  `example-prompts.tsx`, `agent-stats-strip.tsx`, `recent-runs.tsx`, `two-pane-workspace.tsx`.
+  `example-prompts.tsx`, `agent-stats-strip.tsx`, `recent-runs.tsx`.
+  (No `two-pane-workspace.tsx` — dropped per the revised scope.)
 - `web/src/lib/agents.ts` — new: static agent metadata (name, role, description, capabilities,
   example prompts, accent token) keyed by slug; single source the index + workspace + marketplace
   share.
@@ -41,9 +50,8 @@ orchestrator already uses (`AGENT_REGISTRY` / agent-card metadata).
 3. **Workspace** — hero (icon, role, capability badges), example-prompt chips (deep-link to chat
    scoped to that agent), stats strip (invocations / tokens / avg latency from `usage_logs`),
    recent-runs list (from runs endpoint).
-4. **Two-pane** — for action agents (e.g. pricing: left = product/coupon scope form, right =
-   results); drive through existing chat/A2A path, reusing rich cards.
-5. **Marketplace wiring** — "Open" → workspace; keep request/approval flow intact.
+4. **Marketplace wiring** — "Open" → detail page; keep request/approval flow intact.
+   (Two-pane workspace intentionally omitted — see scope note.)
 
 ## Tests
 
