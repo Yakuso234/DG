@@ -59,6 +59,20 @@ Advertise a build status and (optionally) ship runnable images.
 - Add the workflow status badge to `README.md` (Phase 6 badge row).
 - Decision needed: publish to GHCR vs build-only. Surface before wiring.
 
+### 10. Frontend type/lint debt (proper fixes for downgraded rules)
+Two eslint rules were downgraded to warnings to green the gate; remove the
+suppressions by fixing the root causes:
+- **Type the API layer** — replace `any` in `web/src/lib/api.ts` (and consumers
+  `rich-message.tsx`, `seller/*`) with real interfaces (consider reusing/extending
+  `web/src/lib/chat-schemas.ts` zod types). Then restore
+  `@typescript-eslint/no-explicit-any` to "error".
+- **Auth/cart store refactor** — move `lib/auth-context.tsx` + `lib/cart-context.tsx`
+  off mount-effect `setState` to a `useSyncExternalStore`-backed store so client
+  localStorage hydration is rule-clean. Then restore
+  `react-hooks/set-state-in-effect` to "error".
+- Also clear the remaining `no-unused-vars` and `next/no-img-element` warnings
+  (swap chat/product `<img>` for `next/image` where practical).
+
 ## Prioritization note
 
 Highest showcase ROI: #1 (scenario launcher) + #2 (runs explorer) — both ride on phases already
