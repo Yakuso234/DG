@@ -7,6 +7,9 @@ dist/
 .venv/
 .uv/
 uv.lock
+# ...but the main Python app's lockfile IS committed so CI installs are
+# reproducible and setup-uv's cache key (**/uv.lock) resolves.
+!agents/python/uv.lock
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
