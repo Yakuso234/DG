@@ -19,9 +19,13 @@ RUN groupadd -r agent && useradd -r -g agent -d /app -s /sbin/nologin agent
 
 WORKDIR /app
 
-# Install Python dependencies (cached layer)
-COPY pyproject.toml .
-RUN uv sync --no-dev --no-install-project
+# Install Python dependencies (cached layer).
+# Sync from the committed lockfile (--frozen) so the build is deterministic and
+# does NOT re-resolve against live PyPI — agent-framework is a pre-release and
+# upstream churn (e.g. agent-framework-azure-ai-search) makes fresh resolution
+# unsatisfiable. The lock pins a known-good graph.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Patch MAF v1.0 empty __init__.py (ships without re-exports)
 COPY patch_maf.py .
