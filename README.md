@@ -1,8 +1,11 @@
 # E-Commerce Agents
 
+[![Tests](https://github.com/nitin27may/e-commerce-agents/actions/workflows/tests.yml/badge.svg)](https://github.com/nitin27may/e-commerce-agents/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://python.org)
-[![Next.js 15](https://img.shields.io/badge/Next.js-15-000000.svg)](https://nextjs.org)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-000000.svg)](https://nextjs.org)
+[![MAF v1](https://img.shields.io/badge/Microsoft%20Agent%20Framework-v1-5E5DF0.svg)](https://github.com/microsoft/agent-framework)
+[![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-336791.svg)](https://github.com/pgvector/pgvector)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose/)
 
 A **multi-agent e-commerce platform** built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (MAF) Python SDK. Six specialized AI agents collaborate via **A2A protocol** to handle product discovery, orders, pricing, reviews, inventory, and customer support.
@@ -13,9 +16,11 @@ Companion demo repo for the AI article series on [nitinksingh.com](https://nitin
 
 ## Project Status
 
-**This is v1 — the Python version is live today.** It runs end-to-end: six specialist agents, orchestrator, marketplace, auth, telemetry, and a full Next.js frontend.
+**This is v1 — the Python version is live today.** It runs end-to-end: six specialist agents, orchestrator, auth, telemetry, and a full Next.js frontend.
 
-Several larger capabilities are actively in progress and will land in upcoming releases. Track them in the [Roadmap](#roadmap) section below. The **.NET / C# port** for teams building in the Microsoft ecosystem lives at [`agents/dotnet/`](./agents/dotnet/) alongside the Python backend at [`agents/python/`](./agents/python/); module-by-module plans are in [`plans/dotnet-port/`](./plans/dotnet-port/).
+The frontend is a **public, agentic e-commerce storefront**: anyone can browse the catalog, search, and use the AI shopping assistant (`/shop`) without an account — product discovery is served anonymously — while account flows (cart checkout, orders, tracking, returns) require sign-in. A built-in **agent-activity timeline** surfaces the multi-agent routing (orchestrator → specialist → tool) live in chat, backed by OpenTelemetry → .NET Aspire. Light/dark theming throughout.
+
+The **.NET / C# port** for teams building in the Microsoft ecosystem lives at [`agents/dotnet/`](./agents/dotnet/) alongside the Python backend at [`agents/python/`](./agents/python/). Enhancement plans and the phased roadmap are tracked in [`.claude/plans/enhancements/`](./.claude/plans/enhancements/).
 
 ---
 
@@ -331,6 +336,9 @@ See [Deployment Guide](docs/deployment.md) for all configuration options.
 | [Telemetry](docs/telemetry.md) | OpenTelemetry setup and Aspire Dashboard |
 | [Agent Flows](docs/agent-flows.md) | Multi-agent collaboration diagrams |
 | [Deployment](docs/deployment.md) | Docker Compose, dev.sh, port map |
+| [Frontend](docs/frontend.md) | Routes, theming, SSE/timeline, public-vs-auth model |
+| [Troubleshooting](docs/troubleshooting.md) | Common local-stack issues and fixes |
+| [Contributing](CONTRIBUTING.md) | Setup, conventions, testing policy, PR checklist |
 
 ---
 
