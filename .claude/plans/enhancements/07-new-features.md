@@ -51,6 +51,14 @@ Deep LLM eval/trace dashboards for advanced demos.
 - Parallel OTel sink behind `LANGFUSE_ENABLED`; documented in `docs/telemetry.md` (Phase 6).
 - Keep OTel/Aspire as primary; Langfuse is additive. Tests: flag-off path unchanged.
 
+### 9. Container image build + publish workflow (+ README badge)
+Advertise a build status and (optionally) ship runnable images.
+- New `.github/workflows/build-images.yml` building the multi-target Dockerfile (`ARG AGENT_NAME`).
+- Two modes: build-smoke only (no push) for a green gate, or build + push to GHCR
+  (`ghcr.io/nitin27may/...`) on tag/main (needs `packages: write` + `GITHUB_TOKEN`).
+- Add the workflow status badge to `README.md` (Phase 6 badge row).
+- Decision needed: publish to GHCR vs build-only. Surface before wiring.
+
 ## Prioritization note
 
 Highest showcase ROI: #1 (scenario launcher) + #2 (runs explorer) — both ride on phases already
