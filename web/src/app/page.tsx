@@ -3,27 +3,27 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { Landing } from "@/components/landing/landing";
 
 export default function RootPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
-    if (isLoading) return;
-
-    if (isAuthenticated) {
-      router.replace("/chat");
-    } else {
-      router.replace("/login");
+    if (!isLoading && isAuthenticated) {
+      router.replace("/home");
     }
   }, [isAuthenticated, isLoading, router]);
 
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
+  // Resolving auth, or about to redirect an authenticated user.
+  if (isLoading || isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
         <div className="size-8 animate-spin rounded-full border-2 border-muted border-t-primary" />
-        <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // Unauthenticated visitors get the marketing/architecture landing.
+  return <Landing />;
 }

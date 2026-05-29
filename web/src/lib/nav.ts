@@ -1,4 +1,5 @@
 import {
+  LayoutDashboard,
   MessageSquare,
   ShoppingBag,
   ShoppingCart,
@@ -36,6 +37,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Shop",
     items: [
+      { label: "Home", href: "/home", icon: LayoutDashboard },
       { label: "Chat", href: "/chat", icon: MessageSquare },
       { label: "Products", href: "/products", icon: ShoppingBag },
       { label: "Cart", href: "/cart", icon: ShoppingCart, cartBadge: true },
