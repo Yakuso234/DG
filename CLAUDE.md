@@ -8,6 +8,19 @@ E-Commerce Agents is a multi-agent e-commerce platform built with **Microsoft Ag
 
 Companion demo repo for the AI article series on nitinksingh.com.
 
+## Working Artifacts Location
+
+All working artifacts — **memory, rules, and plans** — live in the **repo-local `.claude/` folder
+only**:
+
+- `.claude/memory/` — project memory and notes
+- `.claude/rules/` — repo-specific rules
+- `.claude/plans/` — implementation plans (master + sub-plans, e.g. `.claude/plans/enhancements/`)
+
+Do not put these in the repo root (no top-level `plans/` folder) or rely on global `~/.claude`.
+Keeping them under the repo-local `.claude/` means they are committed with the project and travel
+with it.
+
 ## Key Commands
 
 ```bash
