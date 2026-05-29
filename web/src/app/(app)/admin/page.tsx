@@ -151,15 +151,15 @@ export default function AdminDashboardPage() {
   // Access denied for non-admins
   if (!isAdmin) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
-          <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-red-50">
-            <ShieldAlert className="size-8 text-red-500" />
+          <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-destructive/10">
+            <ShieldAlert className="size-8 text-destructive" />
           </div>
-          <h2 className="mt-4 text-lg font-semibold text-slate-900">
+          <h2 className="mt-4 text-lg font-semibold text-foreground">
             Access Denied
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             You do not have admin privileges to view this page.
           </p>
         </div>
@@ -168,19 +168,19 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <LayoutDashboard className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <LayoutDashboard className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 Admin Dashboard
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Platform overview and agent usage metrics
               </p>
             </div>
@@ -192,15 +192,15 @@ export default function AdminDashboardPage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-teal-600" />
-            <span className="ml-2 text-sm text-slate-500">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">
               Loading dashboard...
             </span>
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -211,13 +211,13 @@ export default function AdminDashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Total Invocations
                   </CardTitle>
-                  <Activity className="size-4 text-teal-600" />
+                  <Activity className="size-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {formatNumber(stats.total_invocations)}
                   </div>
                 </CardContent>
@@ -225,16 +225,16 @@ export default function AdminDashboardPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Total Tokens
                   </CardTitle>
                   <Zap className="size-4 text-amber-500" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {formatNumber(stats.total_tokens_in + stats.total_tokens_out)}
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-400">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {formatNumber(stats.total_tokens_in)} in /{" "}
                     {formatNumber(stats.total_tokens_out)} out
                   </p>
@@ -243,13 +243,13 @@ export default function AdminDashboardPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Active Agents
                   </CardTitle>
                   <Bot className="size-4 text-sky-500" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {stats.active_agents}
                   </div>
                 </CardContent>
@@ -257,13 +257,13 @@ export default function AdminDashboardPage() {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Pending Requests
                   </CardTitle>
                   <Clock className="size-4 text-orange-500" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {stats.pending_requests}
                   </div>
                 </CardContent>
@@ -271,15 +271,15 @@ export default function AdminDashboardPage() {
             </div>
 
             {/* Per-agent usage */}
-            <div className="rounded-xl border border-slate-200 bg-white">
+            <div className="rounded-xl bg-card ring-1 ring-foreground/10">
               <div className="px-4 py-3">
-                <h2 className="text-sm font-semibold text-slate-700">
+                <h2 className="text-sm font-semibold text-muted-foreground">
                   Per-Agent Usage Breakdown
                 </h2>
               </div>
               <Separator />
               {stats.per_agent.length === 0 ? (
-                <div className="px-4 py-8 text-center text-sm text-slate-400">
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No agent usage data available.
                 </div>
               ) : (
@@ -296,19 +296,19 @@ export default function AdminDashboardPage() {
                   <TableBody>
                     {stats.per_agent.map((agent) => (
                       <TableRow key={agent.agent_id}>
-                        <TableCell className="font-medium text-slate-800">
+                        <TableCell className="font-medium text-foreground">
                           {agent.agent_name}
                         </TableCell>
                         <TableCell className="text-right">
                           {formatNumber(agent.invocations)}
                         </TableCell>
-                        <TableCell className="text-right text-slate-500">
+                        <TableCell className="text-right text-muted-foreground">
                           {formatNumber(agent.tokens_in)}
                         </TableCell>
-                        <TableCell className="text-right text-slate-500">
+                        <TableCell className="text-right text-muted-foreground">
                           {formatNumber(agent.tokens_out)}
                         </TableCell>
-                        <TableCell className="text-right text-slate-500">
+                        <TableCell className="text-right text-muted-foreground">
                           {formatDuration(agent.avg_duration_ms)}
                         </TableCell>
                       </TableRow>
@@ -319,36 +319,36 @@ export default function AdminDashboardPage() {
             </div>
 
             {/* 7-day trend */}
-            <div className="rounded-xl border border-slate-200 bg-white">
+            <div className="rounded-xl bg-card ring-1 ring-foreground/10">
               <div className="px-4 py-3">
-                <h2 className="text-sm font-semibold text-slate-700">
+                <h2 className="text-sm font-semibold text-muted-foreground">
                   7-Day Trend
                 </h2>
               </div>
               <Separator />
               {stats.daily_trend.length === 0 ? (
-                <div className="px-4 py-8 text-center text-sm text-slate-400">
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No trend data available.
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-border">
                   {stats.daily_trend.map((day) => (
                     <div
                       key={day.date}
                       className="flex items-center justify-between px-4 py-3"
                     >
-                      <span className="text-sm font-medium text-slate-700">
+                      <span className="text-sm font-medium text-muted-foreground">
                         {formatDate(day.date)}
                       </span>
-                      <div className="flex items-center gap-6 text-sm text-slate-500">
+                      <div className="flex items-center gap-6 text-sm text-muted-foreground">
                         <span>
-                          <span className="font-medium text-slate-700">
+                          <span className="font-medium text-muted-foreground">
                             {formatNumber(day.invocations)}
                           </span>{" "}
                           calls
                         </span>
                         <span>
-                          <span className="font-medium text-slate-700">
+                          <span className="font-medium text-muted-foreground">
                             {formatNumber(day.tokens_in + day.tokens_out)}
                           </span>{" "}
                           tokens

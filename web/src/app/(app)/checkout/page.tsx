@@ -146,7 +146,7 @@ function AddressFormFields({
       </div>
       <div className="sm:col-span-2">
         <Label htmlFor={`${idPrefix}-phone`}>
-          Phone <span className="text-slate-400">(optional)</span>
+          Phone <span className="text-muted-foreground">(optional)</span>
         </Label>
         <Input
           id={`${idPrefix}-phone`}
@@ -296,13 +296,13 @@ export default function CheckoutPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <div className="border-b border-slate-200 bg-white">
+      <div className="min-h-screen bg-background">
+        <div className="border-b border-border bg-card">
           <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
             <Button
               variant="ghost"
               size="sm"
-              className="-ml-2 text-slate-500 hover:text-slate-700"
+              className="-ml-2 text-muted-foreground hover:text-muted-foreground"
               onClick={() => router.push("/cart")}
             >
               <ArrowLeft className="mr-1.5 size-4" />
@@ -311,7 +311,7 @@ export default function CheckoutPage() {
           </div>
         </div>
         <div className="flex items-center justify-center py-32">
-          <Loader2 className="size-8 animate-spin text-slate-400" />
+          <Loader2 className="size-8 animate-spin text-muted-foreground" />
         </div>
       </div>
     );
@@ -321,13 +321,13 @@ export default function CheckoutPage() {
 
   if (!cart || cart.items.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <div className="border-b border-slate-200 bg-white">
+      <div className="min-h-screen bg-background">
+        <div className="border-b border-border bg-card">
           <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
             <Button
               variant="ghost"
               size="sm"
-              className="-ml-2 text-slate-500 hover:text-slate-700"
+              className="-ml-2 text-muted-foreground hover:text-muted-foreground"
               onClick={() => router.push("/cart")}
             >
               <ArrowLeft className="mr-1.5 size-4" />
@@ -336,15 +336,15 @@ export default function CheckoutPage() {
           </div>
         </div>
         <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 lg:px-8">
-          <Package className="mx-auto size-12 text-slate-300" />
-          <h2 className="mt-4 text-lg font-semibold text-slate-700">
+          <Package className="mx-auto size-12 text-muted-foreground" />
+          <h2 className="mt-4 text-lg font-semibold text-muted-foreground">
             Your cart is empty
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Add some products before checking out.
           </p>
           <Button
-            className="mt-6 bg-teal-600 hover:bg-teal-700"
+            className="mt-6 bg-primary hover:opacity-90"
             onClick={() => router.push("/products")}
           >
             Browse Products
@@ -358,13 +358,13 @@ export default function CheckoutPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <div className="border-b border-slate-200 bg-white">
+      <div className="min-h-screen bg-background">
+        <div className="border-b border-border bg-card">
           <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
             <Button
               variant="ghost"
               size="sm"
-              className="-ml-2 text-slate-500 hover:text-slate-700"
+              className="-ml-2 text-muted-foreground hover:text-muted-foreground"
               onClick={() => router.push("/cart")}
             >
               <ArrowLeft className="mr-1.5 size-4" />
@@ -373,7 +373,7 @@ export default function CheckoutPage() {
           </div>
         </div>
         <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         </div>
@@ -382,26 +382,26 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
           <Button
             variant="ghost"
             size="sm"
-            className="-ml-2 text-slate-500 hover:text-slate-700"
+            className="-ml-2 text-muted-foreground hover:text-muted-foreground"
             onClick={() => router.push("/cart")}
           >
             <ArrowLeft className="mr-1.5 size-4" />
             Back to Cart
           </Button>
           <div className="mt-4 flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <CheckCircle className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <CheckCircle className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Checkout</h1>
-              <p className="text-sm text-slate-500">
+              <h1 className="text-2xl font-bold text-foreground">Checkout</h1>
+              <p className="text-sm text-muted-foreground">
                 Complete your order ({cart.item_count} item{cart.item_count !== 1 ? "s" : ""})
               </p>
             </div>
@@ -416,7 +416,7 @@ export default function CheckoutPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <MapPin className="size-4 text-slate-400" />
+                <MapPin className="size-4 text-muted-foreground" />
                 Shipping Address
               </CardTitle>
             </CardHeader>
@@ -433,7 +433,7 @@ export default function CheckoutPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CreditCard className="size-4 text-slate-400" />
+                <CreditCard className="size-4 text-muted-foreground" />
                 Billing Address
               </CardTitle>
             </CardHeader>
@@ -443,9 +443,9 @@ export default function CheckoutPage() {
                   type="checkbox"
                   checked={billingSame}
                   onChange={(e) => setBillingSame(e.target.checked)}
-                  className="size-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                  className="size-4 rounded border-border text-primary focus:ring-primary"
                 />
-                <span className="text-sm text-slate-700">
+                <span className="text-sm text-muted-foreground">
                   Same as shipping address
                 </span>
               </label>
@@ -463,13 +463,13 @@ export default function CheckoutPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Package className="size-4 text-slate-400" />
+                <Package className="size-4 text-muted-foreground" />
                 Order Review
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Item list */}
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-border">
                 {cart.items.map((item) => (
                   <div
                     key={item.id}
@@ -478,18 +478,18 @@ export default function CheckoutPage() {
                     <img
                       src={productImageUrl(item.product_id, 48, 48, item.image_url, item.category)}
                       alt={item.name}
-                      className="size-12 shrink-0 rounded-md object-cover bg-slate-100"
+                      className="size-12 shrink-0 rounded-md object-cover bg-muted"
                       loading="lazy"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">
+                      <p className="text-sm font-medium text-foreground truncate">
                         {item.name}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-muted-foreground">
                         {item.quantity} x {formatPrice(item.price)}
                       </p>
                     </div>
-                    <span className="text-sm font-medium text-slate-900 shrink-0">
+                    <span className="text-sm font-medium text-foreground shrink-0">
                       {formatPrice(item.subtotal)}
                     </span>
                   </div>
@@ -501,14 +501,14 @@ export default function CheckoutPage() {
               {/* Totals */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Subtotal</span>
-                  <span className="text-slate-700">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-muted-foreground">
                     {formatPrice(cart.subtotal)}
                   </span>
                 </div>
                 {cart.coupon_code && cart.discount_amount > 0 && (
                   <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1.5 text-slate-500">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
                       <Tag className="size-3 text-emerald-500" />
                       Coupon ({cart.coupon_code})
                     </span>
@@ -519,10 +519,10 @@ export default function CheckoutPage() {
                 )}
                 <Separator />
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-700">
+                  <span className="text-sm font-medium text-muted-foreground">
                     Total
                   </span>
-                  <span className="text-xl font-bold text-slate-900">
+                  <span className="text-xl font-bold text-foreground">
                     {formatPrice(cart.total)}
                   </span>
                 </div>
@@ -534,12 +534,12 @@ export default function CheckoutPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CreditCard className="size-4 text-slate-400" />
+                <CreditCard className="size-4 text-muted-foreground" />
                 Payment
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-800 to-slate-900 p-6 text-white">
+              <div className="rounded-xl border border-border bg-gradient-to-br from-slate-800 to-slate-900 p-6 text-white">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
                     Demo Payment
@@ -554,7 +554,7 @@ export default function CheckoutPage() {
                   <span>12/99</span>
                 </div>
               </div>
-              <p className="mt-3 text-center text-xs text-slate-500">
+              <p className="mt-3 text-center text-xs text-muted-foreground">
                 This is a demo application. No real payment will be processed.
               </p>
             </CardContent>
@@ -562,14 +562,14 @@ export default function CheckoutPage() {
 
           {/* Error message */}
           {checkoutError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {checkoutError}
             </div>
           )}
 
           {/* Place Order button */}
           <Button
-            className="w-full bg-teal-600 hover:bg-teal-700"
+            className="w-full bg-primary hover:opacity-90"
             size="lg"
             disabled={placing}
             onClick={handlePlaceOrder}

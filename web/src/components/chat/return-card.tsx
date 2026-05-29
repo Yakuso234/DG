@@ -22,7 +22,7 @@ export function ChatReturnCard({ data }: { data: ReturnData }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <RotateCcw className="size-4 text-orange-500" />
-          <span className="font-semibold text-slate-900">Return Initiated</span>
+          <span className="font-semibold text-foreground">Return Initiated</span>
         </div>
         {data.status && (
           <Badge variant="outline" className="border-orange-200 bg-orange-50 text-orange-700 text-xs">
@@ -44,7 +44,7 @@ export function ChatReturnCard({ data }: { data: ReturnData }) {
         </a>
       )}
 
-      <p className="text-xs text-slate-500 flex items-center gap-1.5">
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
         <Package className="size-3.5" />
         Print the label, pack your items, and drop off at any carrier location
       </p>
@@ -54,20 +54,20 @@ export function ChatReturnCard({ data }: { data: ReturnData }) {
       <div className="space-y-1.5 text-sm">
         {data.refund_amount != null && (
           <div className="flex justify-between">
-            <span className="text-slate-500">Refund Amount</span>
+            <span className="text-muted-foreground">Refund Amount</span>
             <span className="font-medium text-emerald-600">${data.refund_amount.toFixed(2)}</span>
           </div>
         )}
         {data.refund_method && (
           <div className="flex justify-between">
-            <span className="text-slate-500">Refund Method</span>
-            <span className="text-slate-700">{data.refund_method.replace(/_/g, " ")}</span>
+            <span className="text-muted-foreground">Refund Method</span>
+            <span className="text-foreground">{data.refund_method.replace(/_/g, " ")}</span>
           </div>
         )}
         {data.refund_timeline && (
           <div className="flex justify-between">
-            <span className="text-slate-500">Timeline</span>
-            <span className="flex items-center gap-1 text-slate-700">
+            <span className="text-muted-foreground">Timeline</span>
+            <span className="flex items-center gap-1 text-foreground">
               <Clock className="size-3" />
               {data.refund_timeline}
             </span>
@@ -76,7 +76,7 @@ export function ChatReturnCard({ data }: { data: ReturnData }) {
       </div>
 
       {data.order_id && (
-        <Link href={`/orders/${data.order_id}`} className="block text-center text-xs text-teal-600 hover:underline mt-2">
+        <Link href={`/orders/${data.order_id}`} className="block text-center text-xs text-primary hover:underline mt-2">
           View Order Details
         </Link>
       )}

@@ -186,15 +186,15 @@ export default function AdminRequestsPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
-          <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-red-50">
-            <ShieldAlert className="size-8 text-red-500" />
+          <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-destructive/10">
+            <ShieldAlert className="size-8 text-destructive" />
           </div>
-          <h2 className="mt-4 text-lg font-semibold text-slate-900">
+          <h2 className="mt-4 text-lg font-semibold text-foreground">
             Access Denied
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             You do not have admin privileges to view this page.
           </p>
         </div>
@@ -206,19 +206,19 @@ export default function AdminRequestsPage() {
   const resolvedRequests = requests.filter((r) => r.status !== "pending");
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <ClipboardList className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <ClipboardList className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 Access Requests
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Review and manage agent access requests
               </p>
             </div>
@@ -234,7 +234,7 @@ export default function AdminRequestsPage() {
             className={`mb-6 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm ${
               feedback.type === "success"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-red-200 bg-red-50 text-red-700"
+                : "border-destructive/30 bg-destructive/10 text-destructive"
             }`}
           >
             {feedback.type === "success" ? (
@@ -254,15 +254,15 @@ export default function AdminRequestsPage() {
 
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-teal-600" />
-            <span className="ml-2 text-sm text-slate-500">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">
               Loading requests...
             </span>
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -270,9 +270,9 @@ export default function AdminRequestsPage() {
         {!loading && !error && (
           <div className="space-y-8">
             {/* Pending requests */}
-            <div className="rounded-xl border border-slate-200 bg-white">
+            <div className="rounded-xl bg-card ring-1 ring-foreground/10">
               <div className="flex items-center justify-between px-4 py-3">
-                <h2 className="text-sm font-semibold text-slate-700">
+                <h2 className="text-sm font-semibold text-muted-foreground">
                   Pending Requests
                 </h2>
                 <Badge
@@ -284,7 +284,7 @@ export default function AdminRequestsPage() {
               </div>
               <Separator />
               {pendingRequests.length === 0 ? (
-                <div className="px-4 py-8 text-center text-sm text-slate-400">
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                   No pending requests.
                 </div>
               ) : (
@@ -302,7 +302,7 @@ export default function AdminRequestsPage() {
                   <TableBody>
                     {pendingRequests.map((req) => (
                       <TableRow key={req.id}>
-                        <TableCell className="font-medium text-slate-800">
+                        <TableCell className="font-medium text-foreground">
                           {req.user_email}
                         </TableCell>
                         <TableCell>{req.agent_name}</TableCell>
@@ -312,11 +312,11 @@ export default function AdminRequestsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[200px]">
-                          <p className="truncate text-slate-500" title={req.use_case}>
+                          <p className="truncate text-muted-foreground" title={req.use_case}>
                             {req.use_case}
                           </p>
                         </TableCell>
-                        <TableCell className="text-slate-500">
+                        <TableCell className="text-muted-foreground">
                           {formatDate(req.created_at)}
                         </TableCell>
                         <TableCell className="text-right">
@@ -349,29 +349,29 @@ export default function AdminRequestsPage() {
                                   <DialogTitle>Approve Request</DialogTitle>
                                   <DialogDescription>
                                     Grant{" "}
-                                    <span className="font-medium text-slate-700">
+                                    <span className="font-medium text-muted-foreground">
                                       {req.user_email}
                                     </span>{" "}
                                     access to{" "}
-                                    <span className="font-medium text-slate-700">
+                                    <span className="font-medium text-muted-foreground">
                                       {req.agent_name}
                                     </span>
                                     .
                                   </DialogDescription>
                                 </DialogHeader>
                                 <div className="space-y-3 py-2">
-                                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                    <p className="text-xs font-medium text-slate-500">
+                                  <div className="rounded-lg border border-border bg-muted px-3 py-2">
+                                    <p className="text-xs font-medium text-muted-foreground">
                                       Use Case
                                     </p>
-                                    <p className="mt-0.5 text-sm text-slate-700">
+                                    <p className="mt-0.5 text-sm text-muted-foreground">
                                       {req.use_case}
                                     </p>
                                   </div>
                                   <div className="space-y-1.5">
                                     <Label htmlFor="admin-notes-approve">
                                       Admin Notes{" "}
-                                      <span className="text-slate-400">
+                                      <span className="text-muted-foreground">
                                         (optional)
                                       </span>
                                     </Label>
@@ -434,29 +434,29 @@ export default function AdminRequestsPage() {
                                   <DialogTitle>Deny Request</DialogTitle>
                                   <DialogDescription>
                                     Deny{" "}
-                                    <span className="font-medium text-slate-700">
+                                    <span className="font-medium text-muted-foreground">
                                       {req.user_email}
                                     </span>
                                     {" "}access to{" "}
-                                    <span className="font-medium text-slate-700">
+                                    <span className="font-medium text-muted-foreground">
                                       {req.agent_name}
                                     </span>
                                     .
                                   </DialogDescription>
                                 </DialogHeader>
                                 <div className="space-y-3 py-2">
-                                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                                    <p className="text-xs font-medium text-slate-500">
+                                  <div className="rounded-lg border border-border bg-muted px-3 py-2">
+                                    <p className="text-xs font-medium text-muted-foreground">
                                       Use Case
                                     </p>
-                                    <p className="mt-0.5 text-sm text-slate-700">
+                                    <p className="mt-0.5 text-sm text-muted-foreground">
                                       {req.use_case}
                                     </p>
                                   </div>
                                   <div className="space-y-1.5">
                                     <Label htmlFor="admin-notes-deny">
                                       Admin Notes{" "}
-                                      <span className="text-slate-400">
+                                      <span className="text-muted-foreground">
                                         (optional)
                                       </span>
                                     </Label>
@@ -501,9 +501,9 @@ export default function AdminRequestsPage() {
 
             {/* Resolved requests */}
             {resolvedRequests.length > 0 && (
-              <div className="rounded-xl border border-slate-200 bg-white">
+              <div className="rounded-xl bg-card ring-1 ring-foreground/10">
                 <div className="px-4 py-3">
-                  <h2 className="text-sm font-semibold text-slate-700">
+                  <h2 className="text-sm font-semibold text-muted-foreground">
                     Resolved Requests
                   </h2>
                 </div>
@@ -522,7 +522,7 @@ export default function AdminRequestsPage() {
                   <TableBody>
                     {resolvedRequests.map((req) => (
                       <TableRow key={req.id}>
-                        <TableCell className="font-medium text-slate-800">
+                        <TableCell className="font-medium text-foreground">
                           {req.user_email}
                         </TableCell>
                         <TableCell>{req.agent_name}</TableCell>
@@ -533,13 +533,13 @@ export default function AdminRequestsPage() {
                         </TableCell>
                         <TableCell>{statusBadge(req.status)}</TableCell>
                         <TableCell className="max-w-[200px]">
-                          <p className="truncate text-slate-500" title={req.admin_notes ?? ""}>
+                          <p className="truncate text-muted-foreground" title={req.admin_notes ?? ""}>
                             {req.admin_notes || (
-                              <span className="text-slate-300">--</span>
+                              <span className="text-muted-foreground">--</span>
                             )}
                           </p>
                         </TableCell>
-                        <TableCell className="text-slate-500">
+                        <TableCell className="text-muted-foreground">
                           {formatDate(req.created_at)}
                         </TableCell>
                       </TableRow>

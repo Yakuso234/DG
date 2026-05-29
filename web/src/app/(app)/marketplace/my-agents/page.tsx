@@ -108,17 +108,17 @@ export default function MyAgentsPage() {
   if (authLoading || !user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <KeyRound className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <KeyRound className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">My Agents</h1>
-              <p className="text-sm text-slate-500">
+              <h1 className="text-2xl font-bold text-foreground">My Agents</h1>
+              <p className="text-sm text-muted-foreground">
                 Agents you have been granted access to
               </p>
             </div>
@@ -130,35 +130,35 @@ export default function MyAgentsPage() {
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-teal-600" />
-            <span className="ml-2 text-sm text-slate-500">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">
               Loading your agents...
             </span>
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
         {!loading && !error && agents.length === 0 && (
           <div className="py-20 text-center">
-            <KeyRound className="mx-auto size-10 text-slate-300" />
-            <p className="mt-3 text-sm font-medium text-slate-600">
+            <KeyRound className="mx-auto size-10 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium text-foreground">
               No agents yet
             </p>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-muted-foreground">
               Visit the marketplace to request access to available agents.
             </p>
           </div>
         )}
 
         {!loading && !error && agents.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="rounded-xl border border-border bg-card">
             <div className="px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-foreground">
                 {agents.length} agent{agents.length !== 1 ? "s" : ""} available
               </span>
             </div>
@@ -178,10 +178,10 @@ export default function MyAgentsPage() {
                     <TableRow key={agent.agent_name}>
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="flex size-8 items-center justify-center rounded-md bg-teal-50">
-                            <IconComponent className="size-4 text-teal-600" />
+                          <div className="flex size-8 items-center justify-center rounded-md bg-primary/10">
+                            <IconComponent className="size-4 text-primary" />
                           </div>
-                          <span className="font-medium text-slate-800">
+                          <span className="font-medium text-foreground">
                             {agent.display_name}
                           </span>
                         </div>
@@ -194,7 +194,7 @@ export default function MyAgentsPage() {
                           {agent.role}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-slate-500">
+                      <TableCell className="text-muted-foreground">
                         {formatDate(agent.granted_at)}
                       </TableCell>
                     </TableRow>

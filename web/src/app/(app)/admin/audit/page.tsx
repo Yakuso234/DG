@@ -133,15 +133,15 @@ export default function AdminAuditPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
-          <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-red-50">
-            <ShieldAlert className="size-8 text-red-500" />
+          <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-destructive/10">
+            <ShieldAlert className="size-8 text-destructive" />
           </div>
-          <h2 className="mt-4 text-lg font-semibold text-slate-900">
+          <h2 className="mt-4 text-lg font-semibold text-foreground">
             Access Denied
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             You do not have admin privileges to view this page.
           </p>
         </div>
@@ -150,17 +150,17 @@ export default function AdminAuditPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <ScrollText className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <ScrollText className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Audit Log</h1>
-              <p className="text-sm text-slate-500">
+              <h1 className="text-2xl font-bold text-foreground">Audit Log</h1>
+              <p className="text-sm text-muted-foreground">
                 Detailed execution history for all agent invocations
               </p>
             </div>
@@ -172,32 +172,32 @@ export default function AdminAuditPage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-teal-600" />
-            <span className="ml-2 text-sm text-slate-500">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">
               Loading audit log...
             </span>
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
         {!loading && !error && entries.length === 0 && (
           <div className="py-20 text-center">
-            <ScrollText className="mx-auto size-10 text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">
+            <ScrollText className="mx-auto size-10 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
               No audit entries found.
             </p>
           </div>
         )}
 
         {!loading && !error && entries.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="rounded-xl bg-card ring-1 ring-foreground/10">
             <div className="px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-muted-foreground">
                 {entries.length} entr{entries.length !== 1 ? "ies" : "y"}
               </span>
             </div>
@@ -242,9 +242,9 @@ export default function AdminAuditPage() {
                           <div className="flex w-10 shrink-0 items-center justify-center py-2">
                             {hasSteps ? (
                               isExpanded ? (
-                                <ChevronDown className="size-4 text-slate-400" />
+                                <ChevronDown className="size-4 text-muted-foreground" />
                               ) : (
-                                <ChevronRight className="size-4 text-slate-400" />
+                                <ChevronRight className="size-4 text-muted-foreground" />
                               )
                             ) : (
                               <span className="size-4" />
@@ -252,32 +252,32 @@ export default function AdminAuditPage() {
                           </div>
 
                           {/* Timestamp */}
-                          <div className="w-[140px] shrink-0 py-2 text-slate-500">
+                          <div className="w-[140px] shrink-0 py-2 text-muted-foreground">
                             {formatTimestamp(entry.timestamp)}
                           </div>
 
                           {/* User */}
-                          <div className="w-[160px] shrink-0 truncate py-2 font-medium text-slate-800">
+                          <div className="w-[160px] shrink-0 truncate py-2 font-medium text-foreground">
                             {entry.user_email}
                           </div>
 
                           {/* Agent */}
-                          <div className="w-[140px] shrink-0 py-2 text-slate-600">
+                          <div className="w-[140px] shrink-0 py-2 text-muted-foreground">
                             {entry.agent_name}
                           </div>
 
                           {/* Input */}
-                          <div className="min-w-0 flex-1 truncate py-2 pr-3 text-slate-500">
+                          <div className="min-w-0 flex-1 truncate py-2 pr-3 text-muted-foreground">
                             {entry.input_summary}
                           </div>
 
                           {/* Tokens */}
-                          <div className="w-[90px] shrink-0 py-2 text-right text-slate-500">
+                          <div className="w-[90px] shrink-0 py-2 text-right text-muted-foreground">
                             {formatNumber(entry.tokens_in + entry.tokens_out)}
                           </div>
 
                           {/* Duration */}
-                          <div className="w-[80px] shrink-0 py-2 text-right text-slate-500">
+                          <div className="w-[80px] shrink-0 py-2 text-right text-muted-foreground">
                             {formatDuration(entry.duration_ms)}
                           </div>
 
@@ -303,8 +303,8 @@ export default function AdminAuditPage() {
 
                         {/* Expanded steps */}
                         {isExpanded && hasSteps && (
-                          <div className="border-t border-slate-100 bg-slate-50/50 px-4 pb-3 pt-2">
-                            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                          <div className="border-t border-border bg-muted px-4 pb-3 pt-2">
+                            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                               <Wrench className="size-3" />
                               Execution Steps ({entry.steps.length})
                             </div>
@@ -312,35 +312,35 @@ export default function AdminAuditPage() {
                               {entry.steps.map((step, idx) => (
                                 <div
                                   key={idx}
-                                  className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                                  className="rounded-lg border border-border bg-card px-3 py-2"
                                 >
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                      <span className="inline-flex size-5 items-center justify-center rounded bg-slate-100 text-[10px] font-medium text-slate-500">
+                                      <span className="inline-flex size-5 items-center justify-center rounded bg-muted text-[10px] font-medium text-muted-foreground">
                                         {idx + 1}
                                       </span>
-                                      <span className="text-sm font-medium text-slate-700">
+                                      <span className="text-sm font-medium text-muted-foreground">
                                         {step.tool_name}
                                       </span>
                                     </div>
-                                    <span className="text-xs text-slate-400">
+                                    <span className="text-xs text-muted-foreground">
                                       {formatDuration(step.duration_ms)}
                                     </span>
                                   </div>
                                   <div className="mt-1.5 grid gap-1 pl-7 text-xs">
                                     <div>
-                                      <span className="text-slate-400">
+                                      <span className="text-muted-foreground">
                                         Input:{" "}
                                       </span>
-                                      <span className="text-slate-600">
+                                      <span className="text-muted-foreground">
                                         {step.input_summary}
                                       </span>
                                     </div>
                                     <div>
-                                      <span className="text-slate-400">
+                                      <span className="text-muted-foreground">
                                         Output:{" "}
                                       </span>
-                                      <span className="text-slate-600">
+                                      <span className="text-muted-foreground">
                                         {step.output_summary}
                                       </span>
                                     </div>

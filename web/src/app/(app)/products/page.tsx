@@ -71,17 +71,17 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
         ))}
         {hasHalf && (
           <div className="relative">
-            <Star className="size-3.5 text-slate-200" />
+            <Star className="size-3.5 text-border" />
             <div className="absolute inset-0 overflow-hidden" style={{ width: "50%" }}>
               <Star className="size-3.5 fill-amber-400 text-amber-400" />
             </div>
           </div>
         )}
         {Array.from({ length: emptyStars }).map((_, i) => (
-          <Star key={`empty-${i}`} className="size-3.5 text-slate-200" />
+          <Star key={`empty-${i}`} className="size-3.5 text-border" />
         ))}
       </div>
-      <span className="text-xs text-slate-500">
+      <span className="text-xs text-muted-foreground">
         {rating.toFixed(1)} ({count} reviews)
       </span>
     </div>
@@ -101,7 +101,7 @@ function getCategoryColor(category: string): string {
   for (const [k, v] of Object.entries(CATEGORY_COLORS)) {
     if (key.includes(k)) return v;
   }
-  return "bg-slate-50 text-slate-700 border-slate-200";
+  return "bg-muted text-muted-foreground border-border";
 }
 
 // ---------------------------------------------------------------------------
@@ -111,23 +111,23 @@ function getCategoryColor(category: string): string {
 function ProductCardSkeleton() {
   return (
     <Card className="flex flex-col animate-pulse">
-      <div className="aspect-[4/3] w-full animate-pulse rounded-t-xl bg-slate-200" />
+      <div className="aspect-[4/3] w-full animate-pulse rounded-t-xl bg-muted" />
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="space-y-2 flex-1">
-            <div className="h-4 w-3/4 rounded bg-slate-200" />
-            <div className="h-3 w-1/3 rounded bg-slate-200" />
+            <div className="h-4 w-3/4 rounded bg-muted" />
+            <div className="h-3 w-1/3 rounded bg-muted" />
           </div>
-          <div className="h-5 w-16 rounded-full bg-slate-200" />
+          <div className="h-5 w-16 rounded-full bg-muted" />
         </div>
       </CardHeader>
       <CardContent className="flex-1 space-y-3">
-        <div className="h-3 w-full rounded bg-slate-200" />
-        <div className="h-3 w-5/6 rounded bg-slate-200" />
-        <div className="h-3 w-1/2 rounded bg-slate-200" />
+        <div className="h-3 w-full rounded bg-muted" />
+        <div className="h-3 w-5/6 rounded bg-muted" />
+        <div className="h-3 w-1/2 rounded bg-muted" />
       </CardContent>
       <CardFooter>
-        <div className="h-5 w-20 rounded bg-slate-200" />
+        <div className="h-5 w-20 rounded bg-muted" />
       </CardFooter>
     </Card>
   );
@@ -200,19 +200,19 @@ export default function ProductsPage() {
   if (authLoading || !user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <Package className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <Package className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 Product Catalog
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Browse and discover products across all categories
               </p>
             </div>
@@ -221,7 +221,7 @@ export default function ProductsPage() {
           {/* Search + Sort row */}
           <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative max-w-md flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search products..."
                 value={searchQuery}
@@ -252,7 +252,7 @@ export default function ProductsPage() {
                 size="sm"
                 className={
                   activeCategory === null
-                    ? "bg-teal-600 text-white hover:bg-teal-700"
+                    ? "bg-primary text-primary-foreground hover:opacity-90"
                     : ""
                 }
                 onClick={() => setActiveCategory(null)}
@@ -266,7 +266,7 @@ export default function ProductsPage() {
                   size="sm"
                   className={
                     activeCategory === cat
-                      ? "bg-teal-600 text-white hover:bg-teal-700"
+                      ? "bg-primary text-primary-foreground hover:opacity-90"
                       : ""
                   }
                   onClick={() => setActiveCategory(cat)}
@@ -283,7 +283,7 @@ export default function ProductsPage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Result count */}
         {!loading && !error && products.length > 0 && (
-          <p className="mb-6 text-sm text-slate-500">
+          <p className="mb-6 text-sm text-muted-foreground">
             Showing {products.length} of {total} products
           </p>
         )}
@@ -299,7 +299,7 @@ export default function ProductsPage() {
 
         {/* Error */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -307,8 +307,8 @@ export default function ProductsPage() {
         {/* Empty state */}
         {!loading && !error && products.length === 0 && (
           <div className="py-20 text-center">
-            <Package className="mx-auto size-10 text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">
+            <Package className="mx-auto size-10 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
               {debouncedSearch || activeCategory
                 ? "No products match your filters."
                 : "No products available."}
@@ -343,7 +343,7 @@ export default function ProductsPage() {
                   className="group flex cursor-pointer flex-col transition-shadow hover:shadow-md"
                   onClick={() => router.push(`/products/${product.id}`)}
                 >
-                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-slate-100">
+                  <div className="relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-muted">
                     <img
                       src={productImageUrl(product.id, 400, 300, product.image_url, product.category)}
                       alt={product.name}
@@ -362,7 +362,7 @@ export default function ProductsPage() {
                         <CardTitle className="truncate text-base">
                           {product.name}
                         </CardTitle>
-                        <p className="mt-0.5 text-xs text-slate-500">
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           {product.brand}
                         </p>
                       </div>
@@ -388,11 +388,11 @@ export default function ProductsPage() {
 
                   <CardFooter className="flex items-center justify-between">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-lg font-bold text-slate-900">
+                      <span className="text-lg font-bold text-foreground">
                         {formatPrice(product.price)}
                       </span>
                       {onSale && (
-                        <span className="text-sm text-slate-400 line-through">
+                        <span className="text-sm text-muted-foreground line-through">
                           {formatPrice(product.original_price!)}
                         </span>
                       )}
@@ -403,7 +403,7 @@ export default function ProductsPage() {
                       className={`shrink-0 transition-colors ${
                         addedIds.has(product.id)
                           ? "border-emerald-300 bg-emerald-50 text-emerald-600"
-                          : "hover:border-teal-300 hover:bg-teal-50 hover:text-teal-600"
+                          : "hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
                       }`}
                       onClick={async (e) => {
                         e.preventDefault();

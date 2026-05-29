@@ -70,7 +70,7 @@ function getCategoryColor(category: string): string {
   for (const [k, v] of Object.entries(CATEGORY_COLORS)) {
     if (key.includes(k)) return v;
   }
-  return "bg-slate-50 text-slate-700 border-slate-200";
+  return "bg-muted text-muted-foreground border-border";
 }
 
 function getAgentIcon(agentId: string | undefined | null): React.ElementType {
@@ -186,19 +186,19 @@ export default function MarketplacePage() {
   if (authLoading || !user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <Store className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <Store className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 Agent Marketplace
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Discover and request access to specialized AI agents
               </p>
             </div>
@@ -207,7 +207,7 @@ export default function MarketplacePage() {
           {/* Search */}
           <div className="mt-6 max-w-md">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search agents by name, category, or capability..."
                 value={searchQuery}
@@ -223,23 +223,23 @@ export default function MarketplacePage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-teal-600" />
-            <span className="ml-2 text-sm text-slate-500">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">
               Loading agents...
             </span>
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
         {!loading && !error && filteredAgents.length === 0 && (
           <div className="py-20 text-center">
-            <Search className="mx-auto size-10 text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">
+            <Search className="mx-auto size-10 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
               {searchQuery
                 ? "No agents match your search."
                 : "No agents available."}
@@ -262,8 +262,8 @@ export default function MarketplacePage() {
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="flex size-10 items-center justify-center rounded-lg bg-teal-50">
-                          <IconComponent className="size-5 text-teal-600" />
+                        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                          <IconComponent className="size-5 text-primary" />
                         </div>
                         <div>
                           <CardTitle className="text-base">
@@ -283,8 +283,8 @@ export default function MarketplacePage() {
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                          <span className="size-1.5 rounded-full bg-slate-400" />
+                        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <span className="size-1.5 rounded-full bg-muted-foreground" />
                           Inactive
                         </span>
                       )}
@@ -350,7 +350,7 @@ export default function MarketplacePage() {
                             <Button
                               variant="default"
                               size="sm"
-                              className="bg-teal-600 text-white hover:bg-teal-700"
+                              className="bg-primary text-primary-foreground hover:opacity-90"
                             />
                           }
                         >
@@ -386,7 +386,7 @@ export default function MarketplacePage() {
                                 className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${
                                   requestResult.type === "success"
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : "border-red-200 bg-red-50 text-red-700"
+                                    : "border-destructive/30 bg-destructive/10 text-destructive"
                                 }`}
                               >
                                 {requestResult.type === "success" ? (
@@ -408,7 +408,7 @@ export default function MarketplacePage() {
                             <Button
                               onClick={handleRequestAccess}
                               disabled={!useCase.trim() || requesting}
-                              className="bg-teal-600 text-white hover:bg-teal-700"
+                              className="bg-primary text-primary-foreground hover:opacity-90"
                             >
                               {requesting && (
                                 <Loader2 className="mr-1.5 size-3.5 animate-spin" />

@@ -55,14 +55,14 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
     : 0;
   const catColor =
     CATEGORY_COLORS[(data.category || "").toLowerCase()] ||
-    "bg-slate-100 text-slate-700 border-slate-200";
+    "bg-muted text-muted-foreground border-border";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm max-w-md overflow-hidden transition-shadow hover:shadow-md">
+    <div className="rounded-xl border border-border bg-card shadow-sm max-w-md overflow-hidden transition-shadow hover:shadow-md">
       {/* Top: image + info */}
       <div className="flex gap-3 p-3 pb-2">
         {/* Image */}
-        <div className="size-20 shrink-0 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center">
+        <div className="size-20 shrink-0 rounded-lg overflow-hidden bg-muted flex items-center justify-center">
           {data.id ? (
             <img
               src={productImageUrl(data.id, 100, 100, data.image_url, data.category)}
@@ -71,19 +71,19 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
               loading="lazy"
             />
           ) : (
-            <ShoppingBag className="size-7 text-slate-300" />
+            <ShoppingBag className="size-7 text-muted-foreground" />
           )}
         </div>
 
         {/* Info */}
         <div className="flex flex-1 flex-col gap-0.5 min-w-0">
-          <h4 className="text-sm font-semibold text-slate-800 line-clamp-2 leading-tight">
+          <h4 className="text-sm font-semibold text-foreground line-clamp-2 leading-tight">
             {data.name}
           </h4>
 
           <div className="flex items-center gap-1.5 flex-wrap">
             {data.brand && (
-              <span className="text-[11px] text-slate-400">{data.brand}</span>
+              <span className="text-[11px] text-muted-foreground">{data.brand}</span>
             )}
             {data.category && (
               <Badge
@@ -96,7 +96,7 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
           </div>
 
           {data.description && (
-            <p className="text-[11px] text-slate-500 line-clamp-2 leading-snug">
+            <p className="text-[11px] text-muted-foreground line-clamp-2 leading-snug">
               {data.description}
             </p>
           )}
@@ -104,12 +104,12 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
           {/* Price */}
           <div className="flex items-center gap-1.5 mt-auto pt-0.5">
             {data.price != null && (
-              <span className="text-base font-bold text-teal-700">
+              <span className="text-base font-bold text-primary">
                 ${data.price.toFixed(2)}
               </span>
             )}
             {hasDiscount && (
-              <span className="text-xs text-slate-400 line-through">
+              <span className="text-xs text-muted-foreground line-through">
                 ${data.original_price!.toFixed(2)}
               </span>
             )}
@@ -130,12 +130,12 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
                     className={`size-3 ${
                       i < Math.round(data.rating!)
                         ? "fill-amber-400 text-amber-400"
-                        : "fill-slate-200 text-slate-200"
+                        : "fill-muted text-muted"
                     }`}
                   />
                 ))}
               </div>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[11px] text-muted-foreground">
                 {data.rating.toFixed(1)}
                 {data.review_count != null && ` (${data.review_count})`}
               </span>
@@ -146,7 +146,7 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
 
       {/* Action buttons */}
       {(data.id || onAction) && (
-        <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2">
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
           {data.id && (
             <Button
               size="sm"
@@ -155,7 +155,7 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
                   ? "bg-red-600 hover:bg-red-700 text-white"
                   : showAdded
                     ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                    : "bg-teal-600 hover:bg-teal-700 text-white"
+                    : "bg-primary hover:opacity-90 text-primary-foreground"
               }`}
               disabled={showAdded && !error}
               onClick={(e) => {

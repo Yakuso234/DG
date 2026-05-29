@@ -62,14 +62,14 @@ function TypingDots() {
   return (
     <div className="flex items-center gap-2 px-1 py-3">
       <Avatar className="size-7 shrink-0">
-        <AvatarFallback className="bg-teal-100 text-teal-700 text-xs">
+        <AvatarFallback className="bg-muted text-muted-foreground text-xs">
           <BotIcon className="size-3.5" />
         </AvatarFallback>
       </Avatar>
       <div className="flex items-center gap-1">
-        <span className="inline-block size-2 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
-        <span className="inline-block size-2 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
-        <span className="inline-block size-2 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
+        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:150ms]" />
+        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:300ms]" />
       </div>
     </div>
   );
@@ -435,7 +435,7 @@ export default function ChatPage() {
 
           <Link
             href="/cart"
-            className="relative flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            className="relative flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <ShoppingCart className="size-4" />
             {itemCount > 0 && (
@@ -485,7 +485,7 @@ export default function ChatPage() {
                     <AvatarFallback
                       className={
                         msg.role === "user"
-                          ? "bg-teal-600 text-white text-xs"
+                          ? "bg-primary text-primary-foreground text-xs"
                           : "bg-muted text-muted-foreground text-xs"
                       }
                     >
@@ -500,7 +500,7 @@ export default function ChatPage() {
                   <div
                     className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                       msg.role === "user"
-                        ? "bg-teal-600 text-white"
+                        ? "bg-primary text-primary-foreground"
                         : "bg-muted text-foreground"
                     }`}
                   >

@@ -44,11 +44,11 @@ export function ChatCheckoutCard({ data }: { data: CheckoutData }) {
       {/* Header */}
       <div className="flex items-center gap-3 px-5 pt-4 pb-3">
         <div className="flex size-10 items-center justify-center rounded-full bg-teal-100">
-          <ShoppingCart className="size-5 text-teal-600" />
+          <ShoppingCart className="size-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-slate-900 truncate">{data.message || "Your cart"}</p>
-          <p className="text-xs text-slate-500">
+          <p className="font-semibold text-foreground truncate">{data.message || "Your cart"}</p>
+          <p className="text-xs text-muted-foreground">
             {itemCount} {itemCount === 1 ? "item" : "items"}
           </p>
         </div>
@@ -56,7 +56,7 @@ export function ChatCheckoutCard({ data }: { data: CheckoutData }) {
 
       {/* Items */}
       {items.length > 0 && (
-        <div className="border-y border-teal-100 bg-white/60">
+        <div className="border-y border-teal-100 bg-card/60">
           <table className="w-full text-xs">
             <tbody className="divide-y divide-teal-50">
               {items.map((item, i) => {
@@ -65,17 +65,17 @@ export function ChatCheckoutCard({ data }: { data: CheckoutData }) {
                 return (
                   <tr key={i}>
                     <td className="px-4 py-2">
-                      <div className="font-medium text-slate-700 leading-snug line-clamp-1">
+                      <div className="font-medium text-foreground leading-snug line-clamp-1">
                         {item.name}
                       </div>
                       {item.brand && (
-                        <div className="text-[10px] text-slate-400 mt-0.5">{item.brand}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{item.brand}</div>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-center text-slate-500 w-10">
+                    <td className="px-2 py-2 text-center text-muted-foreground w-10">
                       {item.quantity}
                     </td>
-                    <td className="px-4 py-2 text-right text-slate-700 font-medium whitespace-nowrap w-20">
+                    <td className="px-4 py-2 text-right text-foreground font-medium whitespace-nowrap w-20">
                       {formatPrice(lineTotal)}
                     </td>
                   </tr>
@@ -89,17 +89,17 @@ export function ChatCheckoutCard({ data }: { data: CheckoutData }) {
       {/* Footer: address + totals + CTA */}
       <div className="px-5 py-3 space-y-2.5">
         {addressStr && (
-          <div className="flex items-start gap-2 text-[11px] text-slate-500">
+          <div className="flex items-start gap-2 text-[11px] text-muted-foreground">
             <MapPin className="size-3.5 shrink-0 mt-0.5" />
             <span className="line-clamp-2">{addressStr}</span>
           </div>
         )}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">Total</span>
-          <span className="text-lg font-bold text-teal-700">{formatPrice(total)}</span>
+          <span className="text-xs text-muted-foreground">Total</span>
+          <span className="text-lg font-bold text-primary">{formatPrice(total)}</span>
         </div>
         <Link href="/checkout">
-          <Button className="w-full gap-2 bg-teal-600 hover:bg-teal-700">
+          <Button className="w-full gap-2 bg-primary hover:opacity-90 text-primary-foreground">
             Complete Checkout
             <ArrowRight className="size-4" />
           </Button>

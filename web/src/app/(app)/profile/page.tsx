@@ -147,17 +147,17 @@ export default function ProfilePage() {
   if (authLoading) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <User className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <User className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">My Profile</h1>
-              <p className="text-sm text-slate-500">
+              <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
+              <p className="text-sm text-muted-foreground">
                 Your account details and loyalty status
               </p>
             </div>
@@ -169,15 +169,15 @@ export default function ProfilePage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-teal-600" />
-            <span className="ml-2 text-sm text-slate-500">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <span className="ml-2 text-sm text-muted-foreground">
               Loading profile...
             </span>
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -198,7 +198,7 @@ export default function ProfilePage() {
 
                   <div className="flex-1 text-center sm:text-left">
                     <div className="flex flex-col items-center gap-2 sm:flex-row">
-                      <h2 className="text-xl font-bold text-slate-900">
+                      <h2 className="text-xl font-bold text-foreground">
                         {profile.name}
                       </h2>
                       <Badge
@@ -210,10 +210,10 @@ export default function ProfilePage() {
                         {formatRole(profile.role)}
                       </Badge>
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       {profile.email}
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Member since {formatDate(profile.member_since)}
                     </p>
                   </div>
@@ -226,7 +226,7 @@ export default function ProfilePage() {
               {/* Loyalty Tier */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Loyalty Tier
                   </CardTitle>
                   <Crown
@@ -247,13 +247,13 @@ export default function ProfilePage() {
               {/* Total Spend */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Total Spend
                   </CardTitle>
                   <DollarSign className="size-4 text-emerald-500" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {formatCurrency(profile.total_spend)}
                   </div>
                 </CardContent>
@@ -262,13 +262,13 @@ export default function ProfilePage() {
               {/* Orders */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Orders
                   </CardTitle>
                   <Package className="size-4 text-sky-500" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {profile.order_count}
                   </div>
                 </CardContent>
@@ -277,13 +277,13 @@ export default function ProfilePage() {
               {/* Reviews */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
                     Reviews
                   </CardTitle>
                   <MessageSquare className="size-4 text-amber-500" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-slate-900">
+                  <div className="text-2xl font-bold text-foreground">
                     {profile.review_count}
                   </div>
                 </CardContent>
@@ -298,7 +298,7 @@ export default function ProfilePage() {
                     className="size-5"
                     style={{ color: TIER_COLORS[profile.loyalty_tier]?.accent ?? "#64748b" }}
                   />
-                  <CardTitle className="text-base font-semibold text-slate-900">
+                  <CardTitle className="text-base font-semibold text-foreground">
                     Loyalty Benefits
                   </CardTitle>
                   <Badge
@@ -313,11 +313,11 @@ export default function ProfilePage() {
                 <div className="space-y-4">
                   {/* Discount */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <DollarSign className="size-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <DollarSign className="size-4 text-muted-foreground" />
                       <span>Order Discount</span>
                     </div>
-                    <span className="text-sm font-medium text-slate-900">
+                    <span className="text-sm font-medium text-foreground">
                       {profile.tier_benefits.discount_pct > 0
                         ? `${profile.tier_benefits.discount_pct}% on all orders`
                         : "Not available"}
@@ -326,11 +326,11 @@ export default function ProfilePage() {
 
                   {/* Free Shipping */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Package className="size-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Package className="size-4 text-muted-foreground" />
                       <span>Free Shipping</span>
                     </div>
-                    <span className="text-sm font-medium text-slate-900">
+                    <span className="text-sm font-medium text-foreground">
                       {profile.tier_benefits.free_shipping_threshold != null
                         ? `Free shipping on orders over ${formatCurrency(profile.tier_benefits.free_shipping_threshold)}`
                         : "Not available"}
@@ -339,8 +339,8 @@ export default function ProfilePage() {
 
                   {/* Priority Support */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Shield className="size-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Shield className="size-4 text-muted-foreground" />
                       <span>Priority Support</span>
                     </div>
                     <span className="flex items-center gap-1 text-sm font-medium">
@@ -351,8 +351,8 @@ export default function ProfilePage() {
                         </>
                       ) : (
                         <>
-                          <X className="size-4 text-slate-400" />
-                          <span className="text-slate-500">Not available</span>
+                          <X className="size-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Not available</span>
                         </>
                       )}
                     </span>
@@ -363,9 +363,9 @@ export default function ProfilePage() {
                     <>
                       <Separator />
                       <div className="flex items-start gap-2">
-                        <TrendingUp className="mt-0.5 size-4 text-teal-600" />
+                        <TrendingUp className="mt-0.5 size-4 text-primary" />
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-slate-700">
+                          <p className="text-sm font-medium text-muted-foreground">
                             Progress to {TIER_THRESHOLDS[profile.loyalty_tier]!.next}
                           </p>
                           {(() => {
@@ -374,13 +374,13 @@ export default function ProfilePage() {
                             const progress = Math.min(100, (profile.total_spend / threshold) * 100);
                             return (
                               <>
-                                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
                                   <div
-                                    className="h-full rounded-full bg-teal-500 transition-all"
+                                    className="h-full rounded-full bg-primary transition-all"
                                     style={{ width: `${progress}%` }}
                                   />
                                 </div>
-                                <p className="mt-1 text-xs text-slate-500">
+                                <p className="mt-1 text-xs text-muted-foreground">
                                   {remaining > 0
                                     ? `Spend ${formatCurrency(remaining)} more to reach ${TIER_THRESHOLDS[profile.loyalty_tier]!.next}`
                                     : `You've qualified for ${TIER_THRESHOLDS[profile.loyalty_tier]!.next}!`}
@@ -399,7 +399,7 @@ export default function ProfilePage() {
             {/* Account Details */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-900">
+                <CardTitle className="text-base font-semibold text-foreground">
                   Account Details
                 </CardTitle>
               </CardHeader>
@@ -407,18 +407,18 @@ export default function ProfilePage() {
               <CardContent className="pt-6">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Mail className="size-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="size-4 text-muted-foreground" />
                       <span>Email</span>
                     </div>
-                    <span className="text-sm font-medium text-slate-900">
+                    <span className="text-sm font-medium text-foreground">
                       {profile.email}
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Shield className="size-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Shield className="size-4 text-muted-foreground" />
                       <span>Role</span>
                     </div>
                     <Badge
@@ -429,11 +429,11 @@ export default function ProfilePage() {
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <User className="size-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <User className="size-4 text-muted-foreground" />
                       <span>User ID</span>
                     </div>
-                    <span className="font-mono text-xs text-slate-500">
+                    <span className="font-mono text-xs text-muted-foreground">
                       {profile.id.slice(0, 8)}...{profile.id.slice(-4)}
                     </span>
                   </div>

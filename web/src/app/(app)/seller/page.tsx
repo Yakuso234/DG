@@ -73,11 +73,11 @@ export default function SellerDashboardPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <Package className="mx-auto size-12 text-slate-300" />
-          <h2 className="mt-4 text-lg font-semibold text-slate-800">
+          <Package className="mx-auto size-12 text-muted-foreground" />
+          <h2 className="mt-4 text-lg font-semibold text-foreground">
             Access Denied
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             The seller dashboard is only available to sellers and admins.
           </p>
         </div>
@@ -88,19 +88,19 @@ export default function SellerDashboardPage() {
   const recentOrders = orders.slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <BarChart3 className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <BarChart3 className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 Seller Dashboard
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Manage your products and track orders
               </p>
             </div>
@@ -112,13 +112,13 @@ export default function SellerDashboardPage() {
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-slate-400" />
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
         )}
 
         {/* Error */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -152,7 +152,7 @@ export default function SellerDashboardPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     Across {stats.order_count} orders
                   </p>
                 </CardContent>
@@ -167,7 +167,7 @@ export default function SellerDashboardPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     Orders containing your products
                   </p>
                 </CardContent>
@@ -184,7 +184,7 @@ export default function SellerDashboardPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     Across {stats.product_count} products
                   </p>
                 </CardContent>
@@ -194,7 +194,7 @@ export default function SellerDashboardPage() {
             {/* Recent orders table */}
             <div>
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-800">
+                <h2 className="text-lg font-semibold text-foreground">
                   Recent Orders
                 </h2>
                 <Link href="/seller/products">
@@ -219,15 +219,15 @@ export default function SellerDashboardPage() {
                     <TableBody>
                       {recentOrders.map((order: any) => (
                         <TableRow key={order.id}>
-                          <TableCell className="font-mono text-xs text-slate-600">
+                          <TableCell className="font-mono text-xs text-muted-foreground">
                             #{order.id?.slice(0, 8)}
                           </TableCell>
                           <TableCell>
                             <div>
-                              <p className="text-sm font-medium text-slate-800">
+                              <p className="text-sm font-medium text-foreground">
                                 {order.buyer_name}
                               </p>
-                              <p className="text-xs text-slate-400">
+                              <p className="text-xs text-muted-foreground">
                                 {order.buyer_email}
                               </p>
                             </div>
@@ -235,7 +235,7 @@ export default function SellerDashboardPage() {
                           <TableCell>
                             <OrderStatusBadge status={order.status} />
                           </TableCell>
-                          <TableCell className="text-xs text-slate-500">
+                          <TableCell className="text-xs text-muted-foreground">
                             {formatDate(order.date)}
                           </TableCell>
                           <TableCell className="text-xs">
@@ -251,7 +251,7 @@ export default function SellerDashboardPage() {
                         <TableRow>
                           <TableCell
                             colSpan={6}
-                            className="py-8 text-center text-sm text-slate-500"
+                            className="py-8 text-center text-sm text-muted-foreground"
                           >
                             No orders found for your products.
                           </TableCell>
