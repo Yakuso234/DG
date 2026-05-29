@@ -128,11 +128,14 @@ test.describe("authenticated shell", () => {
     await seedAuth(page, "customer");
     await mockApi(page);
     await page.goto("/home");
-    await expect(page.getByRole("link", { name: "Chat" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Profile" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Marketplace" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "My Agents" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Usage" })).toHaveCount(0);
+    // Scope to the sidebar — "Chat"/"Profile" also appear as the home "Open chat"
+    // quick-prompt and the top-bar avatar (aria-label="Profile").
+    const sidebar = page.getByRole("complementary");
+    await expect(sidebar.getByRole("link", { name: "Chat", exact: true })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "Profile" })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "Marketplace" })).toHaveCount(0);
+    await expect(sidebar.getByRole("link", { name: "My Agents" })).toHaveCount(0);
+    await expect(sidebar.getByRole("link", { name: "Usage" })).toHaveCount(0);
   });
 
   test("command palette opens and navigates", async ({ page }) => {
