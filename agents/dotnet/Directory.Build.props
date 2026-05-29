@@ -6,7 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsAsErrors />
-    <WarningsNotAsErrors>NU5104</WarningsNotAsErrors>
+    <!--
+      NU1901/NU1902 = low/moderate NuGet audit advisories. We do NOT fail the
+      build on these because some flagged transitive packages (e.g.
+      OpenTelemetry.Instrumentation.AspNetCore, GHSA-vh2m-22xx-q94f) have no
+      patched release available yet. High/critical advisories (NU1903/NU1904)
+      remain build-breaking errors. NU5104 = pre-release dependency notice.
+    -->
+    <WarningsNotAsErrors>NU5104;NU1901;NU1902</WarningsNotAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
     <Authors>Nitin Kumar Singh</Authors>
     <Copyright>Copyright (c) $([System.DateTime]::Now.Year)</Copyright>

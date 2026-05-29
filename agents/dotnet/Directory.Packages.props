@@ -35,6 +35,14 @@
   </ItemGroup>
 
   <ItemGroup Label="Observability">
+    <!--
+      Pinned to 1.12.0. NuGet audit flags moderate advisories on these
+      (GHSA-g94r-2vxg-569j, GHSA-4625-4j76-fww9, GHSA-vh2m-22xx-q94f); the
+      Instrumentation.* packages have no patched release yet, and 1.13.x is a
+      breaking change (removes OpenTelemetry.Trace.Status). These are surfaced
+      as warnings, not build errors — see WarningsNotAsErrors in
+      Directory.Build.props. Revisit when patched Instrumentation.* ships.
+    -->
     <PackageVersion Include="OpenTelemetry" Version="1.12.0" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" />
