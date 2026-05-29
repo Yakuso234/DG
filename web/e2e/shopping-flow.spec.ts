@@ -1,7 +1,7 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // Shared login helper
-async function login(page, email: string, password: string) {
+async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);

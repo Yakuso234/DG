@@ -1,11 +1,11 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 /**
  * Focused chat UI verification — sends real messages, waits for full
  * agent responses, and captures screenshots of the rendered rich cards.
  */
 
-async function login(page, email: string, password: string) {
+async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
@@ -13,7 +13,7 @@ async function login(page, email: string, password: string) {
   await page.waitForURL(/\/(chat|products)/, { timeout: 10000 });
 }
 
-async function sendAndWaitForResponse(page, message: string, timeoutMs = 45000) {
+async function sendAndWaitForResponse(page: Page, message: string, timeoutMs = 45000) {
   const textarea = page.locator("textarea");
   await textarea.fill(message);
   await textarea.press("Enter");

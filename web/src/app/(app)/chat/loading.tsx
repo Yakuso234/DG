@@ -1,3 +1,8 @@
+// Deterministic skeleton widths (no Math.random during render — that is an
+// impure call and triggers cascading/inconsistent renders).
+const CONV_WIDTHS = ["82%", "68%", "90%", "74%", "85%"];
+const BUBBLE_WIDTHS = ["48%", "62%", "40%", "56%"];
+
 export default function ChatLoading() {
   return (
     <div className="flex h-full">
@@ -9,11 +14,11 @@ export default function ChatLoading() {
         </div>
         <div className="border-t" />
         <div className="flex flex-col gap-1.5 p-2">
-          {Array.from({ length: 5 }).map((_, i) => (
+          {CONV_WIDTHS.map((width, i) => (
             <div
               key={i}
               className="h-7 animate-pulse rounded-md bg-muted"
-              style={{ width: `${65 + Math.random() * 30}%` }}
+              style={{ width }}
             />
           ))}
         </div>
@@ -29,7 +34,7 @@ export default function ChatLoading() {
         {/* Messages skeleton */}
         <div className="flex-1 px-4 py-6">
           <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            {Array.from({ length: 4 }).map((_, i) => (
+            {BUBBLE_WIDTHS.map((width, i) => (
               <div
                 key={i}
                 className={`flex gap-2.5 ${i % 2 === 0 ? "justify-start" : "justify-end"}`}
@@ -37,7 +42,7 @@ export default function ChatLoading() {
                 <div className="size-7 shrink-0 animate-pulse rounded-full bg-muted" />
                 <div
                   className="h-12 animate-pulse rounded-2xl bg-muted"
-                  style={{ width: `${35 + Math.random() * 35}%` }}
+                  style={{ width }}
                 />
               </div>
             ))}
