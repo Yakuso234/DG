@@ -2,15 +2,18 @@ import { describe, expect, it } from "vitest";
 import { visibleGroups, labelForPath } from "./nav";
 
 describe("visibleGroups", () => {
-  it("hides admin and seller items from a plain customer", () => {
+  it("shows shop + account to a plain customer, hides admin/seller", () => {
     const groups = visibleGroups({ isAdmin: false, isSeller: false });
     const labels = groups.flatMap((g) => g.items.map((i) => i.label));
+    expect(labels).toContain("Home");
     expect(labels).toContain("Chat");
-    expect(labels).toContain("Marketplace");
+    expect(labels).toContain("Profile");
     expect(labels).not.toContain("Usage"); // adminOnly
     expect(labels).not.toContain("Seller"); // sellerOnly
-    // the Admin group has no visible items, so it is dropped entirely
+    // no agent marketplace exists anymore
+    expect(labels).not.toContain("Marketplace");
     expect(groups.find((g) => g.label === "Admin")).toBeUndefined();
+    expect(groups.find((g) => g.label === "Agents")).toBeUndefined();
   });
 
   it("shows seller items to a seller but not admin items", () => {
@@ -20,24 +23,26 @@ describe("visibleGroups", () => {
     expect(labels).not.toContain("Usage");
   });
 
-  it("shows everything to an admin", () => {
+  it("shows admin items (Usage, Audit) to an admin — no Requests", () => {
     const groups = visibleGroups({ isAdmin: true, isSeller: true });
     const labels = groups.flatMap((g) => g.items.map((i) => i.label));
     expect(labels).toContain("Usage");
     expect(labels).toContain("Audit");
     expect(labels).toContain("Seller");
+    expect(labels).not.toContain("Requests"); // removed
   });
 });
 
 describe("labelForPath", () => {
   it("matches the most specific nav item", () => {
     expect(labelForPath("/admin/usage")).toBe("Usage");
-    expect(labelForPath("/marketplace/my-agents")).toBe("My Agents");
-    expect(labelForPath("/marketplace")).toBe("Marketplace");
+    expect(labelForPath("/admin/audit")).toBe("Audit");
+    expect(labelForPath("/admin")).toBe("Overview");
   });
 
   it("matches nested detail routes to their parent item", () => {
     expect(labelForPath("/orders/abc-123")).toBe("Orders");
+    expect(labelForPath("/products/p1")).toBe("Products");
   });
 
   it("falls back to Home for unknown paths", () => {

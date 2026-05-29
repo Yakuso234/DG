@@ -112,13 +112,27 @@ test.describe("authenticated shell", () => {
     await expect(page.getByText("Specialist Agents")).toBeVisible();
   });
 
-  test("grouped sidebar shows admin nav for admins", async ({ page }) => {
+  test("grouped sidebar shows admin nav (Usage, Audit) for admins", async ({ page }) => {
     await seedAuth(page, "admin");
     await mockApi(page);
     await page.goto("/chat");
     await expect(page.getByRole("link", { name: "Chat" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Marketplace" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Usage" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Audit" })).toBeVisible();
+    // The agent marketplace was removed entirely.
+    await expect(page.getByRole("link", { name: "Marketplace" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Requests" })).toHaveCount(0);
+  });
+
+  test("buyers see only shop + account nav", async ({ page }) => {
+    await seedAuth(page, "customer");
+    await mockApi(page);
+    await page.goto("/home");
+    await expect(page.getByRole("link", { name: "Chat" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Profile" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Marketplace" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "My Agents" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Usage" })).toHaveCount(0);
   });
 
   test("command palette opens and navigates", async ({ page }) => {
