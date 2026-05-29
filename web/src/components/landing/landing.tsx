@@ -95,7 +95,7 @@ export function Landing() {
           the Microsoft Agent Framework.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Button render={<Link href="/login" />} size="lg">
+          <Button render={<Link href="/shop" />} size="lg">
             Try the demo <ArrowRight className="size-4" />
           </Button>
           <Button
@@ -181,7 +181,7 @@ export function Landing() {
             Sign in with a seeded demo account and ask the concierge to find a
             product, track an order, or apply a coupon.
           </p>
-          <Button render={<Link href="/login" />} size="lg" className="mt-5">
+          <Button render={<Link href="/shop" />} size="lg" className="mt-5">
             Launch the demo <ArrowRight className="size-4" />
           </Button>
         </div>

@@ -12,26 +12,31 @@ storefront the public front door and gate only account features.
 Feasibility: product-discovery tools are already user-agnostic
 (`agents/python/product_discovery/tools.py`); only the auth middleware blocks anonymous access.
 
-## Decisions (locked)
+## Decisions (locked — IA revised)
 
-- Storefront at `/`; portfolio/architecture landing moves to `/about`.
-- Guest cart (localStorage); sign-in required at checkout; migrate guest cart → account on login.
-- Normal login (seeded creds shown); no one-click demo.
-- Single adaptive storefront (no duplicated pages); account-only pages stay in the sidebar console.
+- **Project landing stays at `/`** (OSS showcase front door); **"Try the demo" → `/shop`**.
+- Storefront lives under the `(shop)` group: `/shop`, `/shop/products`, `/shop/cart`, `/shop/assistant`.
+- Guest cart (localStorage); sign-in at checkout; migrate guest cart → account on login.
+- Normal login (seeded creds); no one-click demo.
+- Public discovery assistant `/shop/assistant` + full account chat `/chat` (reuse chat components).
 
 ## IA
 
-Public storefront layout (`(shop)`): header (logo, search, cart, theme, Sign in/avatar) + footer
-(→ `/about`, GitHub).
-- `/` storefront home (hero, featured/trending via `get_trending_products`, category tiles, search,
-  "Ask the assistant").
-- `/products`, `/products/[id]` (un-gated).
-- `/cart` guest cart; Checkout → login.
-- `/assistant` public discovery chat (stateless).
-- `/about` (moved landing), `/login`, `/signup`.
+Landing `/` (public): current architecture/agents/stack page; CTA "Try the demo" → `/shop`;
+header Sign in (or account link if authed) + GitHub + theme.
 
-Auth console (existing sidebar shell): `/home`, `/checkout`, `/orders`, `/orders/[id]`, `/profile`,
-`/admin/*`, `/seller/*`, full `/chat` history. Cross-link via header avatar menu / sidebar "Shop".
+Storefront `(shop)` layout (header: logo→/shop, search, cart, theme, Sign in/avatar; footer →
+"About this project" `/` + GitHub):
+- `/shop` home (hero, featured/trending via `get_trending_products`, category tiles, search,
+  "Ask the assistant").
+- `/shop/products`, `/shop/products/[id]` (un-gated).
+- `/shop/cart` guest cart; Checkout → login.
+- `/shop/assistant` public stateless discovery chat.
+- `/login`, `/signup`.
+
+Auth console (`(app)` sidebar shell): `/home`, `/checkout`, `/orders`, `/orders/[id]`, `/profile`,
+`/chat` (full), `/admin/*`, `/seller/*`. Cross-link via storefront avatar menu + sidebar
+"Storefront → /shop" / "About → /".
 
 ## Backend
 
