@@ -24,7 +24,8 @@ from shared.jwt_utils import (
     hash_password,
     verify_password,
 )
-from shared.usage_db import UsageTimer, log_agent_usage
+from shared.usage_db import UsageTimer, log_agent_usage, log_execution_step
+from shared.agent_observability import reset_steps, get_steps
 
 logger = logging.getLogger(__name__)
 
@@ -499,6 +500,7 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
         deadline = start_time + float(settings.MAF_STREAM_TIMEOUT_SECONDS)
         max_bytes = int(settings.MAF_STREAM_MAX_BYTES)
 
+        reset_steps()  # begin agentic-timeline capture for this run
         with agent_run_span("orchestrator"):
             try:
                 async for chunk in _run_agent_native_stream(
@@ -543,35 +545,61 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
                 full_response.append(error_msg)
                 yield f"data: {error_msg}\n\n"
 
-        # Send metadata and termination event
         response_text = "".join(full_response)
+
+        # Drain captured tool steps → timeline frames + agents_involved.
+        steps = get_steps()
+        for s in steps:
+            s.setdefault("agent", "orchestrator")
+        agents_involved[:] = list(
+            dict.fromkeys(["orchestrator", *[s.get("agent", "orchestrator") for s in steps]])
+        )
+        for s in steps:
+            yield f"event: step\ndata: {json.dumps(s, default=str)}\n\n"
+
         yield f"event: metadata\ndata: {json.dumps({"conversation_id": conversation_id, "agents_involved": agents_involved})}\n\n"
         yield "data: [DONE]\n\n"
 
-        # Persist assistant message + usage — authed only (anonymous storefront
-        # chat has no conversation to write to).
+        # Persist assistant message + timeline — authed only (anonymous
+        # storefront chat has no conversation to write to).
         if is_anon:
             return
         try:
+            metadata = {"steps": steps[:50], "agents_involved": agents_involved}
             await pool.execute(
-                """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
-                   VALUES ($1, 'assistant', $2, 'orchestrator', $3)""",
+                """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved, metadata)
+                   VALUES ($1, 'assistant', $2, 'orchestrator', $3, $4::jsonb)""",
                 conversation_id,
                 response_text,
                 agents_involved,
+                json.dumps(metadata, default=str),
             )
             await pool.execute(
                 "UPDATE conversations SET last_message_at = NOW() WHERE id = $1",
                 conversation_id,
             )
             duration_ms = int((time.monotonic() - start_time) * 1000)
-            await log_agent_usage(
+            usage_log_id = await log_agent_usage(
                 user_id=user_id,
                 agent_name="orchestrator",
+                session_id=conversation_id,
                 input_summary=body.message,
                 duration_ms=duration_ms,
-                tool_calls_count=len(agents_involved) - 1,
+                tool_calls_count=len(steps),
             )
+            if usage_log_id:
+                for idx, s in enumerate(steps):
+                    ti = s.get("tool_input")
+                    to = s.get("tool_output")
+                    await log_execution_step(
+                        usage_log_id=usage_log_id,
+                        step_index=idx,
+                        tool_name=f"{s.get('agent', 'orchestrator')}:{s.get('tool_name', 'tool')}",
+                        tool_input=ti if isinstance(ti, dict) else {"value": ti},
+                        tool_output=to if isinstance(to, dict) else {"value": to},
+                        status=s.get("status", "success"),
+                        duration_ms=s.get("duration_ms", 0),
+                    )
         except Exception:
             logger.exception("chat_stream.persist_error conversation=%s", conversation_id)
 

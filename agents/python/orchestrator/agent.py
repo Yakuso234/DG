@@ -12,8 +12,14 @@ from pydantic import Field
 
 from orchestrator.prompts import SYSTEM_PROMPT
 from shared.agent_factory import create_chat_client
+from shared.agent_observability import STEP_MIDDLEWARE
 from shared.config import settings
-from shared.context import current_user_email, current_user_role, current_conversation_history, current_session_id
+from shared.context import (
+    current_session_id,
+    current_steps,
+    current_user_email,
+    current_user_role,
+)
 from shared.context_providers import ECommerceContextProvider
 from shared.telemetry import a2a_call_span
 
@@ -67,6 +73,11 @@ async def call_specialist_agent(
                 )
                 resp.raise_for_status()
                 data = resp.json()
+                # Merge the specialist's tool steps into the live timeline.
+                bucket = current_steps.get()
+                specialist_steps = data.get("steps") or []
+                if bucket is not None and specialist_steps:
+                    bucket.extend(specialist_steps)
                 return data.get("response", resp.text)
         except httpx.TimeoutException:
             logger.error("a2a.timeout target=%s", agent_name)
@@ -92,4 +103,5 @@ def create_orchestrator_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=ORCHESTRATOR_TOOLS,
         context_providers=[ECommerceContextProvider()],
+        middleware=STEP_MIDDLEWARE,
     )

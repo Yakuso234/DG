@@ -12,6 +12,7 @@ from product_discovery.tools import (
     semantic_search,
 )
 from shared.agent_factory import create_chat_client
+from shared.agent_observability import STEP_MIDDLEWARE
 from shared.context_providers import ECommerceContextProvider
 from shared.tools.inventory_tools import check_stock, get_warehouse_availability
 from shared.tools.pricing_tools import get_price_history
@@ -41,4 +42,5 @@ def create_product_discovery_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=AGENT_TOOLS,
         context_providers=[ECommerceContextProvider()],
+        middleware=STEP_MIDDLEWARE,
     )
