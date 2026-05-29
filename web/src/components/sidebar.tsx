@@ -2,18 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  MessageSquare,
-  ShoppingBag,
-  ShoppingCart,
-  Package,
-  Store,
-  Shield,
-  BarChart3,
-  LogOut,
-  User,
-  Menu,
-} from "lucide-react";
+import { Store, LogOut, Menu } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useCart } from "@/lib/cart-context";
 import { Button } from "@/components/ui/button";
@@ -27,25 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-
-interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ElementType;
-  badge?: string;
-  adminOnly?: boolean;
-  sellerOnly?: boolean;
-}
-
-const navItems: NavItem[] = [
-  { label: "Chat", href: "/chat", icon: MessageSquare },
-  { label: "Products", href: "/products", icon: ShoppingBag },
-  { label: "Cart", href: "/cart", icon: ShoppingCart },
-  { label: "Orders", href: "/orders", icon: Package },
-  { label: "Marketplace", href: "/marketplace", icon: Store },
-  { label: "Seller", href: "/seller", icon: BarChart3, sellerOnly: true },
-  { label: "Admin", href: "/admin", icon: Shield, adminOnly: true },
-];
+import { visibleGroups, type NavItem } from "@/lib/nav";
 
 function NavLink({
   item,
@@ -62,21 +33,24 @@ function NavLink({
     <Link
       href={item.href}
       onClick={onClick}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        "group/navlink flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
         isActive
           ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
-      <Icon className="size-4 shrink-0" />
+      <Icon
+        className={cn(
+          "size-4 shrink-0 transition-colors",
+          isActive
+            ? "text-primary"
+            : "text-muted-foreground/70 group-hover/navlink:text-accent-foreground",
+        )}
+      />
       <span className="flex-1">{item.label}</span>
-      {item.label === "Cart" && <CartBadge />}
-      {item.badge && (
-        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {item.badge}
-        </span>
-      )}
+      {item.cartBadge && <CartBadge />}
     </Link>
   );
 }
@@ -96,14 +70,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   const isSeller = user?.role === "seller" || isAdmin;
+  const groups = visibleGroups({ isAdmin, isSeller });
 
-  const visibleItems = navItems.filter(
-    (item) => {
-      if (item.adminOnly) return isAdmin;
-      if (item.sellerOnly) return isSeller;
-      return true;
-    }
-  );
+  // Only the most specific matching item is active, so a parent route like
+  // /admin doesn't also light up while on /admin/usage.
+  const activeHref = groups
+    .flatMap((g) => g.items)
+    .filter((i) => pathname === i.href || pathname.startsWith(i.href + "/"))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   const initials = user?.name
     ? user.name
@@ -121,7 +95,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="flex size-8 items-center justify-center rounded-lg bg-primary">
           <Store className="size-4 text-primary-foreground" />
         </div>
-        <span className="text-lg font-semibold tracking-tight">
+        <span className="text-sm font-semibold tracking-tight">
           E-Commerce Agents
         </span>
       </div>
@@ -130,14 +104,21 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Navigation */}
       <ScrollArea className="flex-1 px-3 py-4">
-        <nav className="flex flex-col gap-1">
-          {visibleItems.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              isActive={pathname.startsWith(item.href)}
-              onClick={onNavigate}
-            />
+        <nav className="flex flex-col gap-5">
+          {groups.map((group) => (
+            <div key={group.label} className="flex flex-col gap-1">
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                {group.label}
+              </p>
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  isActive={item.href === activeHref}
+                  onClick={onNavigate}
+                />
+              ))}
+            </div>
           ))}
         </nav>
       </ScrollArea>
@@ -151,9 +132,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           className="flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-accent"
         >
           <Avatar className="size-8">
-            <AvatarFallback className="text-xs">
-              {initials}
-            </AvatarFallback>
+            <AvatarFallback className="text-xs">{initials}</AvatarFallback>
           </Avatar>
           <div className="flex-1 overflow-hidden">
             <p className="truncate text-sm font-medium">{user?.name}</p>
@@ -194,9 +173,7 @@ export function MobileSidebar() {
   return (
     <Sheet>
       <SheetTrigger
-        render={
-          <Button variant="ghost" size="icon" className="lg:hidden" />
-        }
+        render={<Button variant="ghost" size="icon" className="lg:hidden" />}
       >
         <Menu className="size-5" />
         <span className="sr-only">Toggle menu</span>
