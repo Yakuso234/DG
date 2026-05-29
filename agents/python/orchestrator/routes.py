@@ -138,6 +138,24 @@ async def require_auth(request: Request) -> dict[str, Any]:
     return payload
 
 
+async def optional_auth(request: Request) -> dict[str, Any]:
+    """Like ``require_auth`` but allows anonymous access for public storefront
+    endpoints (product browse + product-discovery chat).
+
+    - Valid Bearer token  → returns the JWT payload, sets identity ContextVars.
+    - No Authorization     → returns an anonymous identity (``anonymous=True``),
+      sets empty ContextVars. Account-bound tools degrade gracefully.
+    - Present-but-invalid  → still 401 (delegated to ``require_auth``).
+    """
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        current_user_email.set("")
+        current_user_role.set("anonymous")
+        current_session_id.set(request.headers.get("x-session-id", ""))
+        return {"sub": "", "role": "anonymous", "user_id": "", "anonymous": True}
+    return await require_auth(request)
+
+
 async def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
     """Require the authenticated user to have admin role."""
     if user.get("role") != "admin":
@@ -272,83 +290,75 @@ async def refresh_token(body: RefreshRequest) -> dict[str, str]:
 
 
 @router.post("/api/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, user: dict[str, Any] = Depends(require_auth)) -> ChatResponse:
-    """Main chat endpoint — sends message to the orchestrator agent."""
-    from orchestrator.agent import create_orchestrator_agent
+async def chat(body: ChatRequest, user: dict[str, Any] = Depends(optional_auth)) -> ChatResponse:
+    """Main chat endpoint — sends message to the orchestrator agent.
 
+    Anonymous (storefront) callers get product-discovery only: no conversation is
+    created or persisted and no user context is loaded. Account-bound tools
+    degrade gracefully (the agent asks the user to sign in).
+    """
     pool = get_pool()
     user_email = user.get("sub", "")
     user_id = user.get("user_id", "")
+    is_anon = user.get("anonymous", False)
 
-    # Resolve or create conversation
     conversation_id = body.conversation_id
-    if conversation_id:
-        # Verify conversation belongs to this user
-        conv = await pool.fetchrow(
-            """SELECT id FROM conversations
-               WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+    history: list[dict[str, str]] = []
+
+    if not is_anon:
+        # Resolve or create conversation
+        if conversation_id:
+            conv = await pool.fetchrow(
+                """SELECT id FROM conversations
+                   WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+                conversation_id,
+                user_id,
+            )
+            if not conv:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        else:
+            title = body.message[:100] if len(body.message) > 100 else body.message
+            row = await pool.fetchrow(
+                """INSERT INTO conversations (user_id, title)
+                   VALUES ($1, $2)
+                   RETURNING id""",
+                user_id,
+                title,
+            )
+            conversation_id = str(row["id"])
+
+        # Save user message
+        await pool.execute(
+            """INSERT INTO messages (conversation_id, role, content, agent_name)
+               VALUES ($1, 'user', $2, NULL)""",
             conversation_id,
-            user_id,
+            body.message,
         )
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    else:
-        # Create new conversation with first message as title
-        title = body.message[:100] if len(body.message) > 100 else body.message
-        row = await pool.fetchrow(
-            """INSERT INTO conversations (user_id, title)
-               VALUES ($1, $2)
-               RETURNING id""",
-            user_id,
-            title,
+
+        # Load conversation history for context
+        history_rows = await pool.fetch(
+            """SELECT role, content FROM messages
+               WHERE conversation_id = $1
+               ORDER BY created_at ASC
+               LIMIT 50""",
+            conversation_id,
         )
-        conversation_id = str(row["id"])
+        history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
 
-    # Save user message
-    await pool.execute(
-        """INSERT INTO messages (conversation_id, role, content, agent_name)
-           VALUES ($1, 'user', $2, NULL)""",
-        conversation_id,
-        body.message,
-    )
+        # Fetch user context (profile + recent orders) for the agent — injected
+        # via the ECommerceContextProvider chain (shared/context_providers.py).
+        user_row = await pool.fetchrow(
+            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
+        )
+        if user_row:
+            recent_orders = await pool.fetch(
+                """SELECT o.id, o.status, o.total, o.created_at
+                   FROM orders o JOIN users u ON o.user_id = u.id
+                   WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
+                user_email,
+            )
+            _ = recent_orders  # context injected via ContextProvider
 
-    # Load conversation history for context
-    history_rows = await pool.fetch(
-        """SELECT role, content FROM messages
-           WHERE conversation_id = $1
-           ORDER BY created_at ASC
-           LIMIT 50""",
-        conversation_id,
-    )
-    history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
-
-    # Fetch user context (profile + recent orders) for the agent
-    user_row = await pool.fetchrow(
-        "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
-    )
-    user_context_lines = []
-    if user_row:
-        user_context_lines.append(f"Logged-in user: {user_row['name']} ({user_email})")
-        user_context_lines.append(f"Role: {user_row['role']}, Loyalty: {user_row['loyalty_tier']}, Total spend: ${user_row['total_spend']:.2f}")
-    recent_orders = await pool.fetch(
-        """SELECT o.id, o.status, o.total, o.created_at
-           FROM orders o JOIN users u ON o.user_id = u.id
-           WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
-        user_email,
-    )
-    if recent_orders:
-        user_context_lines.append(f"Recent orders ({len(recent_orders)}):")
-        for o in recent_orders:
-            user_context_lines.append(f"  - Order {o['id']} | {o['status']} | ${o['total']:.2f} | {o['created_at'].strftime('%Y-%m-%d')}")
-    user_context = "\n".join(user_context_lines) if user_context_lines else None
-
-    # Call the orchestrator agent via MAF-native execution. The Agent
-    # already owns its tools + instructions + context providers, and the
-    # ECommerceContextProvider chain injects user_context (profile +
-    # recent orders) into state before each run — see
-    # shared/context_providers.py. _user_context is retained for telemetry
-    # only.
-    _ = user_context  # context is injected via ContextProvider, kept for symmetry
     from orchestrator.agent import create_orchestrator_agent
     from shared.agent_host import _run_agent_native
     from shared.telemetry import agent_run_span
@@ -367,109 +377,105 @@ async def chat(body: ChatRequest, user: dict[str, Any] = Depends(require_auth)) 
                 logger.exception("chat.agent_error user=%s conversation=%s", user_email, conversation_id)
                 response_text = "I apologize, but I encountered an issue processing your request. Please try again."
 
-    # Save assistant message
-    await pool.execute(
-        """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
-           VALUES ($1, 'assistant', $2, 'orchestrator', $3)""",
-        conversation_id,
-        response_text,
-        agents_involved,
-    )
-
-    # Update conversation timestamp
-    await pool.execute(
-        "UPDATE conversations SET last_message_at = NOW() WHERE id = $1",
-        conversation_id,
-    )
-
-    # Log usage (fire-and-forget, errors are swallowed)
-    await log_agent_usage(
-        user_id=user_id,
-        agent_name="orchestrator",
-        input_summary=body.message,
-        duration_ms=timer.duration_ms,
-        tool_calls_count=len(agents_involved) - 1,
-    )
+    if not is_anon:
+        # Save assistant message + update conversation + usage (authed only)
+        await pool.execute(
+            """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
+               VALUES ($1, 'assistant', $2, 'orchestrator', $3)""",
+            conversation_id,
+            response_text,
+            agents_involved,
+        )
+        await pool.execute(
+            "UPDATE conversations SET last_message_at = NOW() WHERE id = $1",
+            conversation_id,
+        )
+        await log_agent_usage(
+            user_id=user_id,
+            agent_name="orchestrator",
+            input_summary=body.message,
+            duration_ms=timer.duration_ms,
+            tool_calls_count=len(agents_involved) - 1,
+        )
 
     return ChatResponse(
         response=response_text,
-        conversation_id=conversation_id,
+        conversation_id=conversation_id or "",
         agents_involved=agents_involved,
     )
 
 
 @router.post("/api/chat/stream")
-async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] = Depends(require_auth)):
-    """Streaming chat endpoint — sends SSE events as the agent generates tokens."""
+async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] = Depends(optional_auth)):
+    """Streaming chat endpoint — sends SSE events as the agent generates tokens.
+
+    Anonymous (storefront) callers get product-discovery only: nothing is
+    persisted and no user context is loaded.
+    """
     from orchestrator.agent import create_orchestrator_agent
     from shared.agent_host import _run_agent_native_stream
 
     pool = get_pool()
     user_email = user.get("sub", "")
     user_id = user.get("user_id", "")
+    is_anon = user.get("anonymous", False)
 
-    # Resolve or create conversation
     conversation_id = body.conversation_id
-    if conversation_id:
-        conv = await pool.fetchrow(
-            """SELECT id FROM conversations
-               WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+    history: list[dict[str, str]] = []
+
+    if not is_anon:
+        # Resolve or create conversation
+        if conversation_id:
+            conv = await pool.fetchrow(
+                """SELECT id FROM conversations
+                   WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+                conversation_id,
+                user_id,
+            )
+            if not conv:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        else:
+            title = body.message[:100] if len(body.message) > 100 else body.message
+            row = await pool.fetchrow(
+                """INSERT INTO conversations (user_id, title)
+                   VALUES ($1, $2)
+                   RETURNING id""",
+                user_id,
+                title,
+            )
+            conversation_id = str(row["id"])
+
+        # Save user message
+        await pool.execute(
+            """INSERT INTO messages (conversation_id, role, content, agent_name)
+               VALUES ($1, 'user', $2, NULL)""",
             conversation_id,
-            user_id,
+            body.message,
         )
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    else:
-        title = body.message[:100] if len(body.message) > 100 else body.message
-        row = await pool.fetchrow(
-            """INSERT INTO conversations (user_id, title)
-               VALUES ($1, $2)
-               RETURNING id""",
-            user_id,
-            title,
+
+        # Load conversation history
+        history_rows = await pool.fetch(
+            """SELECT role, content FROM messages
+               WHERE conversation_id = $1
+               ORDER BY created_at ASC
+               LIMIT 50""",
+            conversation_id,
         )
-        conversation_id = str(row["id"])
+        history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
 
-    # Save user message
-    await pool.execute(
-        """INSERT INTO messages (conversation_id, role, content, agent_name)
-           VALUES ($1, 'user', $2, NULL)""",
-        conversation_id,
-        body.message,
-    )
+        # Fetch user context — injected via the ECommerceContextProvider chain.
+        user_row = await pool.fetchrow(
+            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
+        )
+        if user_row:
+            recent_orders = await pool.fetch(
+                """SELECT o.id, o.status, o.total, o.created_at
+                   FROM orders o JOIN users u ON o.user_id = u.id
+                   WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
+                user_email,
+            )
+            _ = recent_orders
 
-    # Load conversation history
-    history_rows = await pool.fetch(
-        """SELECT role, content FROM messages
-           WHERE conversation_id = $1
-           ORDER BY created_at ASC
-           LIMIT 50""",
-        conversation_id,
-    )
-    history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
-
-    # Fetch user context
-    user_row = await pool.fetchrow(
-        "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
-    )
-    user_context_lines: list[str] = []
-    if user_row:
-        user_context_lines.append(f"Logged-in user: {user_row['name']} ({user_email})")
-        user_context_lines.append(f"Role: {user_row['role']}, Loyalty: {user_row['loyalty_tier']}, Total spend: ${user_row['total_spend']:.2f}")
-    recent_orders = await pool.fetch(
-        """SELECT o.id, o.status, o.total, o.created_at
-           FROM orders o JOIN users u ON o.user_id = u.id
-           WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
-        user_email,
-    )
-    if recent_orders:
-        user_context_lines.append(f"Recent orders ({len(recent_orders)}):")
-        for o in recent_orders:
-            user_context_lines.append(f"  - Order {o['id']} | {o['status']} | ${o['total']:.2f} | {o['created_at'].strftime('%Y-%m-%d')}")
-    user_context = "\n".join(user_context_lines) if user_context_lines else None
-
-    # See chat() — same reasoning: Agent owns tools / prompt / providers.
-    _ = user_context  # injected via ContextProvider, unused here
     agent = create_orchestrator_agent()
     agents_involved: list[str] = ["orchestrator"]
     current_conversation_history.set(history)
@@ -542,7 +548,10 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
         yield f"event: metadata\ndata: {json.dumps({"conversation_id": conversation_id, "agents_involved": agents_involved})}\n\n"
         yield "data: [DONE]\n\n"
 
-        # Persist assistant message and update conversation (fire-and-forget)
+        # Persist assistant message + usage — authed only (anonymous storefront
+        # chat has no conversation to write to).
+        if is_anon:
+            return
         try:
             await pool.execute(
                 """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
@@ -1117,7 +1126,7 @@ async def list_products(
     sort: str = "rating",
     limit: int = 50,
     offset: int = 0,
-    _user: dict = Depends(require_auth),
+    _user: dict = Depends(optional_auth),
 ):
     pool = get_pool()
     safe_limit = clamp_limit(limit, default=50, maximum=200)
@@ -1185,7 +1194,7 @@ async def list_products(
 
 
 @router.get("/api/products/{product_id}")
-async def get_product(product_id: str, _user: dict = Depends(require_auth)):
+async def get_product(product_id: str, _user: dict = Depends(optional_auth)):
     pool = get_pool()
     row = await pool.fetchrow(
         """SELECT p.id, p.name, p.description, p.category, p.brand, p.price,
