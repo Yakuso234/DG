@@ -25,6 +25,16 @@ export interface CartItem {
   available_qty?: number;
 }
 
+/** One step in the agentic timeline streamed via `event: step` SSE frames. */
+export interface AgentStep {
+  agent?: string;
+  tool_name: string;
+  tool_input?: unknown;
+  tool_output?: unknown;
+  status?: string;
+  duration_ms?: number;
+}
+
 export interface CartResponse {
   id: string;
   items: CartItem[];
@@ -194,7 +204,7 @@ class ApiClient {
     conversationId: string | undefined,
     onChunk: (text: string) => void,
     signal?: AbortSignal,
-    options: { allowRefresh?: boolean } = {}
+    options: { allowRefresh?: boolean; onStep?: (step: AgentStep) => void } = {}
   ): Promise<{ conversation_id: string; agents_involved: string[] }> {
     const allowRefresh = options.allowRefresh ?? true;
     const headers: Record<string, string> = {
@@ -216,6 +226,7 @@ class ApiClient {
         const fresh = await this.tryRefresh();
         if (fresh) {
           return this.chatStream(message, conversationId, onChunk, signal, {
+            ...options,
             allowRefresh: false,
           });
         }
@@ -259,6 +270,16 @@ class ApiClient {
             const data = line.slice(6);
 
             if (data === "[DONE]") {
+              continue;
+            }
+
+            if (currentEventType === "step") {
+              try {
+                options.onStep?.(JSON.parse(data) as AgentStep);
+              } catch {
+                // Ignore malformed step
+              }
+              currentEventType = "";
               continue;
             }
 

@@ -6,12 +6,14 @@ import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { Sparkles, ArrowUp, Loader2, User as UserIcon, Bot } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, type AgentStep } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { AgentTimeline } from "@/components/chat/agent-timeline";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  steps?: AgentStep[];
 }
 
 const STARTERS = [
@@ -34,17 +36,32 @@ function Assistant() {
       const trimmed = text.trim();
       if (!trimmed || streaming) return;
       setInput("");
-      setMessages((m) => [...m, { role: "user", content: trimmed }, { role: "assistant", content: "" }]);
+      setMessages((m) => [...m, { role: "user", content: trimmed }, { role: "assistant", content: "", steps: [] }]);
       setStreaming(true);
       try {
-        await api.chatStream(trimmed, undefined, (chunk) => {
-          setMessages((m) => {
-            const next = [...m];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") last.content += chunk;
-            return next;
-          });
-        });
+        await api.chatStream(
+          trimmed,
+          undefined,
+          (chunk) => {
+            setMessages((m) => {
+              const next = [...m];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") last.content += chunk;
+              return next;
+            });
+          },
+          undefined,
+          {
+            onStep: (step) => {
+              setMessages((m) => {
+                const next = [...m];
+                const last = next[next.length - 1];
+                if (last?.role === "assistant") last.steps = [...(last.steps ?? []), step];
+                return next;
+              });
+            },
+          },
+        );
       } catch {
         setMessages((m) => {
           const next = [...m];
@@ -111,20 +128,30 @@ function Assistant() {
                 )}
                 <div
                   className={cn(
-                    "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
-                    m.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground",
+                    "flex max-w-[80%] flex-col gap-1",
+                    m.role === "user" ? "items-end" : "items-start",
                   )}
                 >
-                  {m.role === "assistant" && !m.content ? (
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                  ) : m.role === "assistant" ? (
-                    <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
-                      <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{m.content}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    m.content
+                  <div
+                    className={cn(
+                      "rounded-2xl px-4 py-2.5 text-sm",
+                      m.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-foreground",
+                    )}
+                  >
+                    {m.role === "assistant" && !m.content ? (
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    ) : m.role === "assistant" ? (
+                      <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
+                        <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{m.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      m.content
+                    )}
+                  </div>
+                  {m.role === "assistant" && m.steps && m.steps.length > 0 && (
+                    <AgentTimeline steps={m.steps} />
                   )}
                 </div>
                 {m.role === "user" && (
