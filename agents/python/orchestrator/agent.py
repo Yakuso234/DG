@@ -12,7 +12,7 @@ from pydantic import Field
 
 from orchestrator.prompts import SYSTEM_PROMPT
 from shared.agent_factory import create_chat_client
-from shared.agent_observability import STEP_MIDDLEWARE
+from shared.middleware import build_specialist_middleware
 from shared.config import settings
 from shared.context import (
     current_session_id,
@@ -103,5 +103,5 @@ def create_orchestrator_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=ORCHESTRATOR_TOOLS,
         context_providers=[ECommerceContextProvider()],
-        middleware=STEP_MIDDLEWARE,
+        middleware=build_specialist_middleware(),
     )

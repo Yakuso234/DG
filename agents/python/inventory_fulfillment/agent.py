@@ -12,7 +12,7 @@ from inventory_fulfillment.tools import (
     place_backorder,
 )
 from shared.agent_factory import create_chat_client
-from shared.agent_observability import STEP_MIDDLEWARE
+from shared.middleware import build_specialist_middleware
 from shared.context_providers import ECommerceContextProvider
 from shared.tools.inventory_tools import check_stock, get_warehouse_availability
 from shared.tools.user_tools import get_user_profile
@@ -39,5 +39,5 @@ def create_inventory_fulfillment_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=AGENT_TOOLS,
         context_providers=[ECommerceContextProvider()],
-        middleware=STEP_MIDDLEWARE,
+        middleware=build_specialist_middleware(),
     )

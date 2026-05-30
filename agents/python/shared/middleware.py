@@ -31,6 +31,8 @@ from agent_framework._middleware import (
     FunctionMiddleware,
 )
 
+from shared.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -172,3 +174,39 @@ def default_middleware_stack() -> list[Any]:
         ToolAuditMiddleware(),
         PiiRedactionMiddleware(),
     ]
+
+
+def build_specialist_middleware(*, include_steps: bool = True) -> list[Any]:
+    """Compose the middleware stack every specialist / orchestrator agent uses.
+
+    This is the single wiring point that finally activates the observability and
+    guardrail middleware (previously ``default_middleware_stack()`` was defined
+    but never attached — agents passed only the step recorder). MAF dispatches
+    the mixed list by type into its agent / chat / function pipelines:
+
+    - ``AgentRunLogger``        (agent)    — run timing + correlation id
+    - ``ToolAuditMiddleware``   (function) — per-tool audit log
+    - ``InjectionDetection``    (chat)     — flag inbound injection (observe-first)
+    - ``PiiRedactionMiddleware``(chat)     — mask card / SSN before the LLM
+    - ``OutputSanitization``    (function) — defang stored injection in tool output
+    - ``StepRecorder``          (function) — agentic-timeline capture (optional)
+
+    The guardrail layers are gated by ``GUARDRAILS_ENABLED`` so the feature can
+    be disabled without a redeploy; PII redaction stays on regardless.
+    """
+    # Imported lazily to avoid a circular import (the guardrails package imports
+    # shared.config, which is cheap, but the middleware module is imported early
+    # by agents — keep the dependency one-directional).
+    from shared.agent_observability import STEP_MIDDLEWARE
+    from shared.guardrails.injection_middleware import InjectionDetectionChatMiddleware
+    from shared.guardrails.output_middleware import OutputSanitizationMiddleware
+
+    stack: list[Any] = [AgentRunLogger(), ToolAuditMiddleware()]
+    if settings.GUARDRAILS_ENABLED:
+        stack.append(InjectionDetectionChatMiddleware())
+    stack.append(PiiRedactionMiddleware())
+    if settings.GUARDRAILS_ENABLED:
+        stack.append(OutputSanitizationMiddleware())
+    if include_steps:
+        stack.extend(STEP_MIDDLEWARE)
+    return stack

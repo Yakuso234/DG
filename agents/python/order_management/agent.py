@@ -11,7 +11,7 @@ from order_management.tools import (
     modify_order,
 )
 from shared.agent_factory import create_chat_client
-from shared.agent_observability import STEP_MIDDLEWARE
+from shared.middleware import build_specialist_middleware
 from shared.context_providers import ECommerceContextProvider
 from shared.tools.cart_tools import (
     add_to_cart,
@@ -62,5 +62,5 @@ def create_order_management_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=AGENT_TOOLS,
         context_providers=[ECommerceContextProvider()],
-        middleware=STEP_MIDDLEWARE,
+        middleware=build_specialist_middleware(),
     )

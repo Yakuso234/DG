@@ -23,6 +23,26 @@ logger = logging.getLogger(__name__)
 # Paths that skip authentication
 PUBLIC_PATHS = {"/health", "/.well-known/agent-card.json"}
 
+# Roles the platform recognizes. 'system' is the inter-agent sentinel used when
+# a call originates without an end user (internal / health flows).
+_ALLOWED_ROLES = {"customer", "seller", "admin", "system"}
+
+
+def _identity_anomaly(email: str, role: str) -> str | None:
+    """Return a reason string if the forwarded identity looks spoofed, else None.
+
+    The inter-agent secret authenticates the *caller* (another agent), but the
+    forwarded ``x-user-email`` / ``x-user-role`` headers are otherwise trusted
+    blindly. This flags obviously-bad values so they can be logged — and
+    rejected under ``GUARDRAILS_STRICT_IDENTITY`` — instead of silently granting
+    access if the shared secret ever leaks.
+    """
+    if role.lower() not in _ALLOWED_ROLES:
+        return f"unknown_role:{role}"
+    if email != "system" and "@" not in email:
+        return "malformed_email"
+    return None
+
 
 class AgentAuthMiddleware(BaseHTTPMiddleware):
     """Authenticate requests via inter-agent secret or JWT."""
@@ -48,6 +68,18 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
             email = request.headers.get("x-user-email", "system")
             role = request.headers.get("x-user-role", "system")
             session_id = request.headers.get("x-session-id", "")
+
+            anomaly = _identity_anomaly(email, role)
+            if anomaly:
+                logger.warning(
+                    "security.identity_spoof_suspected agent=%s reason=%s email=%s role=%s",
+                    self.agent_name,
+                    anomaly,
+                    email,
+                    role,
+                )
+                if settings.GUARDRAILS_STRICT_IDENTITY:
+                    return JSONResponse({"error": "Invalid forwarded identity"}, status_code=401)
 
             current_user_email.set(email)
             current_user_role.set(role)

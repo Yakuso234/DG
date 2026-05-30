@@ -9,6 +9,7 @@ from pydantic import Field
 
 from shared.context import current_user_email
 from shared.db import get_pool
+from shared.guardrails.roles import requires_role
 from shared.tool_inputs import clamp_limit
 
 
@@ -16,6 +17,7 @@ from shared.tool_inputs import clamp_limit
     name="get_my_products",
     description="Get products owned by the current seller. Only works for seller role.",
 )
+@requires_role("seller", "admin")
 async def get_my_products(
     category: Annotated[str | None, Field(description="Optional category filter")] = None,
     limit: Annotated[int, Field(description="Max results")] = 50,
@@ -59,6 +61,7 @@ async def get_my_products(
     name="get_seller_orders",
     description="Get orders containing the current seller's products.",
 )
+@requires_role("seller", "admin")
 async def get_seller_orders(
     status: Annotated[str | None, Field(description="Filter by order status")] = None,
     limit: Annotated[int, Field(description="Max results")] = 20,
@@ -108,6 +111,7 @@ async def get_seller_orders(
     name="get_seller_stats",
     description="Get sales statistics for the current seller.",
 )
+@requires_role("seller", "admin")
 async def get_seller_stats() -> dict:
     email = current_user_email.get()
     pool = get_pool()
@@ -149,6 +153,7 @@ async def get_seller_stats() -> dict:
     name="get_seller_inventory",
     description="Get inventory levels for the current seller's products across warehouses.",
 )
+@requires_role("seller", "admin")
 async def get_seller_inventory(
     low_stock_only: Annotated[bool, Field(description="Only show low stock items")] = False,
 ) -> list[dict]:

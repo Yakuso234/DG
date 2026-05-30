@@ -133,6 +133,33 @@ class Settings(BaseSettings):
     # When true, CI regenerates docs/workflows/*.mmd and fails on drift.
     WORKFLOW_VISUALIZATION_ON_BUILD: bool = False
 
+    # ── Guardrails (Track A — security) ─────────────────────────────
+    # Master switch for the code-layer guardrails (output sanitization,
+    # injection detection, role enforcement). Safe default: on.
+    GUARDRAILS_ENABLED: bool = True
+
+    # Neutralize stored / indirect injection in tool outputs before they
+    # re-enter the model.
+    GUARDRAILS_OUTPUT_SANITIZATION: bool = True
+
+    # Observe-only by default: guardrail failures log and continue, and the
+    # inbound injection detector counts without blocking. Flip to False (with
+    # GUARDRAILS_BLOCK_ON_INJECTION) once the false-positive rate is measured.
+    GUARDRAILS_FAIL_OPEN: bool = True
+
+    # When True, the inbound injection detector refuses the run instead of
+    # only logging. Independent of FAIL_OPEN so you can block injection while
+    # keeping sanitization non-raising.
+    GUARDRAILS_BLOCK_ON_INJECTION: bool = False
+
+    # When True, validate forwarded x-user-email / x-user-role on the
+    # inter-agent path and reject on anomaly (not just log).
+    GUARDRAILS_STRICT_IDENTITY: bool = False
+
+    # Inbound injection-detection provider: "regex" (default, zero-dependency)
+    # or "azure_content_safety" (Azure AI Content Safety — Prompt Shields).
+    GUARDRAILS_INJECTION_PROVIDER: str = "regex"
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
         case_sensitive=True,
