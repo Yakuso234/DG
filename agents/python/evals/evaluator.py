@@ -26,6 +26,9 @@ class EvalCase:
     expected_tools: list[str]
     expected_fields: list[str]
     criteria: dict[str, bool]
+    # Orchestrator-only: the specialist this query should be routed to via
+    # call_specialist_agent. When set, correctness is scored on the route.
+    expected_route: str | None = None
 
 
 @dataclass
@@ -40,6 +43,7 @@ class EvalResult:
     tools_called: list[str] = field(default_factory=list)
     fields_found: list[str] = field(default_factory=list)
     fields_missing: list[str] = field(default_factory=list)
+    route_called: str | None = None
     latency_ms: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
@@ -91,6 +95,7 @@ class EvalSummary:
                     "tools_called": r.tools_called,
                     "fields_found": r.fields_found,
                     "fields_missing": r.fields_missing,
+                    "route_called": r.route_called,
                     "latency_ms": r.latency_ms,
                     "tokens_in": r.tokens_in,
                     "tokens_out": r.tokens_out,
@@ -124,6 +129,7 @@ def load_dataset(path: str | Path) -> list[EvalCase]:
                 expected_tools=entry["expected_tools"],
                 expected_fields=entry["expected_fields"],
                 criteria=entry["criteria"],
+                expected_route=entry.get("expected_route"),
             )
         )
 
@@ -148,6 +154,13 @@ class AgentEvaluator:
         self.agent_name = agent_name
         self.pass_threshold = pass_threshold
         self._tool_calls: list[str] = []
+        self._routes: list[str] = []
+
+    async def run_once(self, user_input: str) -> dict[str, Any]:
+        """Run a single input through the agent's tool loop (used by the safety suite)."""
+        self._tool_calls = []
+        self._routes = []
+        return await self._run_agent(user_input)
 
     async def evaluate_dataset(self, dataset_path: str | Path) -> EvalSummary:
         """Run all cases in a dataset and return aggregate scores."""
@@ -195,6 +208,7 @@ class AgentEvaluator:
         """Evaluate a single test case against the agent."""
         result = EvalResult(input=case.input)
         self._tool_calls = []
+        self._routes = []
 
         start = time.monotonic()
         try:
@@ -219,6 +233,13 @@ class AgentEvaluator:
 
         # Score correctness: did it call the expected tools?
         result.correctness_score = self._score_correctness(tools_called, case.expected_tools)
+
+        # Routing override: for orchestrator cases the meaningful signal is
+        # whether it handed off to the *correct* specialist, not merely that it
+        # invoked the routing tool.
+        if case.expected_route:
+            result.route_called = self._routes[0] if self._routes else None
+            result.correctness_score = self._score_routing(self._routes, case.expected_route)
 
         # Score completeness: are expected fields present in the response?
         result.completeness_score, result.fields_found, result.fields_missing = (
@@ -312,6 +333,10 @@ class AgentEvaluator:
                     fn_name = tc.function.name
                     self._tool_calls.append(fn_name)
                     fn_args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    if fn_name == "call_specialist_agent":
+                        route = fn_args.get("agent_name")
+                        if route:
+                            self._routes.append(route)
                     tool_fn = tool_map.get(fn_name)
                     if tool_fn:
                         try:
@@ -366,6 +391,13 @@ class AgentEvaluator:
 
         matched = sum(1 for t in expected_tools if t in tools_called)
         return matched / len(expected_tools)
+
+    @staticmethod
+    def _score_routing(routes: list[str], expected_route: str) -> float:
+        """Score orchestrator hand-off: 1.0 right specialist, 0.5 wrong, 0.0 none."""
+        if not routes:
+            return 0.0
+        return 1.0 if expected_route in routes else 0.5
 
     @staticmethod
     def _score_completeness(
