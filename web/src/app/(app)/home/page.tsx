@@ -16,12 +16,13 @@ import { useCart } from "@/lib/cart-context";
 import { api } from "@/lib/api";
 import { formatPrice, formatDate } from "@/lib/format";
 import { productImageUrl } from "@/lib/images";
-import { QUICK_PROMPTS, chatPromptHref } from "@/lib/scenarios";
+import { QUICK_PROMPTS, DEMO_SCENARIOS, chatPromptHref } from "@/lib/scenarios";
 import { pageEnter, listStagger, listItem, instant } from "@/lib/motion";
 import { StatCard } from "@/components/ui/stat-card";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrderStatusBadge } from "@/components/status-badge";
+import { ScenarioCard } from "@/components/demo/scenario-card";
 
 interface HomeOrder {
   id: string;
@@ -243,6 +244,31 @@ export default function HomePage() {
               coming soon.
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Demo scenarios */}
+      <div>
+        <SectionHeader
+          eyebrow="See the agents in action"
+          title="Demo Scenarios"
+          action={
+            <Link
+              href="/agents"
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              View all agents
+            </Link>
+          }
+        />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {DEMO_SCENARIOS.map((s) => (
+            <ScenarioCard
+              key={s.id}
+              scenario={s}
+              href={chatPromptHref(s.prompt)}
+            />
+          ))}
         </div>
       </div>
 

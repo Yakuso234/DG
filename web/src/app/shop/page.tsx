@@ -10,6 +10,8 @@ import { ProductGridCard, type ShopProduct } from "@/components/shop/product-gri
 import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { categoryImageUrl } from "@/lib/images";
+import { DEMO_SCENARIOS, shopAssistantHref } from "@/lib/scenarios";
+import { ScenarioCard } from "@/components/demo/scenario-card";
 
 export default function ShopHome() {
   const reduce = useReducedMotion();
@@ -62,6 +64,29 @@ export default function ShopHome() {
           </div>
         </div>
       </section>
+
+      {/* Demo scenarios — visible without login */}
+      <div className="border-b bg-muted/30">
+        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+          <SectionHeader
+            eyebrow="See it in action"
+            title="Try a scenario"
+          />
+          <p className="mb-6 max-w-xl text-sm text-muted-foreground">
+            Each prompt exercises a different set of specialist agents. Click any
+            card to open the AI assistant with the prompt prefilled.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {DEMO_SCENARIOS.map((s) => (
+              <ScenarioCard
+                key={s.id}
+                scenario={s}
+                href={shopAssistantHref(s.prompt)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="mx-auto max-w-7xl space-y-12 px-4 py-12 sm:px-6">
         {/* Categories */}
