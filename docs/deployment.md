@@ -24,8 +24,8 @@ The platform runs 11 services organized into 4 profile groups. Services without 
 
 ```mermaid
 graph TB
-    subgraph default["Default (always start)"]
-        style default fill:#f8fafc,stroke:#e2e8f0,stroke-width:2px
+    subgraph defaultGroup["Default (always start)"]
+        style defaultGroup fill:#f8fafc,stroke:#e2e8f0,stroke-width:2px
         db["PostgreSQL 16 + pgvector<br/>:5432"]
         redis["Redis 7<br/>:6379"]
         aspire["Aspire Dashboard<br/>:18888"]
