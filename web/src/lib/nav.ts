@@ -8,6 +8,7 @@ import {
   BarChart3,
   Shield,
   ScrollText,
+  Bot,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,6 +37,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Home", href: "/home", icon: LayoutDashboard },
       { label: "Chat", href: "/chat", icon: MessageSquare },
+      { label: "Agents", href: "/agents", icon: Bot },
       { label: "Products", href: "/products", icon: ShoppingBag },
       { label: "Cart", href: "/cart", icon: ShoppingCart, cartBadge: true },
       { label: "Orders", href: "/orders", icon: Package },

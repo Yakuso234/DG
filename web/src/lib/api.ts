@@ -364,6 +364,12 @@ class ApiClient {
     });
   }
 
+  getAgentStats() {
+    return this.request<
+      { agent_name: string; request_count: number; avg_duration_ms: number; total_tokens: number }[]
+    >("/api/agents/stats");
+  }
+
   getUsageStats() {
     return this.request<any>("/api/admin/usage");
   }

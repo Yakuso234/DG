@@ -989,6 +989,31 @@ async def deny_request(
     return {"status": "denied", "request_id": request_id}
 
 
+@router.get("/api/agents/stats")
+async def get_agent_stats(user: dict[str, Any] = Depends(require_auth)) -> list[dict[str, Any]]:
+    """Per-agent aggregate stats for the last 30 days (all authenticated users)."""
+    pool = get_pool()
+    rows = await pool.fetch(
+        """SELECT
+               agent_name,
+               COUNT(*) as request_count,
+               AVG(duration_ms)::integer as avg_duration_ms,
+               COALESCE(SUM(tokens_in) + SUM(tokens_out), 0) as total_tokens
+           FROM usage_logs
+           WHERE created_at >= NOW() - INTERVAL '30 days'
+           GROUP BY agent_name""",
+    )
+    return [
+        {
+            "agent_name": r["agent_name"],
+            "request_count": r["request_count"],
+            "avg_duration_ms": r["avg_duration_ms"] or 0,
+            "total_tokens": int(r["total_tokens"] or 0),
+        }
+        for r in rows
+    ]
+
+
 @router.get("/api/admin/usage")
 async def get_usage_stats(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     """Get aggregate usage statistics (admin only)."""

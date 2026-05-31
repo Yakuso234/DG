@@ -7,13 +7,12 @@ describe("visibleGroups", () => {
     const labels = groups.flatMap((g) => g.items.map((i) => i.label));
     expect(labels).toContain("Home");
     expect(labels).toContain("Chat");
+    expect(labels).toContain("Agents"); // visible to all authenticated users
     expect(labels).toContain("Profile");
     expect(labels).not.toContain("Usage"); // adminOnly
     expect(labels).not.toContain("Seller"); // sellerOnly
-    // no agent marketplace exists anymore
     expect(labels).not.toContain("Marketplace");
     expect(groups.find((g) => g.label === "Admin")).toBeUndefined();
-    expect(groups.find((g) => g.label === "Agents")).toBeUndefined();
   });
 
   it("shows seller items to a seller but not admin items", () => {
@@ -43,6 +42,7 @@ describe("labelForPath", () => {
   it("matches nested detail routes to their parent item", () => {
     expect(labelForPath("/orders/abc-123")).toBe("Orders");
     expect(labelForPath("/products/p1")).toBe("Products");
+    expect(labelForPath("/agents/product-discovery")).toBe("Agents");
   });
 
   it("falls back to Home for unknown paths", () => {
