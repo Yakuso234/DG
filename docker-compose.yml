@@ -189,6 +189,49 @@ services:
       OTEL_SERVICE_NAME: ecommerce.inventory-fulfillment
     profiles: ["agents"]
 
+  # ── MCP Servers (optional — enable with MCP_ENABLED=true) ──────
+
+  # Product Discovery MCP server — exposes product search, details,
+  # comparison, trending, and price history via MCP streamable HTTP.
+  mcp-product:
+    build:
+      context: ./agents/python
+      args:
+        AGENT_NAME: orchestrator   # reuses the same image; CMD overridden below
+        AGENT_PORT: 9000
+    command: uv run uvicorn mcp_servers.product_server:app --host 0.0.0.0 --port 9000
+    ports: ["9000:9000"]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/mcp || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    profiles: ["mcp"]
+
+  # Inventory & Fulfillment MCP server — stock, warehouses, shipping, carriers.
+  mcp-inventory:
+    build:
+      context: ./agents/python
+      args:
+        AGENT_NAME: orchestrator
+        AGENT_PORT: 9001
+    command: uv run uvicorn mcp_servers.inventory_server:app --host 0.0.0.0 --port 9001
+    ports: ["9001:9001"]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9001/mcp || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    profiles: ["mcp"]
+
   # ── Frontend ────────────────────────────────────────────────
 
   frontend:

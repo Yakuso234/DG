@@ -73,11 +73,11 @@ export default function SellerProductsPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <Package className="mx-auto size-12 text-slate-300" />
-          <h2 className="mt-4 text-lg font-semibold text-slate-800">
+          <Package className="mx-auto size-12 text-muted-foreground" />
+          <h2 className="mt-4 text-lg font-semibold text-foreground">
             Access Denied
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Product management is only available to sellers and admins.
           </p>
         </div>
@@ -86,20 +86,20 @@ export default function SellerProductsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-                <Package className="size-5 text-white" />
+              <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+                <Package className="size-5 text-primary-foreground" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900">
+                <h1 className="text-2xl font-bold text-foreground">
                   My Products
                 </h1>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-muted-foreground">
                   {products.length} products in your catalog
                 </p>
               </div>
@@ -108,7 +108,7 @@ export default function SellerProductsPage() {
             <Dialog>
               <DialogTrigger
                 render={
-                  <Button className="bg-teal-600 text-white hover:bg-teal-700" />
+                  <Button className="bg-primary text-primary-foreground hover:opacity-90" />
                 }
               >
                 <Plus className="mr-2 size-4" />
@@ -136,13 +136,13 @@ export default function SellerProductsPage() {
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-slate-400" />
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
         )}
 
         {/* Error */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -150,8 +150,8 @@ export default function SellerProductsPage() {
         {/* Empty */}
         {!loading && !error && products.length === 0 && (
           <div className="py-20 text-center">
-            <Package className="mx-auto size-10 text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">
+            <Package className="mx-auto size-10 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
               You have no products yet.
             </p>
           </div>
@@ -185,15 +185,15 @@ export default function SellerProductsPage() {
                         <img
                           src={productImageUrl(product.id, 48, 48, product.image_url, product.category)}
                           alt={product.name}
-                          className="size-10 rounded-md object-cover bg-slate-100"
+                          className="size-10 rounded-md object-cover bg-muted"
                         />
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="font-medium text-slate-800">
+                          <p className="font-medium text-foreground">
                             {product.name}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-muted-foreground">
                             {product.brand}
                           </p>
                         </div>
@@ -205,12 +205,12 @@ export default function SellerProductsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div>
-                          <span className="font-medium text-slate-800">
+                          <span className="font-medium text-foreground">
                             {formatPrice(product.price)}
                           </span>
                           {product.original_price &&
                             product.original_price > product.price && (
-                              <span className="ml-1 text-xs text-slate-400 line-through">
+                              <span className="ml-1 text-xs text-muted-foreground line-through">
                                 {formatPrice(product.original_price)}
                               </span>
                             )}
@@ -220,7 +220,7 @@ export default function SellerProductsPage() {
                         <span className="flex items-center justify-end gap-1 text-xs">
                           <Star className="size-3 fill-amber-400 text-amber-400" />
                           {product.rating?.toFixed(1) ?? "N/A"}
-                          <span className="text-slate-400">
+                          <span className="text-muted-foreground">
                             ({product.review_count ?? 0})
                           </span>
                         </span>

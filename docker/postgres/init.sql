@@ -339,6 +339,29 @@ CREATE TABLE agent_execution_steps (
 );
 
 -- ============================================================
+-- TOOL-LEVEL HITL APPROVAL QUEUE
+-- (distinct from hitl_requests which is used by the WorkflowBuilder HITL)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS tool_approval_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID,
+    user_email VARCHAR(255) NOT NULL,
+    agent_name VARCHAR(100) NOT NULL,
+    tool_name VARCHAR(255) NOT NULL,
+    tool_input JSONB NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending',  -- pending, approved, denied, executed
+    admin_note TEXT,
+    approved_by VARCHAR(255),
+    execution_result JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_approvals_status ON tool_approval_requests(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_approvals_user ON tool_approval_requests(user_email, created_at DESC);
+
+-- ============================================================
 -- INDEXES
 -- ============================================================
 

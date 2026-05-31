@@ -15,12 +15,12 @@ with MAF native execution — see
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -194,10 +194,18 @@ def create_agent_app(
                 if session_id:
                     history = await _rehydrate_history_from_session(session_id)
 
+            from shared.agent_observability import get_steps, reset_steps
             from shared.telemetry import agent_run_span
+
+            reset_steps()
             with agent_run_span(agent_name):
                 response_text = await _run_agent_native(agent, message, history=history)
-            return {"response": response_text}
+            # Return this specialist's captured tool steps so the orchestrator
+            # can merge them into the live agentic timeline.
+            steps = get_steps()
+            for step in steps:
+                step["agent"] = agent_name
+            return {"response": response_text, "steps": steps}
 
         except Exception:
             logger.exception("%s.message_error", agent_name)
@@ -205,5 +213,49 @@ def create_agent_app(
                 {"error": "Agent processing failed"},
                 status_code=500,
             )
+
+    @app.post("/message:stream")
+    async def message_stream(request: Request) -> StreamingResponse:
+        """SSE streaming endpoint — same contract as /message:send but streams
+        response tokens as they are generated.  The orchestrator's
+        ``call_specialist_agent`` connects here when a streaming SSE context is
+        active, forwarding chunks to the browser in real time rather than waiting
+        for the full specialist response.
+        """
+        try:
+            body = await request.json()
+            message = body.get("message", "")
+            if not message:
+                return StreamingResponse(
+                    iter(["data: [ERROR: no message]\n\n"]),
+                    media_type="text/event-stream",
+                )
+            history = body.get("history", None)
+            if not history:
+                session_id = request.headers.get("x-session-id", "")
+                if session_id:
+                    history = await _rehydrate_history_from_session(session_id)
+        except Exception:
+            logger.exception("%s.message_stream_parse_error", agent_name)
+            return StreamingResponse(
+                iter(["data: [ERROR: bad request]\n\n"]),
+                media_type="text/event-stream",
+            )
+
+        from shared.agent_observability import reset_steps
+        from shared.telemetry import agent_run_span
+
+        async def _generate():
+            reset_steps()
+            with agent_run_span(agent_name):
+                try:
+                    async for chunk in _run_agent_native_stream(agent, message, history=history):
+                        yield f"data: {chunk}\n\n"
+                except Exception:
+                    logger.exception("%s.message_stream_error", agent_name)
+                    yield "data: [ERROR: agent processing failed]\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(_generate(), media_type="text/event-stream")
 
     return app

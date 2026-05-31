@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { CartProvider } from "@/lib/cart-context";
 import { DesktopSidebar, MobileSidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/top-bar";
+import { CommandPalette } from "@/components/command-palette";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -32,6 +34,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <CartProvider>
+      <CommandPalette />
       <div className="flex h-screen overflow-hidden">
         <DesktopSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -40,6 +43,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <MobileSidebar />
             <span className="text-sm font-semibold">E-Commerce Agents</span>
           </header>
+          {/* Desktop top bar */}
+          <TopBar />
           {/* Main content */}
           <main className="flex-1 overflow-y-auto">{children}</main>
         </div>

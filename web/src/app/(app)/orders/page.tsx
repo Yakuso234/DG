@@ -131,13 +131,13 @@ function OrderCardSkeleton() {
     <Card className="animate-pulse">
       <CardContent className="space-y-3 py-4">
         <div className="flex items-center justify-between">
-          <div className="h-4 w-32 rounded bg-slate-200" />
-          <div className="h-5 w-20 rounded-full bg-slate-200" />
+          <div className="h-4 w-32 rounded bg-muted" />
+          <div className="h-5 w-20 rounded-full bg-muted" />
         </div>
-        <div className="h-3 w-48 rounded bg-slate-200" />
+        <div className="h-3 w-48 rounded bg-muted" />
         <div className="flex items-center justify-between">
-          <div className="h-4 w-24 rounded bg-slate-200" />
-          <div className="h-4 w-16 rounded bg-slate-200" />
+          <div className="h-4 w-24 rounded bg-muted" />
+          <div className="h-4 w-16 rounded bg-muted" />
         </div>
       </CardContent>
     </Card>
@@ -181,19 +181,19 @@ export default function OrdersPage() {
   if (authLoading || !user) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-teal-600">
-              <ShoppingCart className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary">
+              <ShoppingCart className="size-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 Order History
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 View and track all your orders
               </p>
             </div>
@@ -208,7 +208,7 @@ export default function OrdersPage() {
                 size="sm"
                 className={
                   activeStatus === tab.value
-                    ? "bg-teal-600 text-white hover:bg-teal-700"
+                    ? "bg-primary text-primary-foreground hover:opacity-90"
                     : ""
                 }
                 onClick={() => setActiveStatus(tab.value)}
@@ -224,7 +224,7 @@ export default function OrdersPage() {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Total count */}
         {!loading && !error && orders.length > 0 && (
-          <p className="mb-6 text-sm text-slate-500">{total} orders</p>
+          <p className="mb-6 text-sm text-muted-foreground">{total} orders</p>
         )}
 
         {/* Loading */}
@@ -238,7 +238,7 @@ export default function OrdersPage() {
 
         {/* Error */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -246,8 +246,8 @@ export default function OrdersPage() {
         {/* Empty state */}
         {!loading && !error && orders.length === 0 && (
           <div className="py-20 text-center">
-            <ShoppingCart className="mx-auto size-10 text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">
+            <ShoppingCart className="mx-auto size-10 text-muted-foreground" />
+            <p className="mt-3 text-sm text-muted-foreground">
               {activeStatus
                 ? `No ${activeStatus} orders found.`
                 : "No orders yet."}
@@ -283,7 +283,7 @@ export default function OrdersPage() {
                       {/* Left section */}
                       <div className="flex-1 space-y-2">
                         <div className="flex flex-wrap items-center gap-3">
-                          <span className="font-mono text-sm font-medium text-slate-800">
+                          <span className="font-mono text-sm font-medium text-foreground">
                             #{order.id}
                           </span>
                           <Badge
@@ -295,7 +295,7 @@ export default function OrdersPage() {
                           </Badge>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
+                        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                           <span>{formatDate(order.date)}</span>
                           <span>
                             {order.item_count} item
@@ -317,10 +317,10 @@ export default function OrdersPage() {
 
                       {/* Right section */}
                       <div className="flex items-center gap-3">
-                        <span className="text-lg font-bold text-slate-900">
+                        <span className="text-lg font-bold text-foreground">
                           {formatPrice(order.total)}
                         </span>
-                        <ChevronRight className="size-5 text-slate-300" />
+                        <ChevronRight className="size-5 text-muted-foreground" />
                       </div>
                     </div>
                   </CardContent>

@@ -84,6 +84,29 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "ecommerce"
     GENAI_CAPTURE_CONTENT: bool = False
 
+    # ── Langfuse (optional parallel OTel sink) ───────────────────────
+    # When enabled, traces are sent to Langfuse alongside the Aspire sink.
+    # Requires a Langfuse account; free tier is sufficient for a demo.
+    LANGFUSE_ENABLED: bool = False
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
+    # ── HITL (Human-in-the-Loop) approval queue ─────────────────────
+    # When enabled, high-stakes tools (cancel_order, process_refund,
+    # initiate_return, modify_order, place_backorder) require admin approval
+    # before executing. Requests queue in the hitl_requests DB table and are
+    # reviewed at /admin/approvals.
+    HITL_ENABLED: bool = True
+
+    # ── MCP integration (optional, flag-gated) ──────────────────────
+    # When enabled, specialist agents connect to MCP servers for their data
+    # layer instead of calling asyncpg directly. MCP servers must be running
+    # at the configured URLs. Both modes are semantically equivalent.
+    MCP_ENABLED: bool = False
+    MCP_PRODUCT_SERVER_URL: str = "http://localhost:9000/mcp"
+    MCP_INVENTORY_SERVER_URL: str = "http://localhost:9001/mcp"
+
     # ── General ─────────────────────────────────────────────────────
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
@@ -132,6 +155,33 @@ class Settings(BaseSettings):
 
     # When true, CI regenerates docs/workflows/*.mmd and fails on drift.
     WORKFLOW_VISUALIZATION_ON_BUILD: bool = False
+
+    # ── Guardrails (Track A — security) ─────────────────────────────
+    # Master switch for the code-layer guardrails (output sanitization,
+    # injection detection, role enforcement). Safe default: on.
+    GUARDRAILS_ENABLED: bool = True
+
+    # Neutralize stored / indirect injection in tool outputs before they
+    # re-enter the model.
+    GUARDRAILS_OUTPUT_SANITIZATION: bool = True
+
+    # Observe-only by default: guardrail failures log and continue, and the
+    # inbound injection detector counts without blocking. Flip to False (with
+    # GUARDRAILS_BLOCK_ON_INJECTION) once the false-positive rate is measured.
+    GUARDRAILS_FAIL_OPEN: bool = True
+
+    # When True, the inbound injection detector refuses the run instead of
+    # only logging. Independent of FAIL_OPEN so you can block injection while
+    # keeping sanitization non-raising.
+    GUARDRAILS_BLOCK_ON_INJECTION: bool = False
+
+    # When True, validate forwarded x-user-email / x-user-role on the
+    # inter-agent path and reject on anomaly (not just log).
+    GUARDRAILS_STRICT_IDENTITY: bool = False
+
+    # Inbound injection-detection provider: "regex" (default, zero-dependency)
+    # or "azure_content_safety" (Azure AI Content Safety — Prompt Shields).
+    GUARDRAILS_INJECTION_PROVIDER: str = "regex"
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

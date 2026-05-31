@@ -24,7 +24,8 @@ from shared.jwt_utils import (
     hash_password,
     verify_password,
 )
-from shared.usage_db import UsageTimer, log_agent_usage
+from shared.usage_db import UsageTimer, log_agent_usage, log_execution_step
+from shared.agent_observability import reset_steps, get_steps
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,24 @@ async def require_auth(request: Request) -> dict[str, Any]:
     current_session_id.set(request.headers.get("x-session-id", ""))
 
     return payload
+
+
+async def optional_auth(request: Request) -> dict[str, Any]:
+    """Like ``require_auth`` but allows anonymous access for public storefront
+    endpoints (product browse + product-discovery chat).
+
+    - Valid Bearer token  → returns the JWT payload, sets identity ContextVars.
+    - No Authorization     → returns an anonymous identity (``anonymous=True``),
+      sets empty ContextVars. Account-bound tools degrade gracefully.
+    - Present-but-invalid  → still 401 (delegated to ``require_auth``).
+    """
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        current_user_email.set("")
+        current_user_role.set("anonymous")
+        current_session_id.set(request.headers.get("x-session-id", ""))
+        return {"sub": "", "role": "anonymous", "user_id": "", "anonymous": True}
+    return await require_auth(request)
 
 
 async def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
@@ -272,83 +291,75 @@ async def refresh_token(body: RefreshRequest) -> dict[str, str]:
 
 
 @router.post("/api/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, user: dict[str, Any] = Depends(require_auth)) -> ChatResponse:
-    """Main chat endpoint — sends message to the orchestrator agent."""
-    from orchestrator.agent import create_orchestrator_agent
+async def chat(body: ChatRequest, user: dict[str, Any] = Depends(optional_auth)) -> ChatResponse:
+    """Main chat endpoint — sends message to the orchestrator agent.
 
+    Anonymous (storefront) callers get product-discovery only: no conversation is
+    created or persisted and no user context is loaded. Account-bound tools
+    degrade gracefully (the agent asks the user to sign in).
+    """
     pool = get_pool()
     user_email = user.get("sub", "")
     user_id = user.get("user_id", "")
+    is_anon = user.get("anonymous", False)
 
-    # Resolve or create conversation
     conversation_id = body.conversation_id
-    if conversation_id:
-        # Verify conversation belongs to this user
-        conv = await pool.fetchrow(
-            """SELECT id FROM conversations
-               WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+    history: list[dict[str, str]] = []
+
+    if not is_anon:
+        # Resolve or create conversation
+        if conversation_id:
+            conv = await pool.fetchrow(
+                """SELECT id FROM conversations
+                   WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+                conversation_id,
+                user_id,
+            )
+            if not conv:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        else:
+            title = body.message[:100] if len(body.message) > 100 else body.message
+            row = await pool.fetchrow(
+                """INSERT INTO conversations (user_id, title)
+                   VALUES ($1, $2)
+                   RETURNING id""",
+                user_id,
+                title,
+            )
+            conversation_id = str(row["id"])
+
+        # Save user message
+        await pool.execute(
+            """INSERT INTO messages (conversation_id, role, content, agent_name)
+               VALUES ($1, 'user', $2, NULL)""",
             conversation_id,
-            user_id,
+            body.message,
         )
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    else:
-        # Create new conversation with first message as title
-        title = body.message[:100] if len(body.message) > 100 else body.message
-        row = await pool.fetchrow(
-            """INSERT INTO conversations (user_id, title)
-               VALUES ($1, $2)
-               RETURNING id""",
-            user_id,
-            title,
+
+        # Load conversation history for context
+        history_rows = await pool.fetch(
+            """SELECT role, content FROM messages
+               WHERE conversation_id = $1
+               ORDER BY created_at ASC
+               LIMIT 50""",
+            conversation_id,
         )
-        conversation_id = str(row["id"])
+        history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
 
-    # Save user message
-    await pool.execute(
-        """INSERT INTO messages (conversation_id, role, content, agent_name)
-           VALUES ($1, 'user', $2, NULL)""",
-        conversation_id,
-        body.message,
-    )
+        # Fetch user context (profile + recent orders) for the agent — injected
+        # via the ECommerceContextProvider chain (shared/context_providers.py).
+        user_row = await pool.fetchrow(
+            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
+        )
+        if user_row:
+            recent_orders = await pool.fetch(
+                """SELECT o.id, o.status, o.total, o.created_at
+                   FROM orders o JOIN users u ON o.user_id = u.id
+                   WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
+                user_email,
+            )
+            _ = recent_orders  # context injected via ContextProvider
 
-    # Load conversation history for context
-    history_rows = await pool.fetch(
-        """SELECT role, content FROM messages
-           WHERE conversation_id = $1
-           ORDER BY created_at ASC
-           LIMIT 50""",
-        conversation_id,
-    )
-    history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
-
-    # Fetch user context (profile + recent orders) for the agent
-    user_row = await pool.fetchrow(
-        "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
-    )
-    user_context_lines = []
-    if user_row:
-        user_context_lines.append(f"Logged-in user: {user_row['name']} ({user_email})")
-        user_context_lines.append(f"Role: {user_row['role']}, Loyalty: {user_row['loyalty_tier']}, Total spend: ${user_row['total_spend']:.2f}")
-    recent_orders = await pool.fetch(
-        """SELECT o.id, o.status, o.total, o.created_at
-           FROM orders o JOIN users u ON o.user_id = u.id
-           WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
-        user_email,
-    )
-    if recent_orders:
-        user_context_lines.append(f"Recent orders ({len(recent_orders)}):")
-        for o in recent_orders:
-            user_context_lines.append(f"  - Order {o['id']} | {o['status']} | ${o['total']:.2f} | {o['created_at'].strftime('%Y-%m-%d')}")
-    user_context = "\n".join(user_context_lines) if user_context_lines else None
-
-    # Call the orchestrator agent via MAF-native execution. The Agent
-    # already owns its tools + instructions + context providers, and the
-    # ECommerceContextProvider chain injects user_context (profile +
-    # recent orders) into state before each run — see
-    # shared/context_providers.py. _user_context is retained for telemetry
-    # only.
-    _ = user_context  # context is injected via ContextProvider, kept for symmetry
     from orchestrator.agent import create_orchestrator_agent
     from shared.agent_host import _run_agent_native
     from shared.telemetry import agent_run_span
@@ -367,109 +378,107 @@ async def chat(body: ChatRequest, user: dict[str, Any] = Depends(require_auth)) 
                 logger.exception("chat.agent_error user=%s conversation=%s", user_email, conversation_id)
                 response_text = "I apologize, but I encountered an issue processing your request. Please try again."
 
-    # Save assistant message
-    await pool.execute(
-        """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
-           VALUES ($1, 'assistant', $2, 'orchestrator', $3)""",
-        conversation_id,
-        response_text,
-        agents_involved,
-    )
-
-    # Update conversation timestamp
-    await pool.execute(
-        "UPDATE conversations SET last_message_at = NOW() WHERE id = $1",
-        conversation_id,
-    )
-
-    # Log usage (fire-and-forget, errors are swallowed)
-    await log_agent_usage(
-        user_id=user_id,
-        agent_name="orchestrator",
-        input_summary=body.message,
-        duration_ms=timer.duration_ms,
-        tool_calls_count=len(agents_involved) - 1,
-    )
+    if not is_anon:
+        # Save assistant message + update conversation + usage (authed only)
+        await pool.execute(
+            """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
+               VALUES ($1, 'assistant', $2, 'orchestrator', $3)""",
+            conversation_id,
+            response_text,
+            agents_involved,
+        )
+        await pool.execute(
+            "UPDATE conversations SET last_message_at = NOW() WHERE id = $1",
+            conversation_id,
+        )
+        await log_agent_usage(
+            user_id=user_id,
+            agent_name="orchestrator",
+            input_summary=body.message,
+            duration_ms=timer.duration_ms,
+            tool_calls_count=len(agents_involved) - 1,
+        )
 
     return ChatResponse(
         response=response_text,
-        conversation_id=conversation_id,
+        conversation_id=conversation_id or "",
         agents_involved=agents_involved,
     )
 
 
 @router.post("/api/chat/stream")
-async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] = Depends(require_auth)):
-    """Streaming chat endpoint — sends SSE events as the agent generates tokens."""
+async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] = Depends(optional_auth)):
+    """Streaming chat endpoint — sends SSE events as the agent generates tokens.
+
+    Anonymous (storefront) callers get product-discovery only: nothing is
+    persisted and no user context is loaded.
+    """
+    import asyncio as _asyncio
     from orchestrator.agent import create_orchestrator_agent
     from shared.agent_host import _run_agent_native_stream
+    from shared.context import current_stream_queue
 
     pool = get_pool()
     user_email = user.get("sub", "")
     user_id = user.get("user_id", "")
+    is_anon = user.get("anonymous", False)
 
-    # Resolve or create conversation
     conversation_id = body.conversation_id
-    if conversation_id:
-        conv = await pool.fetchrow(
-            """SELECT id FROM conversations
-               WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+    history: list[dict[str, str]] = []
+
+    if not is_anon:
+        # Resolve or create conversation
+        if conversation_id:
+            conv = await pool.fetchrow(
+                """SELECT id FROM conversations
+                   WHERE id = $1 AND user_id = $2 AND is_active = TRUE""",
+                conversation_id,
+                user_id,
+            )
+            if not conv:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        else:
+            title = body.message[:100] if len(body.message) > 100 else body.message
+            row = await pool.fetchrow(
+                """INSERT INTO conversations (user_id, title)
+                   VALUES ($1, $2)
+                   RETURNING id""",
+                user_id,
+                title,
+            )
+            conversation_id = str(row["id"])
+
+        # Save user message
+        await pool.execute(
+            """INSERT INTO messages (conversation_id, role, content, agent_name)
+               VALUES ($1, 'user', $2, NULL)""",
             conversation_id,
-            user_id,
+            body.message,
         )
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    else:
-        title = body.message[:100] if len(body.message) > 100 else body.message
-        row = await pool.fetchrow(
-            """INSERT INTO conversations (user_id, title)
-               VALUES ($1, $2)
-               RETURNING id""",
-            user_id,
-            title,
+
+        # Load conversation history
+        history_rows = await pool.fetch(
+            """SELECT role, content FROM messages
+               WHERE conversation_id = $1
+               ORDER BY created_at ASC
+               LIMIT 50""",
+            conversation_id,
         )
-        conversation_id = str(row["id"])
+        history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
 
-    # Save user message
-    await pool.execute(
-        """INSERT INTO messages (conversation_id, role, content, agent_name)
-           VALUES ($1, 'user', $2, NULL)""",
-        conversation_id,
-        body.message,
-    )
+        # Fetch user context — injected via the ECommerceContextProvider chain.
+        user_row = await pool.fetchrow(
+            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
+        )
+        if user_row:
+            recent_orders = await pool.fetch(
+                """SELECT o.id, o.status, o.total, o.created_at
+                   FROM orders o JOIN users u ON o.user_id = u.id
+                   WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
+                user_email,
+            )
+            _ = recent_orders
 
-    # Load conversation history
-    history_rows = await pool.fetch(
-        """SELECT role, content FROM messages
-           WHERE conversation_id = $1
-           ORDER BY created_at ASC
-           LIMIT 50""",
-        conversation_id,
-    )
-    history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
-
-    # Fetch user context
-    user_row = await pool.fetchrow(
-        "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
-    )
-    user_context_lines: list[str] = []
-    if user_row:
-        user_context_lines.append(f"Logged-in user: {user_row['name']} ({user_email})")
-        user_context_lines.append(f"Role: {user_row['role']}, Loyalty: {user_row['loyalty_tier']}, Total spend: ${user_row['total_spend']:.2f}")
-    recent_orders = await pool.fetch(
-        """SELECT o.id, o.status, o.total, o.created_at
-           FROM orders o JOIN users u ON o.user_id = u.id
-           WHERE u.email = $1 ORDER BY o.created_at DESC LIMIT 5""",
-        user_email,
-    )
-    if recent_orders:
-        user_context_lines.append(f"Recent orders ({len(recent_orders)}):")
-        for o in recent_orders:
-            user_context_lines.append(f"  - Order {o['id']} | {o['status']} | ${o['total']:.2f} | {o['created_at'].strftime('%Y-%m-%d')}")
-    user_context = "\n".join(user_context_lines) if user_context_lines else None
-
-    # See chat() — same reasoning: Agent owns tools / prompt / providers.
-    _ = user_context  # injected via ContextProvider, unused here
     agent = create_orchestrator_agent()
     agents_involved: list[str] = ["orchestrator"]
     current_conversation_history.set(history)
@@ -477,11 +486,14 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
     async def event_generator() -> AsyncGenerator[str, None]:
         """Yield SSE-formatted events from the streaming agent response.
 
-        Audit fix #9: every chunk is gated on three checks before it
-        ships to the wire — wall-clock budget, accumulator-byte ceiling,
-        and client-disconnect probe. None of them existed before, so a
-        slow client or a runaway model could pin a Starlette worker
-        and grow the in-memory transcript without bound.
+        Architecture: orchestrator LLM chunks AND specialist response chunks
+        all flow through a single asyncio.Queue so the browser sees tokens
+        from both tiers in real time — no silent gap during specialist calls.
+
+        Queue item shapes:
+          ("text",  chunk)               — orchestrator LLM token
+          ("delta", agent_name, chunk)   — specialist streamed token
+          None                           — sentinel: agent run finished
         """
         from shared.telemetry import agent_run_span
         from shared.config import settings
@@ -493,32 +505,63 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
         deadline = start_time + float(settings.MAF_STREAM_TIMEOUT_SECONDS)
         max_bytes = int(settings.MAF_STREAM_MAX_BYTES)
 
-        with agent_run_span("orchestrator"):
-            try:
-                async for chunk in _run_agent_native_stream(
-                    agent,
-                    body.message,
-                    history=history,
-                ):
-                    if await request.is_disconnected():
-                        logger.info(
-                            "chat_stream.client_disconnected conversation=%s elapsed_ms=%d",
-                            conversation_id,
-                            int((time.monotonic() - start_time) * 1000),
-                        )
-                        break
-                    if time.monotonic() > deadline:
-                        logger.warning(
-                            "chat_stream.timeout conversation=%s budget_s=%s",
-                            conversation_id,
-                            settings.MAF_STREAM_TIMEOUT_SECONDS,
-                        )
-                        timeout_msg = (
-                            " [stream timed out — the agent took too long; please retry]"
-                        )
-                        full_response.append(timeout_msg)
-                        yield f"data: {timeout_msg}\n\n"
-                        break
+        # Shared queue: orchestrator LLM chunks + specialist streaming chunks.
+        queue: _asyncio.Queue = _asyncio.Queue()
+        current_stream_queue.set(queue)
+
+        async def _run_agent_task() -> None:
+            reset_steps()
+            with agent_run_span("orchestrator"):
+                try:
+                    async for chunk in _run_agent_native_stream(
+                        agent, body.message, history=history
+                    ):
+                        await queue.put(("text", chunk))
+                except Exception:
+                    logger.exception(
+                        "chat_stream.agent_error user=%s conversation=%s",
+                        user_email,
+                        conversation_id,
+                    )
+                    error_msg = "I apologize, but I encountered an issue. Please try again."
+                    await queue.put(("text", error_msg))
+            await queue.put(None)  # sentinel
+
+        agent_task = _asyncio.create_task(_run_agent_task())
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    logger.info(
+                        "chat_stream.client_disconnected conversation=%s elapsed_ms=%d",
+                        conversation_id,
+                        int((time.monotonic() - start_time) * 1000),
+                    )
+                    agent_task.cancel()
+                    break
+
+                if time.monotonic() > deadline:
+                    logger.warning(
+                        "chat_stream.timeout conversation=%s budget_s=%s",
+                        conversation_id,
+                        settings.MAF_STREAM_TIMEOUT_SECONDS,
+                    )
+                    timeout_msg = " [stream timed out — please retry]"
+                    full_response.append(timeout_msg)
+                    yield f"data: {timeout_msg}\n\n"
+                    agent_task.cancel()
+                    break
+
+                try:
+                    item = await _asyncio.wait_for(queue.get(), timeout=0.1)
+                except _asyncio.TimeoutError:
+                    continue
+
+                if item is None:
+                    break
+
+                if item[0] == "text":
+                    chunk: str = item[1]
                     if not truncated:
                         chunk_bytes = len(chunk.encode("utf-8"))
                         if full_bytes + chunk_bytes > max_bytes:
@@ -526,43 +569,83 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
                             marker = " [response truncated at limit]"
                             full_response.append(marker)
                             yield f"data: {marker}\n\n"
-                            continue
-                        full_bytes += chunk_bytes
-                        full_response.append(chunk)
-                        yield f"data: {chunk}\n\n"
+                        else:
+                            full_bytes += chunk_bytes
+                            full_response.append(chunk)
+                            yield f"data: {chunk}\n\n"
 
-            except Exception:
-                logger.exception("chat_stream.agent_error user=%s conversation=%s", user_email, conversation_id)
-                error_msg = "I apologize, but I encountered an issue processing your request. Please try again."
-                full_response.append(error_msg)
-                yield f"data: {error_msg}\n\n"
+                elif item[0] == "delta":
+                    # Specialist token — forward immediately to the browser.
+                    # These appear during the "tool call gap" so the user sees
+                    # a continuous stream rather than silence.
+                    _agent_src: str = item[1]
+                    delta_chunk: str = item[2]
+                    full_response.append(delta_chunk)
+                    yield f"event: delta\ndata: {delta_chunk}\n\n"
 
-        # Send metadata and termination event
+        finally:
+            if not agent_task.done():
+                agent_task.cancel()
+            try:
+                await agent_task
+            except _asyncio.CancelledError:
+                pass
+
         response_text = "".join(full_response)
+
+        # Drain captured tool steps → timeline frames + agents_involved.
+        steps = get_steps()
+        for s in steps:
+            s.setdefault("agent", "orchestrator")
+        agents_involved[:] = list(
+            dict.fromkeys(["orchestrator", *[s.get("agent", "orchestrator") for s in steps]])
+        )
+        for s in steps:
+            yield f"event: step\ndata: {json.dumps(s, default=str)}\n\n"
+
         yield f"event: metadata\ndata: {json.dumps({"conversation_id": conversation_id, "agents_involved": agents_involved})}\n\n"
         yield "data: [DONE]\n\n"
 
-        # Persist assistant message and update conversation (fire-and-forget)
+        # Persist assistant message + timeline — authed only (anonymous
+        # storefront chat has no conversation to write to).
+        if is_anon:
+            return
         try:
+            metadata = {"steps": steps[:50], "agents_involved": agents_involved}
             await pool.execute(
-                """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved)
-                   VALUES ($1, 'assistant', $2, 'orchestrator', $3)""",
+                """INSERT INTO messages (conversation_id, role, content, agent_name, agents_involved, metadata)
+                   VALUES ($1, 'assistant', $2, 'orchestrator', $3, $4::jsonb)""",
                 conversation_id,
                 response_text,
                 agents_involved,
+                json.dumps(metadata, default=str),
             )
             await pool.execute(
                 "UPDATE conversations SET last_message_at = NOW() WHERE id = $1",
                 conversation_id,
             )
             duration_ms = int((time.monotonic() - start_time) * 1000)
-            await log_agent_usage(
+            usage_log_id = await log_agent_usage(
                 user_id=user_id,
                 agent_name="orchestrator",
+                session_id=conversation_id,
                 input_summary=body.message,
                 duration_ms=duration_ms,
-                tool_calls_count=len(agents_involved) - 1,
+                tool_calls_count=len(steps),
             )
+            if usage_log_id:
+                for idx, s in enumerate(steps):
+                    ti = s.get("tool_input")
+                    to = s.get("tool_output")
+                    await log_execution_step(
+                        usage_log_id=usage_log_id,
+                        step_index=idx,
+                        tool_name=f"{s.get('agent', 'orchestrator')}:{s.get('tool_name', 'tool')}",
+                        tool_input=ti if isinstance(ti, dict) else {"value": ti},
+                        tool_output=to if isinstance(to, dict) else {"value": to},
+                        status=s.get("status", "success"),
+                        duration_ms=s.get("duration_ms", 0),
+                    )
         except Exception:
             logger.exception("chat_stream.persist_error conversation=%s", conversation_id)
 
@@ -952,6 +1035,31 @@ async def deny_request(
     return {"status": "denied", "request_id": request_id}
 
 
+@router.get("/api/agents/stats")
+async def get_agent_stats(user: dict[str, Any] = Depends(require_auth)) -> list[dict[str, Any]]:
+    """Per-agent aggregate stats for the last 30 days (all authenticated users)."""
+    pool = get_pool()
+    rows = await pool.fetch(
+        """SELECT
+               agent_name,
+               COUNT(*) as request_count,
+               AVG(duration_ms)::integer as avg_duration_ms,
+               COALESCE(SUM(tokens_in) + SUM(tokens_out), 0) as total_tokens
+           FROM usage_logs
+           WHERE created_at >= NOW() - INTERVAL '30 days'
+           GROUP BY agent_name""",
+    )
+    return [
+        {
+            "agent_name": r["agent_name"],
+            "request_count": r["request_count"],
+            "avg_duration_ms": r["avg_duration_ms"] or 0,
+            "total_tokens": int(r["total_tokens"] or 0),
+        }
+        for r in rows
+    ]
+
+
 @router.get("/api/admin/usage")
 async def get_usage_stats(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     """Get aggregate usage statistics (admin only)."""
@@ -1031,28 +1139,153 @@ async def get_usage_stats(admin: dict[str, Any] = Depends(require_admin)) -> dic
     }
 
 
+@router.get("/api/admin/hitl/requests")
+async def list_hitl_requests(
+    admin: dict[str, Any] = Depends(require_admin),
+    status: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List HITL approval requests (admin only).
+
+    Query params:
+        status: filter by status (pending, approved, denied, executed). Omit for all.
+        limit: max rows (capped at 200).
+    """
+    from shared.hitl import list_hitl_requests as _list
+    rows = await _list(status=status or None, limit=min(limit, 200))
+    return {"requests": rows, "total": len(rows)}
+
+
+class HITLDecisionBody(BaseModel):
+    note: str | None = None
+
+
+@router.post("/api/admin/hitl/requests/{request_id}/approve")
+async def approve_hitl_request(
+    request_id: str,
+    body: HITLDecisionBody = HITLDecisionBody(),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Approve a pending HITL request and execute the underlying action."""
+    from shared.hitl import get_hitl_request, resolve_hitl_request, execute_approved_action
+
+    req = await get_hitl_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="HITL request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request is already {req['status']}")
+
+    admin_email = admin.get("sub", "admin")
+    result = await execute_approved_action(
+        tool_name=req["tool_name"],
+        tool_input=req["tool_input"],
+        user_email=req["user_email"],
+    )
+
+    updated = await resolve_hitl_request(
+        request_id=request_id,
+        decision="approved",
+        admin_email=admin_email,
+        note=body.note,
+        execution_result=result,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Request was already resolved by another admin")
+
+    logger.info(
+        "hitl.approved request_id=%s tool=%s admin=%s success=%s",
+        request_id,
+        req["tool_name"],
+        admin_email,
+        result.get("success"),
+    )
+    return {"status": "approved", "execution_result": result}
+
+
+@router.post("/api/admin/hitl/requests/{request_id}/deny")
+async def deny_hitl_request(
+    request_id: str,
+    body: HITLDecisionBody = HITLDecisionBody(),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Deny a pending HITL request (no action is taken)."""
+    from shared.hitl import get_hitl_request, resolve_hitl_request
+
+    req = await get_hitl_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="HITL request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request is already {req['status']}")
+
+    admin_email = admin.get("sub", "admin")
+    updated = await resolve_hitl_request(
+        request_id=request_id,
+        decision="denied",
+        admin_email=admin_email,
+        note=body.note,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Request was already resolved by another admin")
+
+    logger.info(
+        "hitl.denied request_id=%s tool=%s admin=%s",
+        request_id,
+        req["tool_name"],
+        admin_email,
+    )
+    return {"status": "denied"}
+
+
 @router.get("/api/admin/audit")
 async def get_audit_log(
     admin: dict[str, Any] = Depends(require_admin),
     limit: int = 50,
     offset: int = 0,
+    agent_name: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
 ) -> dict[str, Any]:
-    """Get recent audit log from usage_logs and execution steps (admin only)."""
-    pool = get_pool()
+    """Get recent audit log from usage_logs and execution steps (admin only).
 
-    # Clamp limit
+    Supports optional filters: agent_name, status (success|error), search (user
+    email or input_summary ILIKE).
+    """
+    pool = get_pool()
     limit = min(limit, 200)
 
+    conditions: list[str] = []
+    args: list[Any] = []
+    idx = 1
+
+    if agent_name:
+        conditions.append(f"ul.agent_name = ${idx}")
+        args.append(agent_name)
+        idx += 1
+
+    if status in ("success", "error"):
+        conditions.append(f"ul.status = ${idx}")
+        args.append(status)
+        idx += 1
+
+    if search:
+        conditions.append(f"(u.email ILIKE ${idx} OR ul.input_summary ILIKE ${idx})")
+        args.append(f"%{search}%")
+        idx += 1
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
     rows = await pool.fetch(
-        """SELECT
+        f"""SELECT
                ul.id, ul.agent_name, ul.input_summary, ul.tokens_in, ul.tokens_out,
                ul.tool_calls_count, ul.duration_ms, ul.status, ul.error_message,
                ul.trace_id, ul.created_at,
                u.email as user_email, u.name as user_name
            FROM usage_logs ul
            LEFT JOIN users u ON ul.user_id::uuid = u.id
+           {where}
            ORDER BY ul.created_at DESC
-           LIMIT $1 OFFSET $2""",
+           LIMIT ${idx} OFFSET ${idx + 1}""",
+        *args,
         limit,
         offset,
     )
@@ -1095,7 +1328,12 @@ async def get_audit_log(
             ],
         })
 
-    total = await pool.fetchval("SELECT COUNT(*) FROM usage_logs")
+    total = await pool.fetchval(
+        f"""SELECT COUNT(*) FROM usage_logs ul
+            LEFT JOIN users u ON ul.user_id::uuid = u.id
+            {where}""",
+        *args,
+    )
 
     return {
         "entries": entries,
@@ -1117,7 +1355,7 @@ async def list_products(
     sort: str = "rating",
     limit: int = 50,
     offset: int = 0,
-    _user: dict = Depends(require_auth),
+    _user: dict = Depends(optional_auth),
 ):
     pool = get_pool()
     safe_limit = clamp_limit(limit, default=50, maximum=200)
@@ -1185,7 +1423,7 @@ async def list_products(
 
 
 @router.get("/api/products/{product_id}")
-async def get_product(product_id: str, _user: dict = Depends(require_auth)):
+async def get_product(product_id: str, _user: dict = Depends(optional_auth)):
     pool = get_pool()
     row = await pool.fetchrow(
         """SELECT p.id, p.name, p.description, p.category, p.brand, p.price,
@@ -2238,6 +2476,68 @@ async def get_profile(user: dict = Depends(require_auth)):
             "priority_support": row["priority_support"] if row["priority_support"] is not None else False,
         },
     }
+
+
+@router.get("/api/user/memories")
+async def get_user_memories(
+    category: str | None = None,
+    limit: int = 20,
+    user: dict[str, Any] = Depends(require_auth),
+) -> list[dict[str, Any]]:
+    """Return the authenticated user's stored agent memories."""
+    pool = get_pool()
+    email = current_user_email.get()
+
+    conditions = ["u.email = $1", "m.is_active = TRUE", "(m.expires_at IS NULL OR m.expires_at > NOW())"]
+    args: list[Any] = [email]
+    idx = 2
+
+    if category:
+        conditions.append(f"m.category = ${idx}")
+        args.append(category)
+        idx += 1
+
+    where = " AND ".join(conditions)
+    args.append(min(limit, 100))
+
+    rows = await pool.fetch(
+        f"""SELECT m.id, m.category, m.content, m.importance, m.created_at
+            FROM agent_memories m
+            JOIN users u ON m.user_id = u.id
+            WHERE {where}
+            ORDER BY m.importance DESC, m.created_at DESC
+            LIMIT ${idx}""",
+        *args,
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "category": r["category"],
+            "content": r["content"],
+            "importance": r["importance"],
+            "created_at": r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/api/user/memories/{memory_id}")
+async def delete_user_memory(
+    memory_id: str,
+    user: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
+    """Soft-delete a stored memory (sets is_active=false)."""
+    pool = get_pool()
+    email = current_user_email.get()
+    result = await pool.execute(
+        """UPDATE agent_memories SET is_active = FALSE
+           WHERE id = $1 AND user_id = (SELECT id FROM users WHERE email = $2)""",
+        memory_id,
+        email,
+    )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"deleted": True}
 
 
 # ── Seller Routes ────────────────────────────────────────────

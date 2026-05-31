@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 /**
  * Chat-driven e-commerce tests.
@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
  * is not set, the orchestrator will return an error message.
  */
 
-async function login(page, email: string, password: string) {
+async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
@@ -15,7 +15,7 @@ async function login(page, email: string, password: string) {
   await page.waitForURL(/\/(chat|products)/, { timeout: 10000 });
 }
 
-async function sendMessage(page, message: string) {
+async function sendMessage(page: Page, message: string) {
   const textarea = page.locator("textarea");
   await textarea.fill(message);
   await textarea.press("Enter");
@@ -33,7 +33,7 @@ async function sendMessage(page, message: string) {
   await page.waitForTimeout(3000);
 }
 
-async function getLastAssistantMessage(page): Promise<string> {
+async function getLastAssistantMessage(page: Page): Promise<string> {
   // Get all message containers and return the last assistant one
   const messages = await page.locator('[class*="rounded-2xl"]').all();
   if (messages.length === 0) return "";

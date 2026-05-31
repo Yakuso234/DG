@@ -37,6 +37,7 @@ dependencies = [
     "opentelemetry-instrumentation-asyncpg>=0.49b0",
     "opentelemetry-instrumentation-logging>=0.49b0",
     "opentelemetry-instrumentation-openai-v2>=0.1",
+    "mcp[cli]>=1.27.0",
 ]
 
 [project.optional-dependencies]

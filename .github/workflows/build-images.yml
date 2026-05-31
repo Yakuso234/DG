@@ -1,0 +1,148 @@
+name: Build Images
+
+# Build (and optionally push) the multi-target agent Docker image.
+#
+# Two modes, selected by context:
+#
+# ── Smoke build (default) ──────────────────────────────────────────────────
+# Runs on every push to main and every pull request. Builds all six agent
+# images from the single Dockerfile (ARG AGENT_NAME) to verify the image
+# compiles. Images are NOT pushed — no credentials required.
+#
+# ── Build + push to GHCR ──────────────────────────────────────────────────
+# Triggered on a semver tag (v*.*.*) or manual dispatch with publish=true.
+# Pushes to ghcr.io/nitin27may/e-commerce-agents/{agent}:{tag} and adds a
+# :latest alias. Requires the repo to grant the workflow "packages: write"
+# (automatic for GITHUB_TOKEN in the same repo).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Push images to GHCR (requires packages: write)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/nitin27may/e-commerce-agents
+
+jobs:
+  build:
+    name: Build ${{ matrix.agent }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false    # build all agents even if one fails
+      matrix:
+        include:
+          - agent: orchestrator
+            port: 8080
+          - agent: product_discovery
+            port: 8081
+          - agent: order_management
+            port: 8082
+          - agent: pricing_promotions
+            port: 8083
+          - agent: review_sentiment
+            port: 8084
+          - agent: inventory_fulfillment
+            port: 8085
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Decide whether to push ───────────────────────────────────────────
+      - name: Resolve push flag
+        id: push
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
+            echo "should_push=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.publish }}" == "true" ]]; then
+            echo "should_push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_push=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── GHCR login (only when pushing) ──────────────────────────────────
+      - name: Log in to GHCR
+        if: steps.push.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Derive image tag ─────────────────────────────────────────────────
+      - name: Derive image tags
+        id: meta
+        run: |
+          AGENT_SLUG="${{ matrix.agent }}"
+          # Convert underscores to hyphens for image names (convention)
+          IMAGE_NAME="${{ env.IMAGE_BASE }}/${AGENT_SLUG//_/-}"
+          echo "image=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"           # e.g. v1.2.3
+            echo "tags=${IMAGE_NAME}:${VERSION},${IMAGE_NAME}:latest" >> "$GITHUB_OUTPUT"
+          else
+            SHA="${GITHUB_SHA::7}"
+            echo "tags=${IMAGE_NAME}:sha-${SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Docker Buildx ────────────────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build (smoke: load=true keeps it local; push: push=true sends it) ─
+      - name: Build ${{ matrix.agent }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./agents/python
+          file: ./agents/python/Dockerfile
+          build-args: |
+            AGENT_NAME=${{ matrix.agent }}
+            AGENT_PORT=${{ matrix.port }}
+          push: ${{ steps.push.outputs.should_push == 'true' }}
+          load: ${{ steps.push.outputs.should_push != 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.agent }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.agent }}
+
+      # ── Smoke-test the image (only when not pushing, i.e. local load) ────
+      - name: Smoke-test ${{ matrix.agent }} image
+        if: steps.push.outputs.should_push != 'true'
+        run: |
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
+          echo "Testing image: ${IMAGE_TAG}"
+          docker run --rm \
+            -e DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" \
+            -e OPENAI_API_KEY="sk-test" \
+            -e JWT_SECRET="test-jwt-secret-32-bytes-padding" \
+            -e AGENT_SHARED_SECRET="test-agent-secret-32-bytes-pads" \
+            -e AGENT_REGISTRY="{}" \
+            -e OTEL_ENABLED="false" \
+            -e ENVIRONMENT="test" \
+            --entrypoint uv \
+            "${IMAGE_TAG}" \
+            run --no-project python -c "
+          import importlib, sys
+          agent_name = '${{ matrix.agent }}'
+          mod = importlib.import_module(f'{agent_name}.main')
+          print(f'[OK] {agent_name}: module imports cleanly')
+          sys.exit(0)
+          "

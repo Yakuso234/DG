@@ -56,12 +56,12 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
   const timeline = data.timeline || [];
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm max-w-lg overflow-hidden">
+    <div className="rounded-xl border border-border bg-card shadow-sm max-w-lg overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <Package className="size-4 text-slate-400" />
-          <span className="font-mono text-xs font-medium text-slate-600">
+          <Package className="size-4 text-muted-foreground" />
+          <span className="font-mono text-xs font-medium text-muted-foreground">
             #{shortId}
           </span>
           {data.status && <OrderStatusBadge status={data.status} />}
@@ -99,40 +99,40 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
 
       {/* Items table */}
       {items.length > 0 && (
-        <div className="border-b border-slate-100">
+        <div className="border-b border-border">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-4 py-1.5 text-left font-medium text-slate-400">
+              <tr className="border-b border-border">
+                <th className="px-4 py-1.5 text-left font-medium text-muted-foreground">
                   Item
                 </th>
-                <th className="px-2 py-1.5 text-center font-medium text-slate-400 w-12">
+                <th className="px-2 py-1.5 text-center font-medium text-muted-foreground w-12">
                   Qty
                 </th>
-                <th className="px-4 py-1.5 text-right font-medium text-slate-400 w-20">
+                <th className="px-4 py-1.5 text-right font-medium text-muted-foreground w-20">
                   Price
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-border">
               {items.map((item, i) => (
                 <tr key={i}>
                   <td className="px-4 py-2">
-                    <div className="font-medium text-slate-700 leading-snug">
+                    <div className="font-medium text-foreground leading-snug">
                       {item.name}
                     </div>
                     {(item.category || item.brand) && (
-                      <div className="text-[10px] text-slate-400 mt-0.5">
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
                         {[item.brand, item.category]
                           .filter(Boolean)
                           .join(" \u00b7 ")}
                       </div>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-center text-slate-500">
+                  <td className="px-2 py-2 text-center text-muted-foreground">
                     {item.quantity}
                   </td>
-                  <td className="px-4 py-2 text-right text-slate-700 font-medium whitespace-nowrap">
+                  <td className="px-4 py-2 text-right text-foreground font-medium whitespace-nowrap">
                     {formatPrice(
                       item.total ?? item.unit_price * item.quantity
                     )}
@@ -149,12 +149,12 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
         {/* Total + date */}
         <div className="flex items-center justify-between">
           {data.total != null && (
-            <span className="text-sm font-bold text-slate-800">
+            <span className="text-sm font-bold text-foreground">
               Total: {formatPrice(data.total)}
             </span>
           )}
           {data.date && (
-            <span className="flex items-center gap-1 text-xs text-slate-400">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <CalendarDays className="size-3" />
               {formatDate(data.date)}
             </span>
@@ -163,15 +163,15 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
 
         {/* Shipping info */}
         {(data.tracking || data.carrier) && (
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Truck className="size-3.5 shrink-0" />
             {data.carrier && <span>{data.carrier}</span>}
             {data.tracking && (
               <>
                 {data.carrier && (
-                  <span className="text-slate-300">&middot;</span>
+                  <span className="text-muted-foreground">&middot;</span>
                 )}
-                <span className="font-mono text-slate-400">
+                <span className="font-mono text-muted-foreground">
                   {data.tracking}
                 </span>
               </>
@@ -181,7 +181,7 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
 
         {/* Address */}
         {data.shipping_address && (
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <MapPin className="size-3.5 shrink-0" />
             <span className="line-clamp-1">{data.shipping_address}</span>
           </div>
@@ -189,12 +189,12 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
 
         {/* Timeline (compact) */}
         {timeline.length > 0 && (
-          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 pt-0.5 flex-wrap">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground pt-0.5 flex-wrap">
             <Clock className="size-3 shrink-0" />
             {timeline.map((event, i) => (
               <span key={i} className="flex items-center gap-1">
-                {i > 0 && <span className="text-slate-300">&rarr;</span>}
-                <span className="text-slate-500">{event.status}</span>
+                {i > 0 && <span className="text-muted-foreground">&rarr;</span>}
+                <span className="text-muted-foreground">{event.status}</span>
                 <span>({formatDate(event.date)})</span>
               </span>
             ))}
@@ -203,7 +203,7 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
 
         {/* Item count fallback (when no items array) */}
         {items.length === 0 && data.item_count != null && (
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-muted-foreground">
             {data.item_count} item{data.item_count !== 1 ? "s" : ""}
           </div>
         )}

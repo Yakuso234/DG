@@ -47,13 +47,13 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             E-Commerce Agents
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Multi-agent e-commerce platform
           </p>
         </div>
@@ -68,7 +68,7 @@ export default function LoginPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               {error && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                   {error}
                 </div>
               )}
@@ -103,16 +103,16 @@ export default function LoginPage() {
                 type="submit"
                 size="lg"
                 disabled={isLoading}
-                className="mt-2 w-full bg-teal-600 text-white hover:bg-teal-700 focus-visible:ring-teal-500"
+                className="mt-2 w-full"
               >
                 {isLoading ? "Signing in..." : "Sign in"}
               </Button>
 
-              <p className="text-center text-sm text-slate-500">
+              <p className="text-center text-sm text-muted-foreground">
                 Don&apos;t have an account?{" "}
                 <Link
                   href="/signup"
-                  className="font-medium text-teal-600 hover:text-teal-700 hover:underline"
+                  className="font-medium text-primary hover:underline"
                 >
                   Create one
                 </Link>

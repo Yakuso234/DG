@@ -354,6 +354,8 @@ sequenceDiagram
 | `seller` | Seller tools | Draft review responses, view sentiment reports |
 | `admin` | Full | Approve access requests, manage agent catalog, all operations |
 
+For the full security architecture — threat model, guardrails middleware stack, identity-spoof detection, SQL ownership filters, and production hardening checklist — see [`docs/security-guide.md`](security-guide.md).
+
 ---
 
 ## 6. Data Flow

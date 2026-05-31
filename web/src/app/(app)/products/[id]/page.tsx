@@ -117,17 +117,17 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
         ))}
         {hasHalf && (
           <div className="relative">
-            <Star className="size-4 text-slate-200" />
+            <Star className="size-4 text-border" />
             <div className="absolute inset-0 overflow-hidden" style={{ width: "50%" }}>
               <Star className="size-4 fill-amber-400 text-amber-400" />
             </div>
           </div>
         )}
         {Array.from({ length: emptyStars }).map((_, i) => (
-          <Star key={`empty-${i}`} className="size-4 text-slate-200" />
+          <Star key={`empty-${i}`} className="size-4 text-border" />
         ))}
       </div>
-      <span className="text-sm text-slate-600">
+      <span className="text-sm text-muted-foreground">
         {rating.toFixed(1)} ({count} reviews)
       </span>
     </div>
@@ -143,7 +143,7 @@ function SmallStarRating({ rating }: { rating: number }) {
           className={`size-3.5 ${
             i < rating
               ? "fill-amber-400 text-amber-400"
-              : "text-slate-200"
+              : "text-border"
           }`}
         />
       ))}
@@ -170,19 +170,19 @@ function RatingDistribution({
     <div className="space-y-2">
       {entries.map(({ star, count }) => (
         <div key={star} className="flex items-center gap-3">
-          <span className="w-8 text-right text-sm text-slate-600">
+          <span className="w-8 text-right text-sm text-muted-foreground">
             {star}
           </span>
           <Star className="size-3.5 fill-amber-400 text-amber-400" />
           <div className="flex-1">
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-amber-400 transition-all"
                 style={{ width: `${(count / maxCount) * 100}%` }}
               />
             </div>
           </div>
-          <span className="w-8 text-sm text-slate-500">{count}</span>
+          <span className="w-8 text-sm text-muted-foreground">{count}</span>
         </div>
       ))}
     </div>
@@ -197,18 +197,18 @@ function DetailSkeleton() {
   return (
     <div className="animate-pulse space-y-8">
       <div className="space-y-3">
-        <div className="h-4 w-48 rounded bg-slate-200" />
-        <div className="h-8 w-96 rounded bg-slate-200" />
-        <div className="h-4 w-32 rounded bg-slate-200" />
+        <div className="h-4 w-48 rounded bg-muted" />
+        <div className="h-8 w-96 rounded bg-muted" />
+        <div className="h-4 w-32 rounded bg-muted" />
       </div>
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <div className="h-4 w-full rounded bg-slate-200" />
-          <div className="h-4 w-5/6 rounded bg-slate-200" />
-          <div className="h-4 w-3/4 rounded bg-slate-200" />
+          <div className="h-4 w-full rounded bg-muted" />
+          <div className="h-4 w-5/6 rounded bg-muted" />
+          <div className="h-4 w-3/4 rounded bg-muted" />
         </div>
         <div className="space-y-3">
-          <div className="h-32 rounded-xl bg-slate-200" />
+          <div className="h-32 rounded-xl bg-muted" />
         </div>
       </div>
     </div>
@@ -266,15 +266,15 @@ export default function ProductDetailPage() {
     : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           {/* Back button */}
           <Button
             variant="ghost"
             size="sm"
-            className="mb-4 -ml-2 text-slate-500 hover:text-slate-700"
+            className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
             onClick={() => router.push("/products")}
           >
             <ArrowLeft className="mr-1.5 size-4" />
@@ -283,7 +283,7 @@ export default function ProductDetailPage() {
 
           {loading && <DetailSkeleton />}
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
             </div>
           )}
@@ -291,9 +291,9 @@ export default function ProductDetailPage() {
           {!loading && !error && product && (
             <>
               {/* Breadcrumb */}
-              <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400">
+              <nav className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground">
                 <button
-                  className="hover:text-teal-600 transition-colors"
+                  className="hover:text-primary transition-colors"
                   onClick={() => router.push("/products")}
                 >
                   Products
@@ -301,13 +301,13 @@ export default function ProductDetailPage() {
                 <ChevronRight className="size-3.5" />
                 <span>{product.category}</span>
                 <ChevronRight className="size-3.5" />
-                <span className="text-slate-700">{product.name}</span>
+                <span className="text-foreground">{product.name}</span>
               </nav>
 
               {/* Product hero: image + info */}
               <div className="grid gap-8 lg:grid-cols-2">
                 {/* Image */}
-                <div className="relative aspect-square overflow-hidden rounded-2xl bg-slate-100">
+                <div className="relative aspect-square overflow-hidden rounded-2xl bg-muted">
                   <img
                     src={productImageUrl(product.id, 800, 800, product.image_url, product.category)}
                     alt={product.name}
@@ -323,17 +323,17 @@ export default function ProductDetailPage() {
                 {/* Product Info */}
                 <div>
                   <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-bold text-slate-900">
+                    <h1 className="text-2xl font-bold text-foreground">
                       {product.name}
                     </h1>
                     <Badge
                       variant="outline"
-                      className="bg-slate-50 text-slate-600 border-slate-200"
+                      className="bg-muted text-muted-foreground border-border"
                     >
                       {product.category}
                     </Badge>
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">{product.brand}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{product.brand}</p>
                   <div className="mt-3">
                     <StarRating
                       rating={product.rating}
@@ -342,11 +342,11 @@ export default function ProductDetailPage() {
                   </div>
 
                   <div className="mt-6 flex items-baseline gap-2">
-                    <span className="text-3xl font-bold text-slate-900">
+                    <span className="text-3xl font-bold text-foreground">
                       {formatPrice(product.price)}
                     </span>
                     {onSale && (
-                      <span className="text-lg text-slate-400 line-through">
+                      <span className="text-lg text-muted-foreground line-through">
                         {formatPrice(product.original_price!)}
                       </span>
                     )}
@@ -357,7 +357,7 @@ export default function ProductDetailPage() {
                     </Badge>
                   )}
 
-                  <p className="mt-6 leading-relaxed text-slate-600">
+                  <p className="mt-6 leading-relaxed text-muted-foreground">
                     {product.description}
                   </p>
 
@@ -392,7 +392,7 @@ export default function ProductDetailPage() {
                         >
                           <Minus className="size-4" />
                         </Button>
-                        <span className="w-8 text-center text-lg font-semibold text-slate-800">
+                        <span className="w-8 text-center text-lg font-semibold text-foreground">
                           {qty}
                         </span>
                         <Button
@@ -408,9 +408,9 @@ export default function ProductDetailPage() {
                       <Button
                         className={`w-full text-base py-5 ${
                           added
-                            ? "bg-emerald-600 hover:bg-emerald-700"
-                            : "bg-teal-600 hover:bg-teal-700"
-                        } text-white`}
+                            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                            : "bg-primary hover:opacity-90 text-primary-foreground"
+                        }`}
                         disabled={addingToCart}
                         onClick={async () => {
                           try {
@@ -453,7 +453,7 @@ export default function ProductDetailPage() {
                   <CardTitle>Description</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="leading-relaxed text-slate-600">
+                  <p className="leading-relaxed text-muted-foreground">
                     {product.description}
                   </p>
                 </CardContent>
@@ -472,10 +472,10 @@ export default function ProductDetailPage() {
                           {Object.entries(product.specs).map(
                             ([key, value]) => (
                               <TableRow key={key}>
-                                <TableCell className="w-1/3 font-medium text-slate-700">
+                                <TableCell className="w-1/3 font-medium text-foreground">
                                   {key}
                                 </TableCell>
-                                <TableCell className="text-slate-600">
+                                <TableCell className="text-muted-foreground">
                                   {value}
                                 </TableCell>
                               </TableRow>
@@ -517,13 +517,13 @@ export default function ProductDetailPage() {
                           <div className="flex items-start justify-between">
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-slate-800">
+                                <span className="text-sm font-medium text-foreground">
                                   {review.reviewer}
                                 </span>
                                 {review.verified && (
                                   <Badge
                                     variant="outline"
-                                    className="border-teal-200 bg-teal-50 text-teal-700 text-[10px]"
+                                    className="border-primary/30 bg-primary/10 text-primary text-[10px]"
                                   >
                                     <CheckCircle className="mr-0.5 size-2.5" />
                                     Verified
@@ -532,16 +532,16 @@ export default function ProductDetailPage() {
                               </div>
                               <SmallStarRating rating={review.rating} />
                             </div>
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-muted-foreground">
                               {formatDate(review.date)}
                             </span>
                           </div>
                           {review.title && (
-                            <p className="text-sm font-medium text-slate-800">
+                            <p className="text-sm font-medium text-foreground">
                               {review.title}
                             </p>
                           )}
-                          <p className="text-sm leading-relaxed text-slate-600">
+                          <p className="text-sm leading-relaxed text-muted-foreground">
                             {review.body}
                           </p>
                         </div>
@@ -580,17 +580,17 @@ export default function ProductDetailPage() {
                   {product.warehouses &&
                     product.warehouses.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                           Warehouse Breakdown
                         </p>
                         {product.warehouses.map((ws) => (
                           <div
                             key={ws.name}
-                            className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2"
+                            className="flex items-center justify-between rounded-lg bg-muted px-3 py-2"
                           >
                             <div className="flex items-center gap-2">
-                              <MapPin className="size-3.5 text-slate-400" />
-                              <span className="text-sm text-slate-600">
+                              <MapPin className="size-3.5 text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">
                                 {ws.name}
                               </span>
                             </div>
@@ -598,7 +598,7 @@ export default function ProductDetailPage() {
                               className={`text-sm font-medium ${
                                 ws.quantity > 0
                                   ? "text-emerald-600"
-                                  : "text-slate-400"
+                                  : "text-muted-foreground"
                               }`}
                             >
                               {ws.quantity}
@@ -612,7 +612,7 @@ export default function ProductDetailPage() {
 
               {/* Ask Agent button */}
               <Button
-                className="w-full bg-teal-600 text-white hover:bg-teal-700"
+                className="w-full bg-primary text-primary-foreground hover:opacity-90"
                 onClick={() =>
                   router.push(
                     `/chat?q=${encodeURIComponent(

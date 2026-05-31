@@ -10,6 +10,7 @@ from pricing_promotions.tools import (
     validate_coupon,
 )
 from shared.agent_factory import create_chat_client
+from shared.middleware import build_specialist_middleware
 from shared.context_providers import ECommerceContextProvider
 from shared.tools.loyalty_tools import (
     calculate_loyalty_discount,
@@ -42,4 +43,5 @@ def create_pricing_promotions_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=AGENT_TOOLS,
         context_providers=[ECommerceContextProvider()],
+        middleware=build_specialist_middleware(),
     )

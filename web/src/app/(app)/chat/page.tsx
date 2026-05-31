@@ -9,8 +9,10 @@ import {
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useCart } from "@/lib/cart-context";
-import { api } from "@/lib/api";
+import { api, type AgentStep } from "@/lib/api";
 import { RichMessage } from "@/components/chat/rich-message";
+import { AgentTimeline } from "@/components/chat/agent-timeline";
+import { QUICK_PROMPTS } from "@/lib/scenarios";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
@@ -32,6 +34,8 @@ import {
   BotIcon,
   UserIcon,
   ShoppingCart,
+  Copy,
+  Check,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -43,8 +47,36 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   agents_involved?: string[];
+  steps?: AgentStep[];
   created_at?: string;
   streaming?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Copy-to-clipboard action
+// ---------------------------------------------------------------------------
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // clipboard unavailable — ignore
+        }
+      }}
+      aria-label="Copy message"
+      className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
 }
 
 interface Conversation {
@@ -62,14 +94,14 @@ function TypingDots() {
   return (
     <div className="flex items-center gap-2 px-1 py-3">
       <Avatar className="size-7 shrink-0">
-        <AvatarFallback className="bg-teal-100 text-teal-700 text-xs">
+        <AvatarFallback className="bg-muted text-muted-foreground text-xs">
           <BotIcon className="size-3.5" />
         </AvatarFallback>
       </Avatar>
       <div className="flex items-center gap-1">
-        <span className="inline-block size-2 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
-        <span className="inline-block size-2 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
-        <span className="inline-block size-2 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
+        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:150ms]" />
+        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:300ms]" />
       </div>
     </div>
   );
@@ -215,7 +247,9 @@ export default function ChatPage() {
   // ---- Auto-send ?q= query param on mount ----
   useEffect(() => {
     if (!isAuthenticated) return;
-    const q = searchParams.get("q");
+    // `prompt` is the deep-link param from home quick-prompts / product pages;
+    // `q` is kept for back-compat.
+    const q = searchParams.get("prompt") ?? searchParams.get("q");
     if (q) {
       pendingQueryRef.current = q;
     }
@@ -343,6 +377,30 @@ export default function ChatPage() {
           }
         },
         controller.signal,
+        {
+          onStep: (step) => {
+            setMessages((prev) => {
+              if (!prev.some((m) => m.id === assistantId)) {
+                assistantCreated = true;
+                return [
+                  ...prev,
+                  {
+                    id: assistantId,
+                    role: "assistant",
+                    content: "",
+                    streaming: true,
+                    steps: [step],
+                  },
+                ];
+              }
+              return prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, steps: [...(m.steps ?? []), step] }
+                  : m,
+              );
+            });
+          },
+        },
       );
 
       // If this was the first message, a new conversation was created
@@ -435,7 +493,7 @@ export default function ChatPage() {
 
           <Link
             href="/cart"
-            className="relative flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            className="relative flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <ShoppingCart className="size-4" />
             {itemCount > 0 && (
@@ -471,6 +529,18 @@ export default function ChatPage() {
                 anything else. Our specialist agents will collaborate to help
                 you.
               </p>
+              <div className="mt-2 flex flex-wrap justify-center gap-2">
+                {QUICK_PROMPTS.map((s) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => sendMessage(s.prompt)}
+                    className="rounded-full border bg-card px-3 py-1.5 text-sm text-foreground/80 transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="mx-auto max-w-3xl px-4 py-4">
@@ -485,7 +555,7 @@ export default function ChatPage() {
                     <AvatarFallback
                       className={
                         msg.role === "user"
-                          ? "bg-teal-600 text-white text-xs"
+                          ? "bg-primary text-primary-foreground text-xs"
                           : "bg-muted text-muted-foreground text-xs"
                       }
                     >
@@ -500,7 +570,7 @@ export default function ChatPage() {
                   <div
                     className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                       msg.role === "user"
-                        ? "bg-teal-600 text-white"
+                        ? "bg-primary text-primary-foreground"
                         : "bg-muted text-foreground"
                     }`}
                   >
@@ -527,6 +597,14 @@ export default function ChatPage() {
                         ))}
                       </div>
                     )}
+
+                    {msg.role === "assistant" &&
+                      msg.steps &&
+                      msg.steps.length > 0 && <AgentTimeline steps={msg.steps} />}
+
+                    {msg.role === "assistant" &&
+                      !msg.streaming &&
+                      msg.content && <CopyButton text={msg.content} />}
                   </div>
                 </div>
               ))}

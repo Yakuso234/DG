@@ -25,6 +25,16 @@ export interface CartItem {
   available_qty?: number;
 }
 
+/** One step in the agentic timeline streamed via `event: step` SSE frames. */
+export interface AgentStep {
+  agent?: string;
+  tool_name: string;
+  tool_input?: unknown;
+  tool_output?: unknown;
+  status?: string;
+  duration_ms?: number;
+}
+
 export interface CartResponse {
   id: string;
   items: CartItem[];
@@ -194,7 +204,7 @@ class ApiClient {
     conversationId: string | undefined,
     onChunk: (text: string) => void,
     signal?: AbortSignal,
-    options: { allowRefresh?: boolean } = {}
+    options: { allowRefresh?: boolean; onStep?: (step: AgentStep) => void } = {}
   ): Promise<{ conversation_id: string; agents_involved: string[] }> {
     const allowRefresh = options.allowRefresh ?? true;
     const headers: Record<string, string> = {
@@ -216,6 +226,7 @@ class ApiClient {
         const fresh = await this.tryRefresh();
         if (fresh) {
           return this.chatStream(message, conversationId, onChunk, signal, {
+            ...options,
             allowRefresh: false,
           });
         }
@@ -259,6 +270,16 @@ class ApiClient {
             const data = line.slice(6);
 
             if (data === "[DONE]") {
+              continue;
+            }
+
+            if (currentEventType === "step") {
+              try {
+                options.onStep?.(JSON.parse(data) as AgentStep);
+              } catch {
+                // Ignore malformed step
+              }
+              currentEventType = "";
               continue;
             }
 
@@ -343,12 +364,93 @@ class ApiClient {
     });
   }
 
+  getAgentStats() {
+    return this.request<
+      { agent_name: string; request_count: number; avg_duration_ms: number; total_tokens: number }[]
+    >("/api/agents/stats");
+  }
+
+  // HITL
+  getHitlRequests(status?: string) {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request<{
+      requests: {
+        id: string;
+        user_email: string;
+        agent_name: string;
+        tool_name: string;
+        tool_input: Record<string, unknown>;
+        status: string;
+        admin_note: string | null;
+        approved_by: string | null;
+        execution_result: Record<string, unknown> | null;
+        created_at: string;
+        resolved_at: string | null;
+      }[];
+      total: number;
+    }>(`/api/admin/hitl/requests${q}`);
+  }
+
+  approveHitlRequest(id: string, note?: string) {
+    return this.request<{ status: string; execution_result: Record<string, unknown> }>(
+      `/api/admin/hitl/requests/${id}/approve`,
+      { method: "POST", body: JSON.stringify({ note: note ?? null }) },
+    );
+  }
+
+  denyHitlRequest(id: string, note?: string) {
+    return this.request<{ status: string }>(
+      `/api/admin/hitl/requests/${id}/deny`,
+      { method: "POST", body: JSON.stringify({ note: note ?? null }) },
+    );
+  }
+
   getUsageStats() {
     return this.request<any>("/api/admin/usage");
   }
 
-  getAuditLog() {
-    return this.request<any[]>("/api/admin/audit");
+  getAuditLog(params?: {
+    limit?: number;
+    offset?: number;
+    agent_name?: string;
+    status?: string;
+    search?: string;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    if (params?.agent_name) q.set("agent_name", params.agent_name);
+    if (params?.status) q.set("status", params.status);
+    if (params?.search) q.set("search", params.search);
+    const qs = q.toString();
+    return this.request<{
+      entries: {
+        id: string;
+        agent_name: string;
+        user_email: string | null;
+        user_name: string | null;
+        input_summary: string | null;
+        tokens_in: number;
+        tokens_out: number;
+        tool_calls_count: number;
+        duration_ms: number;
+        status: "success" | "error";
+        error_message: string | null;
+        trace_id: string | null;
+        created_at: string;
+        steps: {
+          step_index: number;
+          tool_name: string;
+          tool_input: Record<string, unknown> | null;
+          tool_output: Record<string, unknown> | null;
+          status: string;
+          duration_ms: number;
+        }[];
+      }[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/api/admin/audit${qs ? `?${qs}` : ""}`);
   }
 
   // Seller
@@ -505,6 +607,19 @@ class ApiClient {
   // Profile
   getProfile() {
     return this.request<any>("/api/profile");
+  }
+
+  getUserMemories(category?: string) {
+    const q = category ? `?category=${encodeURIComponent(category)}` : "";
+    return this.request<
+      { id: string; category: string; content: string; importance: number; created_at: string }[]
+    >(`/api/user/memories${q}`);
+  }
+
+  deleteUserMemory(id: string) {
+    return this.request<{ deleted: boolean }>(`/api/user/memories/${id}`, {
+      method: "DELETE",
+    });
   }
 }
 

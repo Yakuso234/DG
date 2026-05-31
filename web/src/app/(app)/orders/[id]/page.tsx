@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { toastOrderCancelled, toastReturnInitiated } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -220,22 +221,22 @@ function StatusTimeline({ history }: { history: StatusHistoryEntry[] }) {
           <div key={idx} className="relative flex gap-4 pb-6 last:pb-0">
             {/* Vertical line */}
             {!isLast && (
-              <div className="absolute left-[11px] top-6 h-[calc(100%-12px)] w-0.5 bg-slate-200" />
+              <div className="absolute left-[11px] top-6 h-[calc(100%-12px)] w-0.5 bg-border" />
             )}
 
             {/* Dot */}
             <div
               className={`relative z-10 mt-1 size-6 shrink-0 rounded-full border-2 ${
                 isLatest
-                  ? `${cfg.dotColor} border-white ring-2 ring-offset-1 ring-${cfg.dotColor}`
-                  : "border-slate-200 bg-white"
+                  ? `${cfg.dotColor} border-card ring-2 ring-offset-1 ring-${cfg.dotColor}`
+                  : "border-border bg-card"
               } flex items-center justify-center`}
             >
               {isLatest && (
-                <div className="size-2 rounded-full bg-white" />
+                <div className="size-2 rounded-full bg-card" />
               )}
               {!isLatest && (
-                <div className="size-2 rounded-full bg-slate-300" />
+                <div className="size-2 rounded-full bg-muted-foreground" />
               )}
             </div>
 
@@ -244,20 +245,20 @@ function StatusTimeline({ history }: { history: StatusHistoryEntry[] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`text-sm font-medium ${
-                    isLatest ? "text-slate-900" : "text-slate-600"
+                    isLatest ? "text-foreground" : "text-muted-foreground"
                   }`}
                 >
                   {cfg.label}
                 </span>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-muted-foreground">
                   {formatTimestamp(entry.timestamp)}
                 </span>
               </div>
               {entry.notes && (
-                <p className="mt-0.5 text-sm text-slate-500">{entry.notes}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{entry.notes}</p>
               )}
               {entry.location && (
-                <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
+                <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                   <MapPin className="size-3" />
                   {entry.location}
                 </p>
@@ -278,16 +279,16 @@ function DetailSkeleton() {
   return (
     <div className="animate-pulse space-y-8">
       <div className="space-y-3">
-        <div className="h-6 w-64 rounded bg-slate-200" />
-        <div className="h-4 w-40 rounded bg-slate-200" />
+        <div className="h-6 w-64 rounded bg-muted" />
+        <div className="h-4 w-40 rounded bg-muted" />
       </div>
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <div className="h-48 rounded-xl bg-slate-200" />
+          <div className="h-48 rounded-xl bg-muted" />
         </div>
         <div className="space-y-4">
-          <div className="h-40 rounded-xl bg-slate-200" />
-          <div className="h-32 rounded-xl bg-slate-200" />
+          <div className="h-40 rounded-xl bg-muted" />
+          <div className="h-32 rounded-xl bg-muted" />
         </div>
       </div>
     </div>
@@ -349,6 +350,7 @@ export default function OrderDetailPage() {
       await api.cancelOrder(orderId, cancelReason);
       setCancelOpen(false);
       setCancelReason("");
+      toastOrderCancelled(orderId);
       await loadOrder();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel order");
@@ -361,10 +363,11 @@ export default function OrderDetailPage() {
     if (!returnReason.trim()) return;
     try {
       setReturning(true);
-      await api.initiateReturn(orderId, returnReason, refundMethod);
+      const result = await api.initiateReturn(orderId, returnReason, refundMethod);
       setReturnOpen(false);
       setReturnReason("");
       setRefundMethod("original_payment");
+      toastReturnInitiated(result?.return_id ?? orderId);
       await loadOrder();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to initiate return");
@@ -378,15 +381,15 @@ export default function OrderDetailPage() {
   const statusCfg = order ? getStatusConfig(order.status) : null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white">
+      <div className="border-b border-border bg-card">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           {/* Back button */}
           <Button
             variant="ghost"
             size="sm"
-            className="mb-4 -ml-2 text-slate-500 hover:text-slate-700"
+            className="mb-4 -ml-2 text-muted-foreground hover:text-muted-foreground"
             onClick={() => router.push("/orders")}
           >
             <ArrowLeft className="mr-1.5 size-4" />
@@ -395,7 +398,7 @@ export default function OrderDetailPage() {
 
           {loading && <DetailSkeleton />}
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
             </div>
           )}
@@ -404,14 +407,14 @@ export default function OrderDetailPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-2xl font-bold text-slate-900">
+                  <h1 className="text-2xl font-bold text-foreground">
                     Order #{order.id}
                   </h1>
                   <Badge variant="outline" className={statusCfg.color}>
                     {statusCfg.label}
                   </Badge>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-muted-foreground">
                   Placed on {formatDate(order.date)}
                 </p>
               </div>
@@ -488,7 +491,7 @@ export default function OrderDetailPage() {
                               type="button"
                               variant={refundMethod === "original_payment" ? "default" : "outline"}
                               size="sm"
-                              className={refundMethod === "original_payment" ? "bg-teal-600 hover:bg-teal-700" : ""}
+                              className={refundMethod === "original_payment" ? "bg-primary hover:opacity-90" : ""}
                               onClick={() => setRefundMethod("original_payment")}
                             >
                               Original Payment
@@ -497,7 +500,7 @@ export default function OrderDetailPage() {
                               type="button"
                               variant={refundMethod === "store_credit" ? "default" : "outline"}
                               size="sm"
-                              className={refundMethod === "store_credit" ? "bg-teal-600 hover:bg-teal-700" : ""}
+                              className={refundMethod === "store_credit" ? "bg-primary hover:opacity-90" : ""}
                               onClick={() => setRefundMethod("store_credit")}
                             >
                               Store Credit
@@ -594,7 +597,7 @@ export default function OrderDetailPage() {
                       {order.items.map((item, idx) => (
                         <TableRow
                           key={idx}
-                          className="cursor-pointer hover:bg-slate-50"
+                          className="cursor-pointer hover:bg-accent"
                           onClick={() =>
                             router.push(`/products/${item.product_id}`)
                           }
@@ -603,11 +606,11 @@ export default function OrderDetailPage() {
                             <img
                               src={productImageUrl(item.product_id, 48, 48, item.image_url, item.category)}
                               alt={item.name}
-                              className="size-10 rounded-md object-cover bg-slate-100"
+                              className="size-10 rounded-md object-cover bg-muted"
                               loading="lazy"
                             />
                           </TableCell>
-                          <TableCell className="font-medium text-slate-800">
+                          <TableCell className="font-medium text-foreground">
                             {item.name}
                           </TableCell>
                           <TableCell>
@@ -621,7 +624,7 @@ export default function OrderDetailPage() {
                           <TableCell className="text-right">
                             {item.quantity}
                           </TableCell>
-                          <TableCell className="text-right text-slate-600">
+                          <TableCell className="text-right text-muted-foreground">
                             {formatPrice(item.unit_price)}
                           </TableCell>
                           <TableCell className="text-right font-medium">
@@ -642,12 +645,12 @@ export default function OrderDetailPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <MapPin className="size-4 text-slate-400" />
+                      <MapPin className="size-4 text-muted-foreground" />
                       Shipping
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="text-sm text-slate-600">
+                    <div className="text-sm text-muted-foreground">
                       <p>{order.shipping_address.street}</p>
                       <p>
                         {order.shipping_address.city}, {order.shipping_address.state}{" "}
@@ -659,13 +662,13 @@ export default function OrderDetailPage() {
                         <Separator />
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2 text-sm">
-                            <Truck className="size-4 text-slate-400" />
-                            <span className="font-medium text-slate-700">
+                            <Truck className="size-4 text-muted-foreground" />
+                            <span className="font-medium text-muted-foreground">
                               {order.carrier}
                             </span>
                           </div>
                           {order.tracking && (
-                            <p className="font-mono text-xs text-slate-500 pl-6">
+                            <p className="font-mono text-xs text-muted-foreground pl-6">
                               {order.tracking}
                             </p>
                           )}
@@ -676,7 +679,7 @@ export default function OrderDetailPage() {
                     {/* Billing Address */}
                     <Separator />
                     <div className="space-y-1">
-                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Billing Address
                       </p>
                       {order.billing_address &&
@@ -684,9 +687,9 @@ export default function OrderDetailPage() {
                         order.billing_address.city !== order.shipping_address.city ||
                         order.billing_address.state !== order.shipping_address.state ||
                         order.billing_address.zip !== order.shipping_address.zip) ? (
-                        <div className="text-sm text-slate-600">
+                        <div className="text-sm text-muted-foreground">
                           {order.billing_address.name && (
-                            <p className="font-medium text-slate-700">{order.billing_address.name}</p>
+                            <p className="font-medium text-muted-foreground">{order.billing_address.name}</p>
                           )}
                           <p>{order.billing_address.street}</p>
                           <p>
@@ -698,7 +701,7 @@ export default function OrderDetailPage() {
                           )}
                         </div>
                       ) : (
-                        <p className="text-sm text-slate-500 italic">
+                        <p className="text-sm text-muted-foreground italic">
                           Same as shipping address
                         </p>
                       )}
@@ -714,14 +717,14 @@ export default function OrderDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">Subtotal</span>
-                    <span className="text-slate-700">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">
                       {formatPrice(order.items?.reduce((sum: number, i: OrderItem) => sum + i.subtotal, 0) ?? 0)}
                     </span>
                   </div>
                   {order.discount > 0 && (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-500">Discount</span>
+                      <span className="text-muted-foreground">Discount</span>
                       <span className="text-emerald-600">
                         -{formatPrice(order.discount)}
                       </span>
@@ -729,10 +732,10 @@ export default function OrderDetailPage() {
                   )}
                   <Separator />
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700">
+                    <span className="text-sm font-medium text-muted-foreground">
                       Total
                     </span>
-                    <span className="text-lg font-bold text-slate-900">
+                    <span className="text-lg font-bold text-foreground">
                       {formatPrice(order.total)}
                     </span>
                   </div>
@@ -751,13 +754,13 @@ export default function OrderDetailPage() {
                   <CardContent className="space-y-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Reason</span>
-                        <span className="text-slate-700">
+                        <span className="text-muted-foreground">Reason</span>
+                        <span className="text-muted-foreground">
                           {(order["return"] as ReturnInfo).reason}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Status</span>
+                        <span className="text-muted-foreground">Status</span>
                         <Badge
                           variant="outline"
                           className="border-orange-200 bg-orange-50 text-orange-700"
@@ -766,14 +769,14 @@ export default function OrderDetailPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Refund Method</span>
-                        <span className="text-slate-700">
+                        <span className="text-muted-foreground">Refund Method</span>
+                        <span className="text-muted-foreground">
                           {(order["return"] as ReturnInfo).refund_method}
                         </span>
                       </div>
                       {(order["return"] as ReturnInfo).refund_amount != null && (
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Refund Amount</span>
+                          <span className="text-muted-foreground">Refund Amount</span>
                           <span className="font-medium text-emerald-600">
                             {formatPrice((order["return"] as ReturnInfo).refund_amount!)}
                           </span>
@@ -786,7 +789,7 @@ export default function OrderDetailPage() {
                         <Separator />
                         <div className="space-y-1.5">
                           {(order["return"] as ReturnInfo).created_at && (
-                            <div className="flex items-center justify-between text-xs text-slate-500">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
                               <span>Return initiated</span>
                               <span>
                                 {formatDate((order["return"] as ReturnInfo).created_at!)}
@@ -794,7 +797,7 @@ export default function OrderDetailPage() {
                             </div>
                           )}
                           {(order["return"] as ReturnInfo).resolved_at && (
-                            <div className="flex items-center justify-between text-xs text-slate-500">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
                               <span>Refund processed</span>
                               <span>
                                 {formatDate((order["return"] as ReturnInfo).resolved_at!)}
@@ -824,7 +827,7 @@ export default function OrderDetailPage() {
                             <Download className="mr-2 size-4" />
                             Download Return Label
                           </Button>
-                          <p className="text-xs text-slate-500 text-center">
+                          <p className="text-xs text-muted-foreground text-center">
                             Print the return label and drop off at any carrier location
                           </p>
                         </div>

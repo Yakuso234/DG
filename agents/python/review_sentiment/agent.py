@@ -14,7 +14,9 @@ from review_sentiment.tools import (
     search_reviews,
 )
 from shared.agent_factory import create_chat_client
+from shared.middleware import build_specialist_middleware
 from shared.context_providers import ECommerceContextProvider
+from shared.tools.memory_tools import recall_memories, store_memory
 from shared.tools.user_tools import get_purchase_history, get_user_profile
 
 AGENT_TOOLS = [
@@ -28,6 +30,8 @@ AGENT_TOOLS = [
     compare_product_reviews,
     get_user_profile,
     get_purchase_history,
+    store_memory,
+    recall_memories,
 ]
 
 
@@ -40,4 +44,5 @@ def create_review_sentiment_agent() -> Agent:
         instructions=SYSTEM_PROMPT,
         tools=AGENT_TOOLS,
         context_providers=[ECommerceContextProvider()],
+        middleware=build_specialist_middleware(),
     )

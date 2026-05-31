@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Web — E-Commerce Agents frontend
 
-## Getting Started
+Next.js 16 (App Router) + React 19 + Tailwind CSS 4 + shadcn/ui. This is the
+public storefront, the agentic chat, and the authenticated account console for
+the multi-agent backend.
 
-First, run the development server:
+> **Heads-up:** this is Next.js **16.x** — APIs differ from older docs. Read the
+> relevant guide in `node_modules/next/dist/docs/` before changing framework
+> code. See [`AGENTS.md`](./AGENTS.md).
+
+## Commands
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install          # install deps (pnpm, not npm/yarn)
+pnpm dev              # dev server on http://localhost:3000
+pnpm build            # production build
+pnpm lint             # eslint
+pnpm test             # vitest (unit/component, jsdom)
+pnpm exec playwright test                        # E2E (needs the app running)
+pnpm exec playwright test e2e/ui-smoke.spec.ts   # backend-free UI smoke (mocked auth/API)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`NEXT_PUBLIC_API_URL` (in `web/.env`) points at the orchestrator (default
+`http://localhost:8080`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Layout
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/app/` — App Router.
+  - `/` project landing; `shop/*` public storefront (home, products, cart,
+    assistant); `(app)/*` auth-gated account console (home dashboard, chat,
+    orders, checkout, profile, admin, seller); `login`, `signup`.
+- `src/components/` — `ui/` (shadcn + primitives: StatCard, Chart, Skeleton,
+  ThemeToggle, command-palette), `chat/` (RichMessage, product/order cards,
+  AgentTimeline), `shop/`, `landing/`, `home/`, `sidebar`, `top-bar`.
+- `src/lib/` — `api.ts` (typed client + SSE `chatStream`), `auth-context`,
+  `cart-context`, `nav.ts`, `motion.ts`, `scenarios.ts`, `format`, `images`.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [`../docs/frontend.md`](../docs/frontend.md) for routes, theming, the SSE
+streaming/timeline contract, and the public-vs-authenticated model.
