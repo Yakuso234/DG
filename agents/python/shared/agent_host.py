@@ -14,6 +14,7 @@ with MAF native execution — see
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -242,7 +243,7 @@ def create_agent_app(
                 media_type="text/event-stream",
             )
 
-        from shared.agent_observability import reset_steps
+        from shared.agent_observability import get_steps, reset_steps
         from shared.telemetry import agent_run_span
 
         async def _generate():
@@ -254,6 +255,12 @@ def create_agent_app(
                 except Exception:
                     logger.exception("%s.message_stream_error", agent_name)
                     yield "data: [ERROR: agent processing failed]\n\n"
+            # Emit captured tool steps before [DONE] so the orchestrator can
+            # merge them into the live timeline while still in the same stream.
+            steps = get_steps()
+            for step in steps:
+                step["agent"] = agent_name
+                yield f"event: step\ndata: {json.dumps(step, default=str)}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(_generate(), media_type="text/event-stream")

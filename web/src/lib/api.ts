@@ -35,6 +35,31 @@ export interface AgentStep {
   duration_ms?: number;
 }
 
+export interface RunStep {
+  step_index: number;
+  tool_name: string;
+  tool_input: Record<string, unknown> | null;
+  tool_output: Record<string, unknown> | null;
+  status: string;
+  duration_ms: number;
+}
+
+export interface RunEntry {
+  id: string;
+  agent_name: string;
+  user_email: string | null;
+  user_name: string | null;
+  input_summary: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  tool_calls_count: number;
+  duration_ms: number;
+  status: "success" | "error";
+  trace_id: string | null;
+  created_at: string;
+  steps: RunStep[];
+}
+
 export interface CartResponse {
   id: string;
   items: CartItem[];
@@ -407,6 +432,19 @@ class ApiClient {
 
   getUsageStats() {
     return this.request<any>("/api/admin/usage");
+  }
+
+  getRuns(params?: { limit?: number; offset?: number }) {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    const qs = q.toString();
+    return this.request<{
+      entries: RunEntry[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/api/runs${qs ? `?${qs}` : ""}`);
   }
 
   getAuditLog(params?: {

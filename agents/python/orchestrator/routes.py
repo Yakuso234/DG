@@ -1343,6 +1343,92 @@ async def get_audit_log(
     }
 
 
+@router.get("/api/runs")
+async def list_runs(
+    user: dict[str, Any] = Depends(require_auth),
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Return the current user's recent agent runs with step details.
+
+    Admins see all users' runs; regular users see only their own.
+    """
+    pool = get_pool()
+    limit = min(limit, 100)
+    email = current_user_email.get()
+    role = current_user_role.get()
+
+    if role == "admin":
+        where = ""
+        count_where = ""
+        args: list[Any] = [limit, offset]
+        count_args: list[Any] = []
+    else:
+        where = "WHERE ul.user_id = (SELECT id FROM users WHERE email = $1)"
+        count_where = "WHERE ul.user_id = (SELECT id FROM users WHERE email = $1)"
+        args = [email, limit, offset]
+        count_args = [email]
+
+    limit_ph = "$2" if role != "admin" else "$1"
+    offset_ph = "$3" if role != "admin" else "$2"
+
+    rows = await pool.fetch(
+        f"""SELECT ul.id, ul.agent_name, ul.input_summary, ul.tokens_in, ul.tokens_out,
+                   ul.tool_calls_count, ul.duration_ms, ul.status, ul.trace_id,
+                   ul.created_at,
+                   u.email AS user_email, u.name AS user_name
+            FROM usage_logs ul
+            LEFT JOIN users u ON ul.user_id = u.id
+            {where}
+            ORDER BY ul.created_at DESC
+            LIMIT {limit_ph} OFFSET {offset_ph}""",
+        *args,
+    )
+
+    entries = []
+    for r in rows:
+        steps = await pool.fetch(
+            """SELECT step_index, tool_name, tool_input, tool_output, status, duration_ms
+               FROM agent_execution_steps
+               WHERE usage_log_id = $1
+               ORDER BY step_index""",
+            r["id"],
+        )
+        entries.append({
+            "id": str(r["id"]),
+            "agent_name": r["agent_name"],
+            "user_email": r["user_email"],
+            "user_name": r["user_name"],
+            "input_summary": r["input_summary"],
+            "tokens_in": r["tokens_in"],
+            "tokens_out": r["tokens_out"],
+            "tool_calls_count": r["tool_calls_count"],
+            "duration_ms": r["duration_ms"],
+            "status": r["status"],
+            "trace_id": r["trace_id"],
+            "created_at": r["created_at"].isoformat(),
+            "steps": [
+                {
+                    "step_index": s["step_index"],
+                    "tool_name": s["tool_name"],
+                    "tool_input": s["tool_input"],
+                    "tool_output": s["tool_output"],
+                    "status": s["status"],
+                    "duration_ms": s["duration_ms"],
+                }
+                for s in steps
+            ],
+        })
+
+    total_args = count_args if role != "admin" else []
+    total = await pool.fetchval(
+        f"SELECT COUNT(*) FROM usage_logs ul {count_where}",
+        *total_args,
+    )
+
+    return {"entries": entries, "total": total, "limit": limit, "offset": offset}
+
+
 # ── Product Routes ────────────────────────────────────────────
 
 

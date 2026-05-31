@@ -10,6 +10,7 @@ import {
   ScrollText,
   Bot,
   CheckCircle,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -42,6 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Products", href: "/products", icon: ShoppingBag },
       { label: "Cart", href: "/cart", icon: ShoppingCart, cartBadge: true },
       { label: "Orders", href: "/orders", icon: Package },
+      { label: "Runs", href: "/runs", icon: Activity },
     ],
   },
   {
