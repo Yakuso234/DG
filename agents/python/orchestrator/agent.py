@@ -17,6 +17,7 @@ from shared.config import settings
 from shared.context import (
     current_session_id,
     current_steps,
+    current_stream_queue,
     current_user_email,
     current_user_role,
 )
@@ -58,22 +59,60 @@ async def call_specialist_agent(
     # it needs prior context. Dropping the payload frees us from the 10-msg
     # / 500-char window that was silently losing context on long chats.
 
+    stream_queue = current_stream_queue.get()
+    headers = {
+        "x-agent-secret": settings.AGENT_SHARED_SECRET,
+        "x-user-email": user_email,
+        "x-user-role": user_role,
+        "x-session-id": session_id,
+    }
+    request_body = {"message": message}
+
     with a2a_call_span("orchestrator", agent_name, url):
+        # ── Streaming path ─────────────────────────────────────────────────
+        # When an SSE context is active (stream_queue is set), connect to the
+        # specialist's /message:stream endpoint and forward response chunks to
+        # the browser as they arrive — eliminating the silent gap while the
+        # specialist's LLM generates its response.
+        if stream_queue is not None:
+            try:
+                chunks: list[str] = []
+                async with httpx.AsyncClient(timeout=60) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{url}/message:stream",
+                        json=request_body,
+                        headers=headers,
+                    ) as resp:
+                        resp.raise_for_status()
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            payload = line[6:]
+                            if payload == "[DONE]":
+                                break
+                            if payload.startswith("[ERROR"):
+                                logger.error("a2a.stream_error target=%s payload=%s", agent_name, payload)
+                                continue
+                            chunks.append(payload)
+                            await stream_queue.put(("delta", agent_name, payload))
+                return "".join(chunks) or f"The {agent_name} agent returned an empty response."
+            except (httpx.TimeoutException, httpx.HTTPStatusError, Exception) as exc:
+                logger.warning(
+                    "a2a.stream_fallback target=%s reason=%s", agent_name, type(exc).__name__
+                )
+                # Fall through to blocking path
+
+        # ── Blocking path (non-streaming or stream fallback) ───────────────
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
                     f"{url}/message:send",
-                    json={"message": message},
-                    headers={
-                        "x-agent-secret": settings.AGENT_SHARED_SECRET,
-                        "x-user-email": user_email,
-                        "x-user-role": user_role,
-                        "x-session-id": session_id,
-                    },
+                    json=request_body,
+                    headers=headers,
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                # Merge the specialist's tool steps into the live timeline.
                 bucket = current_steps.get()
                 specialist_steps = data.get("steps") or []
                 if bucket is not None and specialist_steps:

@@ -413,8 +413,10 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
     Anonymous (storefront) callers get product-discovery only: nothing is
     persisted and no user context is loaded.
     """
+    import asyncio as _asyncio
     from orchestrator.agent import create_orchestrator_agent
     from shared.agent_host import _run_agent_native_stream
+    from shared.context import current_stream_queue
 
     pool = get_pool()
     user_email = user.get("sub", "")
@@ -484,11 +486,14 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
     async def event_generator() -> AsyncGenerator[str, None]:
         """Yield SSE-formatted events from the streaming agent response.
 
-        Audit fix #9: every chunk is gated on three checks before it
-        ships to the wire — wall-clock budget, accumulator-byte ceiling,
-        and client-disconnect probe. None of them existed before, so a
-        slow client or a runaway model could pin a Starlette worker
-        and grow the in-memory transcript without bound.
+        Architecture: orchestrator LLM chunks AND specialist response chunks
+        all flow through a single asyncio.Queue so the browser sees tokens
+        from both tiers in real time — no silent gap during specialist calls.
+
+        Queue item shapes:
+          ("text",  chunk)               — orchestrator LLM token
+          ("delta", agent_name, chunk)   — specialist streamed token
+          None                           — sentinel: agent run finished
         """
         from shared.telemetry import agent_run_span
         from shared.config import settings
@@ -500,33 +505,63 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
         deadline = start_time + float(settings.MAF_STREAM_TIMEOUT_SECONDS)
         max_bytes = int(settings.MAF_STREAM_MAX_BYTES)
 
-        reset_steps()  # begin agentic-timeline capture for this run
-        with agent_run_span("orchestrator"):
-            try:
-                async for chunk in _run_agent_native_stream(
-                    agent,
-                    body.message,
-                    history=history,
-                ):
-                    if await request.is_disconnected():
-                        logger.info(
-                            "chat_stream.client_disconnected conversation=%s elapsed_ms=%d",
-                            conversation_id,
-                            int((time.monotonic() - start_time) * 1000),
-                        )
-                        break
-                    if time.monotonic() > deadline:
-                        logger.warning(
-                            "chat_stream.timeout conversation=%s budget_s=%s",
-                            conversation_id,
-                            settings.MAF_STREAM_TIMEOUT_SECONDS,
-                        )
-                        timeout_msg = (
-                            " [stream timed out — the agent took too long; please retry]"
-                        )
-                        full_response.append(timeout_msg)
-                        yield f"data: {timeout_msg}\n\n"
-                        break
+        # Shared queue: orchestrator LLM chunks + specialist streaming chunks.
+        queue: _asyncio.Queue = _asyncio.Queue()
+        current_stream_queue.set(queue)
+
+        async def _run_agent_task() -> None:
+            reset_steps()
+            with agent_run_span("orchestrator"):
+                try:
+                    async for chunk in _run_agent_native_stream(
+                        agent, body.message, history=history
+                    ):
+                        await queue.put(("text", chunk))
+                except Exception:
+                    logger.exception(
+                        "chat_stream.agent_error user=%s conversation=%s",
+                        user_email,
+                        conversation_id,
+                    )
+                    error_msg = "I apologize, but I encountered an issue. Please try again."
+                    await queue.put(("text", error_msg))
+            await queue.put(None)  # sentinel
+
+        agent_task = _asyncio.create_task(_run_agent_task())
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    logger.info(
+                        "chat_stream.client_disconnected conversation=%s elapsed_ms=%d",
+                        conversation_id,
+                        int((time.monotonic() - start_time) * 1000),
+                    )
+                    agent_task.cancel()
+                    break
+
+                if time.monotonic() > deadline:
+                    logger.warning(
+                        "chat_stream.timeout conversation=%s budget_s=%s",
+                        conversation_id,
+                        settings.MAF_STREAM_TIMEOUT_SECONDS,
+                    )
+                    timeout_msg = " [stream timed out — please retry]"
+                    full_response.append(timeout_msg)
+                    yield f"data: {timeout_msg}\n\n"
+                    agent_task.cancel()
+                    break
+
+                try:
+                    item = await _asyncio.wait_for(queue.get(), timeout=0.1)
+                except _asyncio.TimeoutError:
+                    continue
+
+                if item is None:
+                    break
+
+                if item[0] == "text":
+                    chunk: str = item[1]
                     if not truncated:
                         chunk_bytes = len(chunk.encode("utf-8"))
                         if full_bytes + chunk_bytes > max_bytes:
@@ -534,16 +569,27 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
                             marker = " [response truncated at limit]"
                             full_response.append(marker)
                             yield f"data: {marker}\n\n"
-                            continue
-                        full_bytes += chunk_bytes
-                        full_response.append(chunk)
-                        yield f"data: {chunk}\n\n"
+                        else:
+                            full_bytes += chunk_bytes
+                            full_response.append(chunk)
+                            yield f"data: {chunk}\n\n"
 
-            except Exception:
-                logger.exception("chat_stream.agent_error user=%s conversation=%s", user_email, conversation_id)
-                error_msg = "I apologize, but I encountered an issue processing your request. Please try again."
-                full_response.append(error_msg)
-                yield f"data: {error_msg}\n\n"
+                elif item[0] == "delta":
+                    # Specialist token — forward immediately to the browser.
+                    # These appear during the "tool call gap" so the user sees
+                    # a continuous stream rather than silence.
+                    _agent_src: str = item[1]
+                    delta_chunk: str = item[2]
+                    full_response.append(delta_chunk)
+                    yield f"event: delta\ndata: {delta_chunk}\n\n"
+
+        finally:
+            if not agent_task.done():
+                agent_task.cancel()
+            try:
+                await agent_task
+            except _asyncio.CancelledError:
+                pass
 
         response_text = "".join(full_response)
 
@@ -2430,6 +2476,68 @@ async def get_profile(user: dict = Depends(require_auth)):
             "priority_support": row["priority_support"] if row["priority_support"] is not None else False,
         },
     }
+
+
+@router.get("/api/user/memories")
+async def get_user_memories(
+    category: str | None = None,
+    limit: int = 20,
+    user: dict[str, Any] = Depends(require_auth),
+) -> list[dict[str, Any]]:
+    """Return the authenticated user's stored agent memories."""
+    pool = get_pool()
+    email = current_user_email.get()
+
+    conditions = ["u.email = $1", "m.is_active = TRUE", "(m.expires_at IS NULL OR m.expires_at > NOW())"]
+    args: list[Any] = [email]
+    idx = 2
+
+    if category:
+        conditions.append(f"m.category = ${idx}")
+        args.append(category)
+        idx += 1
+
+    where = " AND ".join(conditions)
+    args.append(min(limit, 100))
+
+    rows = await pool.fetch(
+        f"""SELECT m.id, m.category, m.content, m.importance, m.created_at
+            FROM agent_memories m
+            JOIN users u ON m.user_id = u.id
+            WHERE {where}
+            ORDER BY m.importance DESC, m.created_at DESC
+            LIMIT ${idx}""",
+        *args,
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "category": r["category"],
+            "content": r["content"],
+            "importance": r["importance"],
+            "created_at": r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/api/user/memories/{memory_id}")
+async def delete_user_memory(
+    memory_id: str,
+    user: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
+    """Soft-delete a stored memory (sets is_active=false)."""
+    pool = get_pool()
+    email = current_user_email.get()
+    result = await pool.execute(
+        """UPDATE agent_memories SET is_active = FALSE
+           WHERE id = $1 AND user_id = (SELECT id FROM users WHERE email = $2)""",
+        memory_id,
+        email,
+    )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"deleted": True}
 
 
 # ── Seller Routes ────────────────────────────────────────────
