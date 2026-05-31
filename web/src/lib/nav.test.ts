@@ -22,20 +22,21 @@ describe("visibleGroups", () => {
     expect(labels).not.toContain("Usage");
   });
 
-  it("shows admin items (Usage, Audit) to an admin — no Requests", () => {
+  it("shows admin items (Usage, Runs) to an admin — no Requests", () => {
     const groups = visibleGroups({ isAdmin: true, isSeller: true });
     const labels = groups.flatMap((g) => g.items.map((i) => i.label));
     expect(labels).toContain("Usage");
-    expect(labels).toContain("Audit");
+    expect(labels).toContain("Runs");
     expect(labels).toContain("Seller");
     expect(labels).not.toContain("Requests"); // removed
+    expect(labels).not.toContain("Audit"); // renamed to Runs
   });
 });
 
 describe("labelForPath", () => {
   it("matches the most specific nav item", () => {
     expect(labelForPath("/admin/usage")).toBe("Usage");
-    expect(labelForPath("/admin/audit")).toBe("Audit");
+    expect(labelForPath("/admin/audit")).toBe("Runs");
     expect(labelForPath("/admin")).toBe("Overview");
   });
 

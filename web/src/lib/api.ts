@@ -374,8 +374,48 @@ class ApiClient {
     return this.request<any>("/api/admin/usage");
   }
 
-  getAuditLog() {
-    return this.request<any[]>("/api/admin/audit");
+  getAuditLog(params?: {
+    limit?: number;
+    offset?: number;
+    agent_name?: string;
+    status?: string;
+    search?: string;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    if (params?.agent_name) q.set("agent_name", params.agent_name);
+    if (params?.status) q.set("status", params.status);
+    if (params?.search) q.set("search", params.search);
+    const qs = q.toString();
+    return this.request<{
+      entries: {
+        id: string;
+        agent_name: string;
+        user_email: string | null;
+        user_name: string | null;
+        input_summary: string | null;
+        tokens_in: number;
+        tokens_out: number;
+        tool_calls_count: number;
+        duration_ms: number;
+        status: "success" | "error";
+        error_message: string | null;
+        trace_id: string | null;
+        created_at: string;
+        steps: {
+          step_index: number;
+          tool_name: string;
+          tool_input: Record<string, unknown> | null;
+          tool_output: Record<string, unknown> | null;
+          status: string;
+          duration_ms: number;
+        }[];
+      }[];
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/api/admin/audit${qs ? `?${qs}` : ""}`);
   }
 
   // Seller

@@ -55,7 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Overview", href: "/admin", icon: Shield, adminOnly: true },
       { label: "Usage", href: "/admin/usage", icon: BarChart3, adminOnly: true },
-      { label: "Audit", href: "/admin/audit", icon: ScrollText, adminOnly: true },
+      { label: "Runs", href: "/admin/audit", icon: ScrollText, adminOnly: true },
     ],
   },
 ];

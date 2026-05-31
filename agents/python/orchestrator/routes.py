@@ -1098,23 +1098,51 @@ async def get_audit_log(
     admin: dict[str, Any] = Depends(require_admin),
     limit: int = 50,
     offset: int = 0,
+    agent_name: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
 ) -> dict[str, Any]:
-    """Get recent audit log from usage_logs and execution steps (admin only)."""
-    pool = get_pool()
+    """Get recent audit log from usage_logs and execution steps (admin only).
 
-    # Clamp limit
+    Supports optional filters: agent_name, status (success|error), search (user
+    email or input_summary ILIKE).
+    """
+    pool = get_pool()
     limit = min(limit, 200)
 
+    conditions: list[str] = []
+    args: list[Any] = []
+    idx = 1
+
+    if agent_name:
+        conditions.append(f"ul.agent_name = ${idx}")
+        args.append(agent_name)
+        idx += 1
+
+    if status in ("success", "error"):
+        conditions.append(f"ul.status = ${idx}")
+        args.append(status)
+        idx += 1
+
+    if search:
+        conditions.append(f"(u.email ILIKE ${idx} OR ul.input_summary ILIKE ${idx})")
+        args.append(f"%{search}%")
+        idx += 1
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
     rows = await pool.fetch(
-        """SELECT
+        f"""SELECT
                ul.id, ul.agent_name, ul.input_summary, ul.tokens_in, ul.tokens_out,
                ul.tool_calls_count, ul.duration_ms, ul.status, ul.error_message,
                ul.trace_id, ul.created_at,
                u.email as user_email, u.name as user_name
            FROM usage_logs ul
            LEFT JOIN users u ON ul.user_id::uuid = u.id
+           {where}
            ORDER BY ul.created_at DESC
-           LIMIT $1 OFFSET $2""",
+           LIMIT ${idx} OFFSET ${idx + 1}""",
+        *args,
         limit,
         offset,
     )
@@ -1157,7 +1185,12 @@ async def get_audit_log(
             ],
         })
 
-    total = await pool.fetchval("SELECT COUNT(*) FROM usage_logs")
+    total = await pool.fetchval(
+        f"""SELECT COUNT(*) FROM usage_logs ul
+            LEFT JOIN users u ON ul.user_id::uuid = u.id
+            {where}""",
+        *args,
+    )
 
     return {
         "entries": entries,
