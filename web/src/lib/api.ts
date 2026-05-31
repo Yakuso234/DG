@@ -370,6 +370,41 @@ class ApiClient {
     >("/api/agents/stats");
   }
 
+  // HITL
+  getHitlRequests(status?: string) {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request<{
+      requests: {
+        id: string;
+        user_email: string;
+        agent_name: string;
+        tool_name: string;
+        tool_input: Record<string, unknown>;
+        status: string;
+        admin_note: string | null;
+        approved_by: string | null;
+        execution_result: Record<string, unknown> | null;
+        created_at: string;
+        resolved_at: string | null;
+      }[];
+      total: number;
+    }>(`/api/admin/hitl/requests${q}`);
+  }
+
+  approveHitlRequest(id: string, note?: string) {
+    return this.request<{ status: string; execution_result: Record<string, unknown> }>(
+      `/api/admin/hitl/requests/${id}/approve`,
+      { method: "POST", body: JSON.stringify({ note: note ?? null }) },
+    );
+  }
+
+  denyHitlRequest(id: string, note?: string) {
+    return this.request<{ status: string }>(
+      `/api/admin/hitl/requests/${id}/deny`,
+      { method: "POST", body: JSON.stringify({ note: note ?? null }) },
+    );
+  }
+
   getUsageStats() {
     return this.request<any>("/api/admin/usage");
   }

@@ -200,6 +200,7 @@ def build_specialist_middleware(*, include_steps: bool = True) -> list[Any]:
     from shared.agent_observability import STEP_MIDDLEWARE
     from shared.guardrails.injection_middleware import InjectionDetectionChatMiddleware
     from shared.guardrails.output_middleware import OutputSanitizationMiddleware
+    from shared.hitl import HITLFunctionMiddleware
 
     stack: list[Any] = [AgentRunLogger(), ToolAuditMiddleware()]
     if settings.GUARDRAILS_ENABLED:
@@ -207,6 +208,8 @@ def build_specialist_middleware(*, include_steps: bool = True) -> list[Any]:
     stack.append(PiiRedactionMiddleware())
     if settings.GUARDRAILS_ENABLED:
         stack.append(OutputSanitizationMiddleware())
+    if settings.HITL_ENABLED:
+        stack.append(HITLFunctionMiddleware())
     if include_steps:
         stack.extend(STEP_MIDDLEWARE)
     return stack

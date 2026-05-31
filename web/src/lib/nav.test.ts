@@ -22,14 +22,15 @@ describe("visibleGroups", () => {
     expect(labels).not.toContain("Usage");
   });
 
-  it("shows admin items (Usage, Runs) to an admin — no Requests", () => {
+  it("shows admin items (Approvals, Usage, Runs) to an admin — no old labels", () => {
     const groups = visibleGroups({ isAdmin: true, isSeller: true });
     const labels = groups.flatMap((g) => g.items.map((i) => i.label));
+    expect(labels).toContain("Approvals");
     expect(labels).toContain("Usage");
     expect(labels).toContain("Runs");
     expect(labels).toContain("Seller");
-    expect(labels).not.toContain("Requests"); // removed
-    expect(labels).not.toContain("Audit"); // renamed to Runs
+    expect(labels).not.toContain("Requests");
+    expect(labels).not.toContain("Audit");
   });
 });
 

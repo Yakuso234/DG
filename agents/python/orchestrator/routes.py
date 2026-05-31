@@ -1093,6 +1093,103 @@ async def get_usage_stats(admin: dict[str, Any] = Depends(require_admin)) -> dic
     }
 
 
+@router.get("/api/admin/hitl/requests")
+async def list_hitl_requests(
+    admin: dict[str, Any] = Depends(require_admin),
+    status: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List HITL approval requests (admin only).
+
+    Query params:
+        status: filter by status (pending, approved, denied, executed). Omit for all.
+        limit: max rows (capped at 200).
+    """
+    from shared.hitl import list_hitl_requests as _list
+    rows = await _list(status=status or None, limit=min(limit, 200))
+    return {"requests": rows, "total": len(rows)}
+
+
+class HITLDecisionBody(BaseModel):
+    note: str | None = None
+
+
+@router.post("/api/admin/hitl/requests/{request_id}/approve")
+async def approve_hitl_request(
+    request_id: str,
+    body: HITLDecisionBody = HITLDecisionBody(),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Approve a pending HITL request and execute the underlying action."""
+    from shared.hitl import get_hitl_request, resolve_hitl_request, execute_approved_action
+
+    req = await get_hitl_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="HITL request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request is already {req['status']}")
+
+    admin_email = admin.get("sub", "admin")
+    result = await execute_approved_action(
+        tool_name=req["tool_name"],
+        tool_input=req["tool_input"],
+        user_email=req["user_email"],
+    )
+
+    updated = await resolve_hitl_request(
+        request_id=request_id,
+        decision="approved",
+        admin_email=admin_email,
+        note=body.note,
+        execution_result=result,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Request was already resolved by another admin")
+
+    logger.info(
+        "hitl.approved request_id=%s tool=%s admin=%s success=%s",
+        request_id,
+        req["tool_name"],
+        admin_email,
+        result.get("success"),
+    )
+    return {"status": "approved", "execution_result": result}
+
+
+@router.post("/api/admin/hitl/requests/{request_id}/deny")
+async def deny_hitl_request(
+    request_id: str,
+    body: HITLDecisionBody = HITLDecisionBody(),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """Deny a pending HITL request (no action is taken)."""
+    from shared.hitl import get_hitl_request, resolve_hitl_request
+
+    req = await get_hitl_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="HITL request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request is already {req['status']}")
+
+    admin_email = admin.get("sub", "admin")
+    updated = await resolve_hitl_request(
+        request_id=request_id,
+        decision="denied",
+        admin_email=admin_email,
+        note=body.note,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Request was already resolved by another admin")
+
+    logger.info(
+        "hitl.denied request_id=%s tool=%s admin=%s",
+        request_id,
+        req["tool_name"],
+        admin_email,
+    )
+    return {"status": "denied"}
+
+
 @router.get("/api/admin/audit")
 async def get_audit_log(
     admin: dict[str, Any] = Depends(require_admin),

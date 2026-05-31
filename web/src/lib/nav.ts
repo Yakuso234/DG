@@ -9,6 +9,7 @@ import {
   Shield,
   ScrollText,
   Bot,
+  CheckCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -54,6 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Admin",
     items: [
       { label: "Overview", href: "/admin", icon: Shield, adminOnly: true },
+      { label: "Approvals", href: "/admin/approvals", icon: CheckCircle, adminOnly: true },
       { label: "Usage", href: "/admin/usage", icon: BarChart3, adminOnly: true },
       { label: "Runs", href: "/admin/audit", icon: ScrollText, adminOnly: true },
     ],

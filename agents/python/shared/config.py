@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
 
+    # ── HITL (Human-in-the-Loop) approval queue ─────────────────────
+    # When enabled, high-stakes tools (cancel_order, process_refund,
+    # initiate_return, modify_order, place_backorder) require admin approval
+    # before executing. Requests queue in the hitl_requests DB table and are
+    # reviewed at /admin/approvals.
+    HITL_ENABLED: bool = True
+
     # ── MCP integration (optional, flag-gated) ──────────────────────
     # When enabled, specialist agents connect to MCP servers for their data
     # layer instead of calling asyncpg directly. MCP servers must be running
