@@ -346,3 +346,12 @@ If the Langfuse exporter fails to initialize (wrong credentials, network unreach
 - A2A calls between orchestrator and specialists appear as **child spans** (`invoke_agent`).
 - LLM calls (OpenAI/Azure OpenAI) appear as spans with token counts, model name, and (optionally) prompt/completion content when `GENAI_CAPTURE_CONTENT=true`.
 - Tool calls appear as function spans with input/output when `agent_execution_steps` are populated.
+
+---
+
+## Related
+
+- [`docs/architecture.md`](architecture.md) — system overview including the OTel → Aspire pipeline
+- [`docs/deployment.md`](deployment.md) — `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, Aspire port map
+- [`docs/troubleshooting.md`](troubleshooting.md) — Aspire dashboard empty / no traces fix
+- [Project README](../README.md)

@@ -378,46 +378,13 @@ open http://localhost:18888
 
 ## 10. Troubleshooting
 
-### Agent fails to start: "Connection refused" to database
+For common issues — port conflicts, missing API keys, empty data, Aspire traces, build failures, and frontend errors — see **[troubleshooting.md](./troubleshooting.md)**.
 
-**Cause**: The agent started before PostgreSQL was ready.
+Deployment-specific issues are below.
 
-**Fix**: Use `dev.sh` which waits for health checks. If running manually, ensure `db` is healthy first:
+### Database volume out of date after schema changes
 
-```bash
-docker compose up -d db
-docker compose exec db pg_isready -U ecommerce   # Wait until this returns 0
-```
-
-### "OPENAI_API_KEY not set" or LLM errors
-
-**Cause**: Missing or invalid API key in `.env`.
-
-**Fix**: Verify your `.env` file has a valid key:
-
-```bash
-grep OPENAI_API_KEY .env   # Should show your key, not the placeholder
-```
-
-If using Azure, ensure `LLM_PROVIDER=azure` and all `AZURE_OPENAI_*` variables are set.
-
-### Port already in use
-
-**Cause**: Another process or a previous Docker run is occupying the port.
-
-**Fix**:
-
-```bash
-# Find what's using the port
-lsof -i :8080
-
-# Stop all E-Commerce Agents containers
-docker compose --profile seed --profile agents --profile frontend down
-```
-
-### Database schema out of date
-
-**Cause**: `init.sql` only runs on first volume creation.
+**Cause**: `init.sql` only runs on the first volume creation. Modifying the schema after the volume exists has no effect.
 
 **Fix**: Destroy the volume and re-initialize:
 
@@ -429,40 +396,26 @@ This removes the `pgdata` volume, re-creates the database from `init.sql`, and r
 
 ### Seeder fails with "relation does not exist"
 
-**Cause**: The database volume was created before the latest `init.sql` schema.
+**Cause**: Same root cause — the database volume was created before the latest `init.sql`.
 
-**Fix**: Same as above -- run `./scripts/dev.sh --clean` to rebuild from scratch.
+**Fix**: `./scripts/dev.sh --clean`.
 
-### Frontend shows "Failed to fetch" or CORS errors
+### Docker build slow — dependency layer invalidated
 
-**Cause**: The orchestrator is not running, or `NEXT_PUBLIC_API_URL` points to the wrong address.
+**Cause**: Changing `pyproject.toml` triggers a full `uv sync` reinstall.
 
-**Fix**:
-
-1. Verify the orchestrator is healthy: `curl http://localhost:8080/health`
-2. In Docker, `NEXT_PUBLIC_API_URL` should be `http://localhost:8080` (the browser calls this, not the container)
-3. If running the frontend locally but agents in Docker, the default value works as-is
-
-### Aspire Dashboard shows no traces
-
-**Cause**: `OTEL_ENABLED` is `false` or the endpoint is wrong.
-
-**Fix**:
-
-1. Verify `OTEL_ENABLED=true` in `.env`
-2. In Docker, `OTEL_EXPORTER_OTLP_ENDPOINT` should be `http://aspire:18889` (container-to-container)
-3. For local dev, use `http://localhost:18890` (the host-mapped port)
-
-### Docker build is slow / cache invalidation
-
-**Cause**: Changing `pyproject.toml` invalidates the dependency install layer.
-
-**Fix**: The Dockerfile is structured so dependency installation is cached independently from source code. If you only changed Python source files, the `uv sync` layer is reused. Avoid modifying `pyproject.toml` unless adding/removing dependencies.
+**Fix**: The Dockerfile is structured so the dependency layer is independent of source code. If you only changed `.py` files, `uv sync` is reused from cache. Avoid touching `pyproject.toml` unless you are adding or removing dependencies.
 
 ### "Permission denied" running dev.sh
-
-**Fix**:
 
 ```bash
 chmod +x scripts/dev.sh
 ```
+
+---
+
+## Related
+
+- [`docs/troubleshooting.md`](./troubleshooting.md) — runtime issues (port conflicts, LLM errors, DB connection, Aspire traces)
+- [`docs/architecture.md`](./architecture.md) — system overview and agent patterns
+- [Project README](../README.md)

@@ -456,3 +456,12 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 - **warehouse_inventory** has a composite primary key `(warehouse_id, product_id)` rather than a surrogate UUID.
 - **usage_logs.user_id** is typed as `UUID REFERENCES users(id)`, but some queries cast it with `::uuid` defensively in the audit endpoint.
 - **shipping_address** on orders is stored as JSONB, not normalized. Expected shape: `{street, city, state, zip, country}`.
+
+---
+
+## Related
+
+- [`docs/architecture.md`](architecture.md) — data flow showing how queries reach these tables
+- [`docs/api-reference.md`](api-reference.md) — REST endpoints that read and write these tables
+- [`docs/deployment.md`](deployment.md) — `init.sql` location and volume/seeder lifecycle
+- [Project README](../README.md)

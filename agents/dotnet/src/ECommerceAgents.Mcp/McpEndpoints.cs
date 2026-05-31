@@ -8,10 +8,13 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ECommerceAgents.Mcp;
 
 /// <summary>
-/// MCP endpoints ported 1:1 from
-/// <c>agents/python/mcp/inventory_server.py</c>. Three tools are
-/// exposed via the standard MCP discovery manifest and dispatched
-/// through <c>POST /mcp/tools/{tool_name}</c>.
+/// MCP inventory endpoints, mirroring the Python reference at
+/// <c>agents/python/mcp_servers/inventory_server.py</c>. Three tools
+/// are exposed via a discovery manifest at <c>GET /.well-known/mcp.json</c>
+/// and dispatched through <c>POST /mcp/tools/{tool_name}</c>.
+/// Note: the Python servers use FastMCP streamable-HTTP transport at
+/// <c>/mcp</c>; this implementation uses the equivalent REST surface for
+/// .NET compatibility.
 /// </summary>
 public static class McpEndpoints
 {

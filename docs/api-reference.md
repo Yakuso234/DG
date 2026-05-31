@@ -897,3 +897,13 @@ All error responses follow FastAPI's standard format:
 | `403`       | Insufficient permissions (e.g., non-admin accessing admin routes) |
 | `404`       | Resource not found or doesn't belong to the authenticated user |
 | `409`       | Conflict (duplicate email, duplicate access request, already resolved request) |
+
+---
+
+## Related
+
+- [`docs/architecture.md`](architecture.md) — how requests flow from browser through orchestrator to specialist agents
+- [`docs/database-schema.md`](database-schema.md) — the tables these endpoints read and write
+- [`docs/deployment.md`](deployment.md) — running the stack so endpoints are reachable
+- [`docs/frontend.md`](frontend.md) — how the Next.js client calls these endpoints
+- [Project README](../README.md)

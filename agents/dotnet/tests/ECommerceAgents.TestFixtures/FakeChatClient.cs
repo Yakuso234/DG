@@ -9,8 +9,8 @@ namespace ECommerceAgents.TestFixtures;
 /// Replaces MAF's <c>IChatClient</c> in unit tests so no real LLM call is made.
 /// </summary>
 /// <remarks>
-/// Phase 0 placeholder — the real interface adapter lands in plans/dotnet-port/01-shared.md where
-/// MAF's IChatClient contract is available. For now this is a simple queue-based stub.
+/// Minimal stub implementation — MAF's IChatClient contract is documented in
+/// <c>docs/architecture.md</c>. For enhancement plans see <c>.claude/plans/enhancements/</c>.
 /// </remarks>
 public sealed class FakeChatClient
 {

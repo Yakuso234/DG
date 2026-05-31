@@ -437,3 +437,13 @@ sequenceDiagram
 - **Sequential A2A**: The Orchestrator calls specialists one at a time. Each response informs the next call's message. This is intentional -- later agents need context from earlier results (e.g., Pricing needs to know which products were recommended).
 - **LLM synthesis**: The Orchestrator's LLM doesn't just concatenate specialist responses. It synthesizes them into a natural, coherent message with clear structure and actionable next steps.
 - **Identity propagation**: User identity flows via `X-User-Email` and `X-User-Role` headers on every A2A call, then into ContextVars. Every tool query filters by user -- there's no data leakage between customers.
+
+---
+
+## Related
+
+- [`docs/architecture.md`](architecture.md) — system overview, A2A protocol, orchestrator routing
+- [`docs/maf-best-practices.md`](maf-best-practices.md) — orchestration patterns (sequential, concurrent, handoff, HITL)
+- [`docs/adding-an-agent.md`](adding-an-agent.md) — how to add a new specialist to the routing table
+- [`docs/mcp-integration.md`](mcp-integration.md) — MCP as an alternative data layer for specialist tools
+- [Project README](../README.md)

@@ -11,7 +11,7 @@ The platform comprises three tiers: a Next.js frontend, a FastAPI orchestrator g
 ```mermaid
 graph TB
     subgraph Client["Client Tier"]
-        FE["Next.js 15 Frontend<br/>(React 19 + Tailwind)"]
+        FE["Next.js 16 Frontend<br/>(React 19 + Tailwind)"]
     end
 
     subgraph Gateway["Gateway Tier"]
@@ -465,6 +465,66 @@ flowchart LR
 | **DB Access** | asyncpg (raw SQL) | Maximum control over queries. No ORM overhead. Parameterized `$1, $2` syntax prevents SQL injection. Connection pool (5-20) per agent. |
 | **Telemetry** | OpenTelemetry -> .NET Aspire Dashboard | Auto-instrumented: httpx (LLM + A2A calls), asyncpg (DB queries), FastAPI/Starlette (HTTP). Custom spans for A2A calls and tool execution. All correlate via trace_id. |
 | **Cache** | Redis 7 | Session data and conversation state caching. Alpine image for minimal footprint. |
-| **Frontend** | Next.js 15 + React 19 + Tailwind + shadcn/ui | Server Components by default, `pnpm` for package management. Minimal client-side JS. |
+| **Frontend** | Next.js 16 + React 19 + Tailwind + shadcn/ui | Server Components by default, `pnpm` for package management. Minimal client-side JS. |
 | **Containerization** | Docker Compose + multi-target Dockerfile | All 6 agents share one Dockerfile with `ARG AGENT_NAME`. Each agent is a separate service with its own port. Single `docker compose up --build` to start everything. |
 | **Package Management** | `uv` (Python) + `pnpm` (Node) | `uv` for fast dependency resolution and virtual environment management. `pnpm` for disk-efficient node_modules. |
+
+---
+
+## 8. A2A Protocol
+
+All inter-agent communication uses the A2A (Agent-to-Agent) protocol. The orchestrator calls each specialist via an HTTP POST to `/message:send`. There is no message broker or event bus — calls are synchronous HTTP within the Docker network.
+
+### Endpoint
+
+```
+POST http://{agent-host}:{port}/message:send
+```
+
+Each specialist registers this endpoint automatically via `A2AAgentHost` from `agent-framework-a2a`. The host, port, and service name come from the `AGENT_REGISTRY` env var, which the orchestrator reads at startup.
+
+### Request format
+
+```json
+{
+  "message": {
+    "parts": [
+      { "type": "text", "text": "Find wireless headphones under $200" }
+    ]
+  },
+  "history": [
+    { "role": "user", "content": "What headphones do you have?" },
+    { "role": "assistant", "content": "We have several options..." }
+  ]
+}
+```
+
+The orchestrator forwards the last 10 conversation turns (each truncated to 500 characters) in `history`. This gives specialists enough context for follow-up questions without unbounded payload growth.
+
+### Authentication headers
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Agent-Secret` | `AGENT_SHARED_SECRET` env var | Validates the caller is a trusted orchestrator; rejected with 401 if missing or wrong |
+| `X-User-Email` | e.g. `alice@example.com` | Propagates user identity for per-user data scoping in tool queries |
+| `X-User-Role` | `customer`, `seller`, `admin` | Propagates RBAC role for permission checks inside `@tool` functions |
+
+`AgentAuthMiddleware` in `shared/auth.py` validates the secret and sets ContextVars (`current_user_email`, `current_user_role`) that every `@tool` function reads directly — no need to thread user identity through function parameters.
+
+### Response
+
+The specialist returns its full agent response as JSON. The orchestrator passes this to its own LLM for synthesis into the final natural-language reply.
+
+### Why synchronous HTTP?
+
+The platform uses synchronous A2A calls (one specialist at a time) rather than parallel fan-out for two reasons: each agent turn is fast enough that sequential calls stay well within acceptable latency, and later specialists often need context from earlier results (Pricing needs to know which products were recommended before it can optimize the cart).
+
+For the full sequence diagram showing JWT validation, context loading, and A2A call flow, see [§2. Agent Communication Pattern](#2-agent-communication-pattern).
+
+## Related
+
+- [`docs/agent-flows.md`](agent-flows.md) — five multi-agent collaboration sequence diagrams
+- [`docs/security-guide.md`](security-guide.md) — threat model, guardrails, full auth hardening checklist
+- [`docs/maf-best-practices.md`](maf-best-practices.md) — MAF @tool, middleware, and orchestration patterns
+- [`docs/adding-an-agent.md`](adding-an-agent.md) — step-by-step guide to adding a specialist agent
+- [Project README](../README.md)

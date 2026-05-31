@@ -111,7 +111,7 @@ When orchestrator calls specialists via A2A, it includes recent conversation his
 | Backend | Python 3.12, FastAPI (orchestrator), Starlette (specialist agents via agent_host) |
 | Database | PostgreSQL 16 + pgvector (1536-dim embeddings for text-embedding-3-small) |
 | Cache | Redis 7 |
-| Frontend | Next.js 15, React 19, Tailwind CSS 4, shadcn/ui |
+| Frontend | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
 | Auth | Self-contained JWT (PyJWT + bcrypt), no external IdP |
 | Telemetry | OpenTelemetry -> .NET Aspire Dashboard (:18888) |
 | Package Managers | `uv` (Python), `pnpm` (Node) |

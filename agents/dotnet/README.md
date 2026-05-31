@@ -46,4 +46,4 @@ All package versions live in `Directory.Packages.props` at this folder root. Ind
 
 ## Status
 
-Scaffolded during Phase 0 (2026-04-20). Module implementation tracked in [`../plans/dotnet-port/`](../plans/dotnet-port/).
+Scaffolded during Phase 0 (2026-04-20). Enhancement plans are tracked in [`.claude/plans/enhancements/`](../../.claude/plans/enhancements/).

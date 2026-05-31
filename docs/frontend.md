@@ -7,6 +7,19 @@ client `web/src/lib/api.ts`.
 > Next.js 16 has breaking changes vs older docs — read `node_modules/next/dist/docs/`
 > before editing framework code.
 
+## Screenshots
+
+<table>
+<tr>
+  <td><img src="images/shop-ai-assistant.png" alt="AI shopping assistant with product cards" width="400"/></td>
+  <td><img src="images/agent-timeline.png" alt="Live agent activity timeline" width="400"/></td>
+</tr>
+<tr>
+  <td align="center"><em>AI shopping assistant — product cards from Product Discovery agent</em></td>
+  <td align="center"><em>Agent activity timeline — live orchestrator → specialist → tool trace</em></td>
+</tr>
+</table>
+
 ## Audiences & routing
 
 Two front doors, by audience:
@@ -50,9 +63,43 @@ collapsible "Agent activity" disclosure (orchestrator → specialist → tool). 
 assistant content (product/order/checkout cards) is parsed by
 `components/chat/rich-message.tsx`.
 
+### SSE streaming sequence
+
+```mermaid
+sequenceDiagram
+    participant UI as Chat UI
+    participant API as api.ts chatStream()
+    participant ORCH as Orchestrator SSE<br/>POST /api/chat/stream
+    participant SPEC as Specialist Agent
+
+    UI->>API: chatStream(message, convId, onChunk, {onStep})
+    API->>ORCH: POST /api/chat/stream (JWT Bearer)
+    Note over ORCH: Opens SSE response<br/>Content-Type: text/event-stream
+
+    ORCH->>SPEC: A2A /message:send
+    SPEC-->>ORCH: Tool result (e.g. product list)
+
+    ORCH-->>API: event: step\ndata: {agent, tool_name, ...}
+    API->>UI: onStep(AgentStep) → AgentTimeline renders step
+
+    ORCH-->>API: data: token token token ...
+    API->>UI: onChunk(token) → streamed text appears
+
+    ORCH-->>API: event: metadata\ndata: {conversation_id, agents_involved}
+    ORCH-->>API: data: [DONE]
+    API->>UI: Stream closed
+```
+
 ## Testing
 
 - Unit/component: **vitest + React Testing Library** (`pnpm test`, jsdom).
 - E2E: **Playwright** under `web/e2e/`. `ui-smoke.spec.ts` runs backend-free
   (mocked auth via localStorage + `page.route('**/api/**')`); the other specs
   need the full live stack. Playwright is intentionally not run in CI.
+
+## Related
+
+- [`docs/architecture.md`](architecture.md) — full system architecture and SSE orchestration pattern
+- [`docs/api-reference.md`](api-reference.md) — REST endpoints the frontend calls
+- [`docs/troubleshooting.md`](troubleshooting.md) — frontend-specific issues (products not showing, CORS)
+- [Project README](../README.md)

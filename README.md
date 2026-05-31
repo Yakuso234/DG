@@ -13,6 +13,75 @@ A **multi-agent e-commerce platform** built with [Microsoft Agent Framework](htt
 
 Companion demo repo for the AI article series on [nitinksingh.com](https://nitinksingh.com).
 
+![AI shopping assistant with product cards](docs/images/shop-ai-assistant.png)
+
+---
+
+## Where to start
+
+| I want to... | Go here |
+|---|---|
+| Run the demo locally | [Quick Start](#quick-start) below |
+| Understand how the agents work / add a new one | [Architecture](docs/architecture.md) · [Adding an Agent](docs/adding-an-agent.md) |
+| Use the MCP server | [MCP Integration](docs/mcp-integration.md) |
+| Follow the step-by-step tutorial series | [tutorials/README.md](./tutorials/README.md) |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- An [OpenAI API key](https://platform.openai.com/api-keys) (or Azure OpenAI credentials)
+
+### Setup
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/nitin27may/e-commerce-agents.git
+cd e-commerce-agents
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — add your OPENAI_API_KEY (or Azure OpenAI credentials)
+
+# 3. Start everything (builds, seeds, and starts all services)
+./scripts/dev.sh
+```
+
+Open in your browser:
+- **Frontend**: http://localhost:3000
+- **Aspire Dashboard** (telemetry): http://localhost:18888
+
+### Other Commands
+
+```bash
+./scripts/dev.sh --clean       # Nuke volumes, rebuild from scratch
+./scripts/dev.sh --seed-only   # Re-run database seeder only
+./scripts/dev.sh --infra-only  # Start db + redis + aspire only
+```
+
+---
+
+## Table of Contents
+
+- [Project Status](#project-status)
+- [Learning Path](#learning-path--maf-v1-python-and-net)
+- [Architecture](#architecture)
+- [Screens](#screens)
+- [Test Users](#test-users)
+- [Agent Catalog](#agent-catalog)
+- [Demo Scenarios](#demo-scenarios)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Documentation](#documentation)
+- [Port Map](#port-map)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
 ---
 
 ## Project Status
@@ -42,27 +111,6 @@ A new step-by-step tutorial series walks through **every Microsoft Agent Framewo
 
 Each chapter has `python/`, `dotnet/`, `tests/`, a Hugo-ready article draft (`README.md`), and a per-chapter plan (`PLAN.md`). Chapters cross-post to [nitinksingh.com](https://nitinksingh.com) under the *MAF v1: Python and .NET* series, complementing the [original Python-only series](https://nitinksingh.com/posts/building-a-multi-agent-e-commerce-platform-the-complete-guide/).
 
-> Looking for implementation plans? See [`plans/README.md`](./plans/README.md) for the .NET port, refactor-to-MAF-workflows, and publishing sub-plans.
-
----
-
-## Table of Contents
-
-- [Learning Path](#learning-path--maf-v1-python-and-net)
-- [Architecture](#architecture)
-- [Quick Start](#quick-start)
-- [Test Users](#test-users)
-- [Agent Catalog](#agent-catalog)
-- [Demo Scenarios](#demo-scenarios)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Documentation](#documentation)
-- [Port Map](#port-map)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
-
 ---
 
 ## Architecture
@@ -75,7 +123,7 @@ Each chapter has `python/`, `dotnet/`, `tests/`, a Hugo-ready article draft (`RE
 ```mermaid
 graph TB
     subgraph Client["Browser / Client"]
-        FE["Next.js 15<br/>React 19 + Tailwind CSS"]
+        FE["Next.js 16<br/>React 19 + Tailwind CSS"]
     end
 
     subgraph Orchestrator["Orchestrator Agent :8080"]
@@ -159,39 +207,34 @@ graph TB
 
 ---
 
-## Quick Start
+## Screens
 
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- An [OpenAI API key](https://platform.openai.com/api-keys) (or Azure OpenAI credentials)
-
-### Setup
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/nitin27may/e-commerce-agents.git
-cd e-commerce-agents
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env — add your OPENAI_API_KEY (or Azure OpenAI credentials)
-
-# 3. Start everything (builds, seeds, and starts all services)
-./scripts/dev.sh
-```
-
-Open in your browser:
-- **Frontend**: http://localhost:3000
-- **Aspire Dashboard** (telemetry): http://localhost:18888
-
-### Other Commands
-
-```bash
-./scripts/dev.sh --clean       # Nuke volumes, rebuild from scratch
-./scripts/dev.sh --seed-only   # Re-run database seeder only
-./scripts/dev.sh --infra-only  # Start db + redis + aspire only
-```
+<table>
+<tr>
+  <td><img src="docs/images/shop-ai-assistant.png" alt="AI shopping assistant with product cards" width="400"/></td>
+  <td><img src="docs/images/agent-timeline.png" alt="Live agent activity timeline" width="400"/></td>
+</tr>
+<tr>
+  <td align="center"><em>AI shopping assistant with product cards</em></td>
+  <td align="center"><em>Live agent activity timeline (orchestrator → specialist → tool)</em></td>
+</tr>
+<tr>
+  <td><img src="docs/images/storefront.png" alt="Product storefront" width="400"/></td>
+  <td><img src="docs/images/marketplace.png" alt="Agent marketplace" width="400"/></td>
+</tr>
+<tr>
+  <td align="center"><em>Product storefront</em></td>
+  <td align="center"><em>Agent marketplace</em></td>
+</tr>
+<tr>
+  <td><img src="docs/images/admin-dashboard.png" alt="Admin dashboard" width="400"/></td>
+  <td><img src="docs/images/seller-dashboard.png" alt="Seller dashboard" width="400"/></td>
+</tr>
+<tr>
+  <td align="center"><em>Admin dashboard</em></td>
+  <td align="center"><em>Seller dashboard</em></td>
+</tr>
+</table>
 
 ---
 
@@ -247,9 +290,9 @@ Try these in the chat after logging in:
 | Orchestrator | FastAPI (Python 3.12) |
 | Database | PostgreSQL 16 + pgvector (1536-dim embeddings) |
 | Cache | Redis 7 |
-| Frontend | Next.js 15, React 19, Tailwind CSS, shadcn/ui |
+| Frontend | Next.js 16, React 19, Tailwind CSS, shadcn/ui |
 | Auth | Self-contained JWT (PyJWT + bcrypt) |
-| Telemetry | OpenTelemetry &rarr; .NET Aspire Dashboard |
+| Telemetry | OpenTelemetry → .NET Aspire Dashboard |
 | Package Managers | uv (Python), pnpm (Node) |
 | Containerization | Docker Compose |
 
@@ -265,7 +308,8 @@ e-commerce-agents/
 │   ├── python/                      # Python backend
 │   │   ├── Dockerfile               # Multi-target (ARG AGENT_NAME)
 │   │   ├── pyproject.toml           # Dependencies (MAF, OTel, FastAPI)
-│   │   ├── shared/                  # Shared library (config, auth, DB, prompts, telemetry, session)
+│   │   ├── shared/                  # Shared library (config, auth, DB, prompts, telemetry)
+│   │   ├── mcp_servers/             # Optional MCP servers (flag-gated via MCP_ENABLED)
 │   │   ├── config/prompts/          # YAML prompt configs (shared with .NET)
 │   │   ├── orchestrator/            # Customer Support (:8080)
 │   │   ├── product_discovery/       # Product Discovery (:8081)
@@ -277,7 +321,7 @@ e-commerce-agents/
 │       ├── ECommerceAgents.sln
 │       ├── Directory.Packages.props # Central package versions
 │       └── src/
-│           ├── ECommerceAgents.Shared/         # Cross-cutting library
+│           ├── ECommerceAgents.Shared/
 │           ├── ECommerceAgents.Orchestrator/   # :8080
 │           ├── ECommerceAgents.ProductDiscovery/
 │           ├── ECommerceAgents.OrderManagement/
@@ -290,18 +334,28 @@ e-commerce-agents/
 │   ├── dev.sh                      # One-command dev setup
 │   ├── seed.py                     # Database seeder
 │   └── generate_embeddings.py      # Product embedding generation
-├── web/                            # Next.js frontend
+├── web/                            # Next.js 16 frontend
 │   └── src/
 │       ├── app/                    # 16 routes (App Router)
 │       ├── components/             # UI components (shadcn/ui)
 │       └── lib/                    # API client, auth context
-└── docs/                           # Detailed documentation
-    ├── architecture.md
-    ├── api-reference.md
-    ├── database-schema.md
-    ├── telemetry.md
-    ├── agent-flows.md
-    └── deployment.md
+├── tutorials/                      # 22-chapter MAF v1 tutorial series (Python + .NET)
+└── docs/                           # Full documentation — see docs/README.md
+    ├── README.md                   # Docs index and reading order
+    ├── architecture.md             # System design, agent patterns, A2A protocol
+    ├── adding-an-agent.md          # Step-by-step guide to adding a specialist
+    ├── api-reference.md            # All REST endpoints with examples
+    ├── agent-flows.md              # Multi-agent collaboration sequence diagrams
+    ├── database-schema.md          # 24 tables with ER diagram
+    ├── deployment.md               # Docker Compose, dev.sh, environment config
+    ├── frontend.md                 # Routes, theming, SSE/timeline, auth model
+    ├── telemetry.md                # OpenTelemetry setup and Aspire Dashboard
+    ├── mcp-integration.md          # MCP servers, setup, agent wiring
+    ├── maf-best-practices.md       # MAF idioms: @tool, middleware, prompt YAML
+    ├── security-guide.md           # Threat model, guardrails, hardening checklist
+    ├── agent-quality.md            # Eval methodology, datasets, CI gate
+    ├── agent-audit-matrix.md       # Per-agent security posture matrix
+    └── troubleshooting.md          # Common local-stack issues and fixes
 ```
 
 ---
@@ -331,20 +385,21 @@ See [Deployment Guide](docs/deployment.md) for all configuration options.
 
 | Document | Description |
 |----------|-------------|
-| [Architecture](docs/architecture.md) | System design, agent patterns, auth flow |
+| [Architecture](docs/architecture.md) | System design, agent patterns, A2A protocol, auth flow |
+| [Adding an Agent](docs/adding-an-agent.md) | Step-by-step guide to adding a specialist agent |
 | [API Reference](docs/api-reference.md) | All REST endpoints with examples |
 | [Database Schema](docs/database-schema.md) | 24 tables with ER diagram |
 | [Telemetry](docs/telemetry.md) | OpenTelemetry setup and Aspire Dashboard |
 | [Agent Flows](docs/agent-flows.md) | Multi-agent collaboration diagrams |
-| [Deployment](docs/deployment.md) | Docker Compose, dev.sh, port map |
+| [Deployment](docs/deployment.md) | Docker Compose, dev.sh, environment configuration |
 | [Frontend](docs/frontend.md) | Routes, theming, SSE/timeline, public-vs-auth model |
 | [Troubleshooting](docs/troubleshooting.md) | Common local-stack issues and fixes |
 | [Contributing](CONTRIBUTING.md) | Setup, conventions, testing policy, PR checklist |
-| [Security Guide](docs/security-guide.md) | Threat model, guardrails stack, auth, SQL controls, hardening checklist |
+| [Security Guide](docs/security-guide.md) | Threat model, guardrails stack, auth, SQL controls |
 | [Agent Quality & Evals](docs/agent-quality.md) | Eval methodology, datasets, red-team suite, CI gate |
 | [Agent Audit Matrix](docs/agent-audit-matrix.md) | Per-agent security posture and open hardening items |
 | [MAF Best Practices](docs/maf-best-practices.md) | MAF idioms: @tool, middleware, prompt YAML, ContextVars |
-| [MCP Integration](docs/mcp-integration.md) | MCP servers (FastMCP), MCPStreamableHTTPTool wiring, enable/disable guide |
+| [MCP Integration](docs/mcp-integration.md) | MCP servers (FastMCP), MCPStreamableHTTPTool wiring, enable/disable |
 
 ---
 
@@ -362,25 +417,25 @@ See [Deployment Guide](docs/deployment.md) for all configuration options.
 | Aspire Dashboard | 18888 | http://localhost:18888 |
 | PostgreSQL | 5432 | |
 | Redis | 6379 | |
+| MCP Product | 9000 | http://localhost:9000/mcp (when `--profile mcp`) |
+| MCP Inventory | 9001 | http://localhost:9001/mcp (when `--profile mcp`) |
 
 ---
 
 ## Roadmap
 
-This is v1. The Python platform is live and stable. Several high-impact capabilities are actively in progress — we're shipping them incrementally and they will land in upcoming releases.
+This is v1. The Python platform is live and stable. Several high-impact capabilities are actively in progress.
 
-Legend: `- [x]` shipped in v1 · `- [ ]` planned or in progress. Items tagged **`In progress`** are under active development and will land in upcoming releases.
+Legend: `- [x]` shipped · `- [ ]` planned or in progress.
 
 ### In Progress — Coming Soon
 
-The following items are under active development and will land in the next few releases:
-
-- [ ] **Agent evaluators** `In progress` — automated response-quality measurement across every specialist. Scripted eval sets (precision@k, recall@k, answer faithfulness, tool-call correctness) run against the seeded catalog with nightly CI gating, so regressions are caught before they reach production.
-- [ ] **Prompt injection prevention** `In progress` — hardening against a massively underestimated attack surface. Input classification, system-prompt isolation, tool-allow-listing per role, and output filtering before any user-facing render. Every specialist gets the same defense-in-depth layer.
-- [ ] **Session memory & context persistence** `In progress` — long-running memory across conversations. Per-user preferences, recent intents, and past orders are surfaced to the orchestrator via a dedicated memory tool, so follow-ups feel continuous rather than amnesiac.
-- [ ] **Human-in-the-loop approval flows** `In progress` — explicit approval gates for high-stakes actions (refunds over a threshold, inventory writes, bulk price changes). The agent pauses, renders an approval card in the UI, and only proceeds once the operator confirms.
-- [ ] **Per-agent cost tracking** `In progress` — token spend and dollar cost attributed to each specialist, each tool call, and each user session. Surfaced as first-class OpenTelemetry metrics in the Aspire Dashboard.
-- [ ] **Full .NET / C# port** `In progress` — a sibling repository targeting teams building in the Microsoft ecosystem, powered by the [Microsoft Agent Framework .NET SDK](https://github.com/microsoft/agent-framework). Same six agents, same A2A protocol, same PostgreSQL schema — idiomatic .NET throughout.
+- [ ] **Agent evaluators** `In progress` — automated response-quality measurement across every specialist. Scripted eval sets (precision@k, recall@k, answer faithfulness, tool-call correctness) run against the seeded catalog with nightly CI gating.
+- [ ] **Prompt injection prevention** `In progress` — input classification, system-prompt isolation, tool-allow-listing per role, and output filtering before any user-facing render.
+- [ ] **Session memory & context persistence** `In progress` — per-user preferences, recent intents, and past orders surfaced to the orchestrator via a dedicated memory tool, so follow-ups feel continuous.
+- [ ] **Human-in-the-loop approval flows** `In progress` — explicit approval gates for high-stakes actions (refunds over threshold, inventory writes, bulk price changes). The agent pauses, renders an approval card in the UI, and proceeds once the operator confirms.
+- [ ] **Per-agent cost tracking** `In progress` — token spend and dollar cost per specialist, per tool call, per user session as first-class OpenTelemetry metrics.
+- [ ] **Full .NET / C# port** `In progress` — same six agents, same A2A protocol, same PostgreSQL schema — idiomatic .NET throughout.
 
 > **Status:** the Python version is live today. The .NET version is coming.
 
@@ -388,67 +443,39 @@ The following items are under active development and will land in the next few r
 
 ### Planned — Search & Retrieval
 
-Today, `search_products` uses `ILIKE '%word%'` pattern matching split on whitespace. This works for exact keyword matches but misses stems, synonyms, and relevance ranking. The product catalog already has 1536-dim embeddings stored in `product_embeddings` (pgvector + ivfflat), and a separate `semantic_search` tool, but the two retrieval paths are not yet fused.
+The product catalog has 1536-dim pgvector embeddings but `search_products` still uses `ILIKE` matching. Planned:
 
-- [ ] **Postgres full-text search in `search_products`** — add a generated `tsvector` column on `products(name, description, brand)`, a GIN index, and replace the `ILIKE` loop with `plainto_tsquery` + `ts_rank` for stemming, multi-word matching, and proper relevance ordering.
-- [ ] **Hybrid retrieval (FTS + vector)** — combine lexical (FTS) and semantic (pgvector) scores via Reciprocal Rank Fusion in a single CTE. Beats either approach alone on ambiguous queries like "something cozy for winter" or "gift for a developer".
-- [ ] **Smarter tool routing** — update `agents/python/config/prompts/product-discovery.yaml` so the LLM routes descriptive / vague queries to `semantic_search` and attribute-driven queries ("Nike running shoes under $100") to `search_products`.
-- [ ] **Typed filter DSL** — replace the flat parameter list on `search_products` with a structured `ProductFilters` Pydantic model (category, price range, brand, specs match, sort) that the LLM populates as JSON. Keeps SQL parameterized and safe while giving the model more expressive power than fixed arguments.
+- [ ] **Postgres full-text search** — `tsvector` column + GIN index, `plainto_tsquery` + `ts_rank` to replace the `ILIKE` loop.
+- [ ] **Hybrid retrieval (FTS + vector)** — combine lexical and semantic scores via Reciprocal Rank Fusion in a single CTE.
+- [ ] **Smarter tool routing** — update `product-discovery.yaml` so the LLM routes vague descriptive queries to `semantic_search` and attribute-driven queries to `search_products`.
+- [ ] **Typed filter DSL** — replace the flat parameter list on `search_products` with a structured `ProductFilters` Pydantic model (category, price, brand, sort). Keeps SQL parameterized and safe.
 
-**Why not text-to-SQL?** A dynamic "LLM writes the query" approach was considered and rejected for this codebase:
-
-- **Security** — tools currently enforce `user_email` / `user_role` scoping via ContextVars. LLM-generated SQL bypasses that contract and would require full Postgres RLS across all 24 tables plus a read-only role and a SQL parser to reject writes.
-- **Correctness on financial data** — orders, payments, returns, and loyalty points can't tolerate hallucinated JOINs or missing soft-delete filters.
-- **Retrieval quality** — the real problem is that `ILIKE` ignores the embeddings that already exist. Hybrid search solves that without handing the model a SQL console.
-- **Determinism & observability** — hardcoded `@tool` functions produce stable OpenTelemetry spans, cacheable parameter shapes, and reproducible tests.
-
-The typed filter DSL gives the model flexibility at the boundary while keeping SQL generation server-side, parameterized, and auditable.
+Text-to-SQL was considered and rejected: `user_email`/`user_role` scoping via ContextVars means dynamic SQL would bypass that contract. The typed filter DSL gives the model flexibility at the boundary while keeping SQL generation server-side and auditable.
 
 ---
 
 ### Planned — MCP as the Agent Data-Access Layer
 
-Today, specialist agents call data tools directly via MAF's `@tool` decorator over asyncpg (`shared/tools/inventory_tools.py`, `shared/tools/cart_tools.py`, etc.). A reference [Model Context Protocol](https://modelcontextprotocol.io/) server already exists at `agents/python/mcp/inventory_server.py` — it exposes `check_stock`, `get_warehouses`, and `estimate_shipping` over the MCP standard — but no agent currently routes through it.
+Two MCP servers are live today, flag-gated behind `MCP_ENABLED`:
 
-**The planned shift:** migrate agent queries from the native `@tool` path to MCP tool calls, so the MCP server becomes the single query surface for all data access. Any MCP-compatible runtime (Claude Desktop, Cursor, MAF's `MCPStreamableHTTPTool`, an external LangGraph agent) gets the same capabilities with zero glue code.
+- `mcp-product` on port 9000 — product search, details, comparison, price history
+- `mcp-inventory` on port 9001 — stock levels, warehouses, shipping, carriers
 
-- [ ] **Promote the inventory MCP server into the compose stack** — add it as a service on port 9000, health-check it, and have the `inventory-fulfillment` agent consume it via MCP instead of importing `inventory_tools.py` directly.
-- [ ] **Expand the MCP surface beyond inventory** — port `product_tools`, `order_tools`, `cart_tools`, `pricing_tools`, and `review_tools` into MCP servers, each publishing its own `/.well-known/mcp.json`. Land one specialist at a time so the migration is incremental and reversible.
-- [ ] **Agent-side MCP client wiring** — replace the `tools=[native_tool, ...]` lists in `create_<agent>_agent()` factories with an MCP client that discovers tools from the manifest at startup. Preserves the `@tool` signature contract so prompts and tool-call loops stay unchanged.
-- [ ] **Auth propagation** — today, `user_email` / `user_role` flow through ContextVars inside the same process. Over MCP, they'll need to ride as authenticated headers (`X-User-Email`, `X-User-Role`) signed by `AGENT_SHARED_SECRET`, mirroring the existing A2A inter-agent pattern in `shared/auth.py`.
-- [ ] **Telemetry parity** — MCP tool calls should produce the same OpenTelemetry spans (`tool.call`, `tool.result`) that native `@tool` calls emit today, so Aspire Dashboard views keep working after the cutover.
-- [ ] **Eval gate** — expand `agents/python/evals/` to run each dataset twice (once against native tools, once against MCP) and fail CI if the MCP run scores below the native baseline.
+See [MCP Integration](docs/mcp-integration.md) for the full setup guide and how to inspect the servers.
 
-**Why bother?**
+Planned next:
 
-- **Language-agnostic tool layer** — any runtime that speaks MCP (not just MAF, not just Python) can talk to the platform's data without importing Python modules.
-- **Clean separation of concerns** — agents become pure reasoning + orchestration; data access lives behind a versioned, discoverable protocol.
-- **External integration surface** — opens the door to Claude Desktop / Cursor / third-party agents consuming the same tools the internal specialists use, with identical auth and observability.
-- **Incremental, reversible** — each specialist can be cut over independently; the native `@tool` path stays as a fallback until the MCP server is at feature + performance parity.
-
-**Quick demo of the existing standalone server** (nothing migrated yet — just the reference implementation):
-
-```bash
-# Start the MCP server (Postgres already running via ./scripts/dev.sh)
-cd agents && uv run uvicorn mcp.inventory_server:app --port 9000
-
-# In another terminal — fetch the capability manifest
-curl -s http://localhost:9000/.well-known/mcp.json | python3 -m json.tool
-
-# Execute the check_stock tool against a seeded product
-curl -s -X POST http://localhost:9000/mcp/tools/check_stock \
-  -H "Content-Type: application/json" \
-  -d '{"product_id":"4b4d727a-25d7-4f0b-9941-7ae2a4d9c6ec"}' | python3 -m json.tool
-```
+- [ ] **Expand MCP surface** — port `order_tools`, `pricing_tools`, `cart_tools`, and `review_tools` into MCP servers so all five specialists have a portable, language-agnostic data layer.
+- [ ] **External integration surface** — any MCP-compatible client (Claude Desktop, Cursor, LangGraph) can consume the same tools the internal specialists use, with identical auth and observability.
+- [ ] **Eval gate** — run each eval dataset twice (native tools vs MCP path) and fail CI if the MCP run scores below the native baseline.
 
 ---
 
 ### Planned — Platform & Observability
 
 - [ ] **Prompt caching** — cache system prompts and tool schemas per agent to reduce per-request token cost on repeated specialist invocations.
-- [ ] **Streaming tool calls end-to-end** `In progress` — propagate partial tool results over SSE so the UI can render product cards as they arrive rather than after the full agent turn completes.
+- [ ] **Streaming tool calls end-to-end** `In progress` — propagate partial tool results over SSE so the UI renders product cards as they arrive.
 - [x] **Observability dashboards** — pre-built Aspire Dashboard views for agent latency, tool error rates, and LLM token spend per specialist.
-
 
 ---
 
@@ -458,6 +485,8 @@ curl -s -X POST http://localhost:9000/mcp/tools/check_stock \
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make your changes and ensure tests pass
 4. Submit a pull request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup, conventions, testing policy, and PR checklist.
 
 ---
 
