@@ -339,6 +339,10 @@ See [Deployment Guide](docs/deployment.md) for all configuration options.
 | [Frontend](docs/frontend.md) | Routes, theming, SSE/timeline, public-vs-auth model |
 | [Troubleshooting](docs/troubleshooting.md) | Common local-stack issues and fixes |
 | [Contributing](CONTRIBUTING.md) | Setup, conventions, testing policy, PR checklist |
+| [Security Guide](docs/security-guide.md) | Threat model, guardrails stack, auth, SQL controls, hardening checklist |
+| [Agent Quality & Evals](docs/agent-quality.md) | Eval methodology, datasets, red-team suite, CI gate |
+| [Agent Audit Matrix](docs/agent-audit-matrix.md) | Per-agent security posture and open hardening items |
+| [MAF Best Practices](docs/maf-best-practices.md) | MAF idioms: @tool, middleware, prompt YAML, ContextVars |
 
 ---
 

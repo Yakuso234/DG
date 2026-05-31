@@ -32,7 +32,7 @@ chat-completions loop was retired once Azure compatibility was confirmed.
   `shared/prompt_loader.py` — no hardcoded prompt strings.
 - Middleware is composed once by `shared/middleware.build_specialist_middleware()`
   (run logging, tool audit, injection detection, PII redaction, output
-  sanitization, timeline capture). See `docs/security-guide.md`.
+  sanitization, timeline capture). See [`docs/security-guide.md`](security-guide.md).
 
 ## Workflow primitives
 
@@ -172,3 +172,10 @@ renders these to Mermaid + Graphviz under `docs/workflows/`.
 - `scripts/visualize_workflows.py` renders **declarative YAML** workflows; Python
   `WorkflowBuilder` graphs (pre-purchase, return-replace, group-chat) are
   diagrammed by hand in this doc and the tutorials.
+
+## Related documents
+
+- [`docs/security-guide.md`](security-guide.md) — guardrails middleware stack, auth, SQL controls, threat model
+- [`docs/agent-audit-matrix.md`](agent-audit-matrix.md) — per-agent security posture and open hardening items
+- [`docs/agent-quality.md`](agent-quality.md) — eval methodology, red-team suite, CI gate
+- [`docs/architecture.md`](architecture.md) — full system architecture and agent communication patterns
