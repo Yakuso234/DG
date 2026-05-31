@@ -608,6 +608,19 @@ class ApiClient {
   getProfile() {
     return this.request<any>("/api/profile");
   }
+
+  getUserMemories(category?: string) {
+    const q = category ? `?category=${encodeURIComponent(category)}` : "";
+    return this.request<
+      { id: string; category: string; content: string; importance: number; created_at: string }[]
+    >(`/api/user/memories${q}`);
+  }
+
+  deleteUserMemory(id: string) {
+    return this.request<{ deleted: boolean }>(`/api/user/memories/${id}`, {
+      method: "DELETE",
+    });
+  }
 }
 
 export const api = new ApiClient();

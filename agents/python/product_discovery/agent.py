@@ -23,6 +23,7 @@ from shared.context_providers import ECommerceContextProvider
 from shared.middleware import build_specialist_middleware
 from shared.tools.inventory_tools import check_stock, get_warehouse_availability
 from shared.tools.pricing_tools import get_price_history
+from shared.tools.memory_tools import recall_memories, store_memory
 from shared.tools.user_tools import get_purchase_history, get_user_profile
 
 AGENT_TOOLS = [
@@ -37,6 +38,8 @@ AGENT_TOOLS = [
     get_price_history,
     get_user_profile,
     get_purchase_history,
+    store_memory,
+    recall_memories,
 ]
 
 

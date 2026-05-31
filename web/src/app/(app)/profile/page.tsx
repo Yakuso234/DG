@@ -23,6 +23,9 @@ import {
   User,
   Loader2,
   Check,
+  Brain,
+  Trash2,
+  Star,
   X,
   TrendingUp,
 } from "lucide-react";
@@ -120,6 +123,11 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [memories, setMemories] = useState<
+    { id: string; category: string; content: string; importance: number; created_at: string }[]
+  >([]);
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -140,9 +148,34 @@ export default function ProfilePage() {
     }
   }, []);
 
+  const loadMemories = useCallback(async () => {
+    setMemoriesLoading(true);
+    try {
+      const rows = await api.getUserMemories();
+      setMemories(rows ?? []);
+    } catch {
+      // non-fatal — memories section just stays empty
+    } finally {
+      setMemoriesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (user) loadProfile();
-  }, [user, loadProfile]);
+    if (user) {
+      loadProfile();
+      loadMemories();
+    }
+  }, [user, loadProfile, loadMemories]);
+
+  async function handleDeleteMemory(id: string) {
+    setDeletingId(id);
+    try {
+      await api.deleteUserMemory(id);
+      setMemories((prev) => prev.filter((m) => m.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (authLoading) return null;
 
@@ -438,6 +471,79 @@ export default function ProfilePage() {
                     </span>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* AI Memory */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Brain className="size-5 text-primary" />
+                    <CardTitle className="text-base font-semibold text-foreground">
+                      AI Memory
+                    </CardTitle>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    What the agents remember about you
+                  </span>
+                </div>
+              </CardHeader>
+              <Separator />
+              <CardContent className="pt-6">
+                {memoriesLoading ? (
+                  <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    <span>Loading memories...</span>
+                  </div>
+                ) : memories.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border py-8 text-center">
+                    <Brain className="mx-auto mb-2 size-8 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground">
+                      No memories yet. Chat with the product or review agents to build your profile.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {memories.map((memory) => (
+                      <div
+                        key={memory.id}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3"
+                      >
+                        <div className="flex-1 space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              className="border-0 bg-sky-100 text-sky-700 text-xs capitalize"
+                            >
+                              {memory.category}
+                            </Badge>
+                            <span className="flex items-center gap-0.5" title={`Importance: ${memory.importance}/10`}>
+                              {Array.from({ length: Math.min(5, Math.ceil(memory.importance / 2)) }).map((_, i) => (
+                                <Star key={i} className="size-3 fill-amber-400 text-amber-400" />
+                              ))}
+                            </span>
+                          </div>
+                          <p className="text-sm text-foreground">{memory.content}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(memory.created_at)}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteMemory(memory.id)}
+                          disabled={deletingId === memory.id}
+                          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                          title="Forget this memory"
+                        >
+                          {deletingId === memory.id ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-4" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
