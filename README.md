@@ -343,6 +343,7 @@ See [Deployment Guide](docs/deployment.md) for all configuration options.
 | [Agent Quality & Evals](docs/agent-quality.md) | Eval methodology, datasets, red-team suite, CI gate |
 | [Agent Audit Matrix](docs/agent-audit-matrix.md) | Per-agent security posture and open hardening items |
 | [MAF Best Practices](docs/maf-best-practices.md) | MAF idioms: @tool, middleware, prompt YAML, ContextVars |
+| [MCP Integration](docs/mcp-integration.md) | MCP servers (FastMCP), MCPStreamableHTTPTool wiring, enable/disable guide |
 
 ---
 

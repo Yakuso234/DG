@@ -16,6 +16,7 @@ from agent_framework._tools import tool, FunctionTool
 from agent_framework._types import Message, Content, Role
 from agent_framework._clients import BaseChatClient
 from agent_framework._sessions import AgentSession, HistoryProvider, InMemoryHistoryProvider, ContextProvider
+from agent_framework._mcp import MCPStreamableHTTPTool, MCPStdioTool, MCPTool
 '''
 
 

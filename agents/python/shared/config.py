@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
 
+    # ── MCP integration (optional, flag-gated) ──────────────────────
+    # When enabled, specialist agents connect to MCP servers for their data
+    # layer instead of calling asyncpg directly. MCP servers must be running
+    # at the configured URLs. Both modes are semantically equivalent.
+    MCP_ENABLED: bool = False
+    MCP_PRODUCT_SERVER_URL: str = "http://localhost:9000/mcp"
+    MCP_INVENTORY_SERVER_URL: str = "http://localhost:9001/mcp"
+
     # ── General ─────────────────────────────────────────────────────
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"

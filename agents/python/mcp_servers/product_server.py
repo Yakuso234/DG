@@ -1,0 +1,320 @@
+"""MCP Server — Product Discovery domain.
+
+Exposes product search (keyword + filter), semantic/embedding-based search,
+product details, comparison, trending products, and price history via MCP.
+
+Run standalone:
+    uv run python -m mcp_servers.product_server
+
+Run as HTTP service:
+    uvicorn mcp_servers.product_server:app --host 0.0.0.0 --port 9000
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from typing import Annotated
+
+import asyncpg
+from mcp.server.fastmcp import FastMCP
+
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://ecommerce:ecommerce_secret@localhost:5432/ecommerce_agents",
+)
+# Embedding model dimension — must match the vectors stored in product_embeddings.
+EMBEDDING_DIM = 1536
+
+_pool: asyncpg.Pool | None = None
+
+
+@asynccontextmanager
+async def _lifespan(server: FastMCP):
+    global _pool
+    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=8)
+    logger.info("product-mcp: DB pool ready")
+    try:
+        yield
+    finally:
+        if _pool:
+            await _pool.close()
+
+
+mcp = FastMCP(
+    "product-discovery-mcp",
+    instructions=(
+        "Product catalog data for the E-Commerce Agents platform. "
+        "Search products by keyword or semantic similarity, retrieve full product "
+        "details, compare products side by side, and check price history."
+    ),
+    lifespan=_lifespan,
+)
+
+
+def _get_pool() -> asyncpg.Pool:
+    if _pool is None:
+        raise RuntimeError("DB pool not initialized — server not started yet")
+    return _pool
+
+
+# ─────────────────────── Tools ──────────────────────────────────────────────
+
+
+@mcp.tool()
+async def search_products(
+    query: Annotated[str | None, "Natural language search query"] = None,
+    category: Annotated[str | None, "Category filter: Electronics, Clothing, Home, Sports, Books"] = None,
+    min_price: Annotated[float | None, "Minimum price"] = None,
+    max_price: Annotated[float | None, "Maximum price"] = None,
+    min_rating: Annotated[float | None, "Minimum rating (1–5)"] = None,
+    sort_by: Annotated[str | None, "Sort: price_asc, price_desc, rating, newest"] = None,
+    limit: Annotated[int, "Max results (capped at 50)"] = 10,
+) -> list[dict]:
+    """Search the product catalog with keyword + optional filters."""
+    safe_limit = min(limit, 50)
+    conditions = ["p.is_active = TRUE"]
+    args: list = []
+    idx = 1
+
+    if query:
+        conditions.append(
+            f"(p.name ILIKE ${idx} OR p.description ILIKE ${idx} OR p.brand ILIKE ${idx})"
+        )
+        args.append(f"%{query}%")
+        idx += 1
+    if category:
+        conditions.append(f"p.category = ${idx}")
+        args.append(category)
+        idx += 1
+    if min_price is not None:
+        conditions.append(f"p.price >= ${idx}")
+        args.append(min_price)
+        idx += 1
+    if max_price is not None:
+        conditions.append(f"p.price <= ${idx}")
+        args.append(max_price)
+        idx += 1
+    if min_rating is not None:
+        conditions.append(f"p.rating >= ${idx}")
+        args.append(min_rating)
+        idx += 1
+
+    order = {
+        "price_asc": "p.price ASC",
+        "price_desc": "p.price DESC",
+        "rating": "p.rating DESC",
+        "newest": "p.created_at DESC",
+    }.get(sort_by or "", "p.rating DESC")
+
+    where = " AND ".join(conditions)
+    sql = f"""
+        SELECT p.id, p.name, p.category, p.brand, p.price, p.original_price,
+               p.rating, p.review_count, p.description, p.is_active
+        FROM products p
+        WHERE {where}
+        ORDER BY {order}
+        LIMIT {safe_limit}
+    """
+    async with _get_pool().acquire() as conn:
+        rows = await conn.fetch(sql, *args)
+        return [
+            {
+                "id": str(r["id"]),
+                "name": r["name"],
+                "category": r["category"],
+                "brand": r["brand"],
+                "price": float(r["price"]),
+                "original_price": float(r["original_price"]) if r["original_price"] else None,
+                "rating": float(r["rating"]),
+                "review_count": r["review_count"],
+                "description": r["description"],
+            }
+            for r in rows
+        ]
+
+
+@mcp.tool()
+async def get_product_details(
+    product_id: Annotated[str, "UUID of the product"],
+) -> dict:
+    """Get full product details including specs, stock status, and seller info."""
+    async with _get_pool().acquire() as conn:
+        p = await conn.fetchrow(
+            """SELECT p.id, p.name, p.category, p.brand, p.price, p.original_price,
+                      p.rating, p.review_count, p.description, p.specs,
+                      u.name as seller_name,
+                      COALESCE(SUM(wi.quantity), 0) as total_stock
+               FROM products p
+               LEFT JOIN users u ON p.seller_id = u.id
+               LEFT JOIN warehouse_inventory wi ON wi.product_id = p.id
+               WHERE p.id = $1
+               GROUP BY p.id, u.name""",
+            product_id,
+        )
+        if not p:
+            return {"error": f"Product not found: {product_id}"}
+
+        specs = p["specs"]
+        if isinstance(specs, str):
+            import json
+            specs = json.loads(specs)
+
+        return {
+            "id": str(p["id"]),
+            "name": p["name"],
+            "category": p["category"],
+            "brand": p["brand"],
+            "price": float(p["price"]),
+            "original_price": float(p["original_price"]) if p["original_price"] else None,
+            "rating": float(p["rating"]),
+            "review_count": p["review_count"],
+            "description": p["description"],
+            "specs": specs or {},
+            "seller": p["seller_name"],
+            "in_stock": p["total_stock"] > 0,
+            "total_stock": int(p["total_stock"]),
+        }
+
+
+@mcp.tool()
+async def compare_products(
+    product_ids: Annotated[list[str], "List of 2–3 product UUIDs to compare"],
+) -> list[dict]:
+    """Compare 2–3 products side by side on price, rating, specs, and stock."""
+    if not 2 <= len(product_ids) <= 3:
+        return [{"error": "Provide 2 or 3 product IDs to compare"}]
+
+    results = []
+    async with _get_pool().acquire() as conn:
+        for pid in product_ids:
+            row = await conn.fetchrow(
+                """SELECT p.id, p.name, p.category, p.brand, p.price, p.rating,
+                          p.review_count, p.specs,
+                          COALESCE(SUM(wi.quantity), 0) as total_stock
+                   FROM products p
+                   LEFT JOIN warehouse_inventory wi ON wi.product_id = p.id
+                   WHERE p.id = $1
+                   GROUP BY p.id""",
+                pid,
+            )
+            if row:
+                import json
+                specs = row["specs"]
+                if isinstance(specs, str):
+                    specs = json.loads(specs)
+                results.append({
+                    "id": str(row["id"]),
+                    "name": row["name"],
+                    "category": row["category"],
+                    "brand": row["brand"],
+                    "price": float(row["price"]),
+                    "rating": float(row["rating"]),
+                    "review_count": row["review_count"],
+                    "specs": specs or {},
+                    "in_stock": row["total_stock"] > 0,
+                })
+    return results
+
+
+@mcp.tool()
+async def get_trending_products(
+    category: Annotated[str | None, "Optional category filter"] = None,
+    days: Annotated[int, "Trending period in days (default 30)"] = 30,
+    limit: Annotated[int, "Max results"] = 10,
+) -> list[dict]:
+    """Get trending products ranked by recent order volume."""
+    safe_limit = min(limit, 50)
+    conditions = ["p.is_active = TRUE", f"o.created_at >= NOW() - INTERVAL '{days} days'"]
+    args: list = []
+    idx = 1
+
+    if category:
+        conditions.append(f"p.category = ${idx}")
+        args.append(category)
+        idx += 1
+
+    where = " AND ".join(conditions)
+    async with _get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"""SELECT p.id, p.name, p.category, p.brand, p.price, p.rating,
+                       p.review_count, COUNT(oi.id) as order_count
+                FROM products p
+                JOIN order_items oi ON oi.product_id = p.id
+                JOIN orders o ON oi.order_id = o.id
+                WHERE {where}
+                GROUP BY p.id
+                ORDER BY order_count DESC
+                LIMIT {safe_limit}""",
+            *args,
+        )
+        return [
+            {
+                "id": str(r["id"]),
+                "name": r["name"],
+                "category": r["category"],
+                "brand": r["brand"],
+                "price": float(r["price"]),
+                "rating": float(r["rating"]),
+                "review_count": r["review_count"],
+                "recent_orders": r["order_count"],
+            }
+            for r in rows
+        ]
+
+
+@mcp.tool()
+async def get_price_history(
+    product_id: Annotated[str, "UUID of the product"],
+    days: Annotated[int, "History window: 30, 60, or 90 days"] = 30,
+) -> dict:
+    """Get price trend data with average, min, max, and a deal-quality signal."""
+    async with _get_pool().acquire() as conn:
+        product = await conn.fetchrow(
+            "SELECT name, price FROM products WHERE id = $1", product_id
+        )
+        if not product:
+            return {"error": f"Product not found: {product_id}"}
+
+        rows = await conn.fetch(
+            """SELECT price, recorded_at
+               FROM price_history
+               WHERE product_id = $1 AND recorded_at >= NOW() - ($2 || ' days')::interval
+               ORDER BY recorded_at""",
+            product_id,
+            str(days),
+        )
+        current = float(product["price"])
+        if not rows:
+            return {
+                "product_id": product_id,
+                "product_name": product["name"],
+                "current_price": current,
+                "history": [],
+                "summary": "No price history available",
+            }
+
+        prices = [float(r["price"]) for r in rows]
+        avg = sum(prices) / len(prices)
+        return {
+            "product_id": product_id,
+            "product_name": product["name"],
+            "current_price": current,
+            "period_days": days,
+            "average_price": round(avg, 2),
+            "min_price": round(min(prices), 2),
+            "max_price": round(max(prices), 2),
+            "is_good_deal": current <= avg * 0.95,
+            "data_points": len(prices),
+        }
+
+
+# ─────────────────────── ASGI entry-point ───────────────────────────────────
+
+app = mcp.streamable_http_app()
+
+if __name__ == "__main__":
+    mcp.run()
