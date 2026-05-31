@@ -2,14 +2,22 @@
 
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { motion } from "framer-motion";
 import { ChatProductCard } from "./product-card";
 import { ChatOrderCard } from "./order-card";
 import { ChatCheckoutCard } from "./checkout-card";
 import { ChatReturnCard } from "./return-card";
+import { listItem } from "@/lib/motion";
 import {
   CardKind,
   validateCard,
 } from "@/lib/chat-schemas";
+
+const CardMotion = ({ children }: { children: React.ReactNode }) => (
+  <motion.div variants={listItem} initial="hidden" animate="visible">
+    {children}
+  </motion.div>
+);
 
 // rehype-sanitize's default schema strips `<script>`, on* attributes,
 // `javascript:` URLs and similar. We allow class names so the prose
@@ -46,21 +54,31 @@ export function RichMessage({ content, streaming, onAction }: RichMessageProps) 
       {segments.map((seg, i) => {
         if (seg.type === "product" && seg.data) {
           return (
-            <ChatProductCard
-              key={i}
-              data={seg.data as any}
-              onAction={onAction}
-            />
+            <CardMotion key={i}>
+              <ChatProductCard data={seg.data as any} onAction={onAction} />
+            </CardMotion>
           );
         }
         if (seg.type === "order" && seg.data) {
-          return <ChatOrderCard key={i} data={seg.data as any} onAction={onAction} />;
+          return (
+            <CardMotion key={i}>
+              <ChatOrderCard data={seg.data as any} onAction={onAction} />
+            </CardMotion>
+          );
         }
         if (seg.type === "checkout" && seg.data) {
-          return <ChatCheckoutCard key={i} data={seg.data as any} />;
+          return (
+            <CardMotion key={i}>
+              <ChatCheckoutCard data={seg.data as any} />
+            </CardMotion>
+          );
         }
         if (seg.type === "return" && seg.data) {
-          return <ChatReturnCard key={i} data={seg.data as any} />;
+          return (
+            <CardMotion key={i}>
+              <ChatReturnCard data={seg.data as any} />
+            </CardMotion>
+          );
         }
         return (
           <div

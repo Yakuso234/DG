@@ -31,39 +31,18 @@ TooltipContent.displayName = "TooltipContent";
 
 // ─── Image preview overlay ────────────────────────────────────────────────────
 
-function ImagePreviewOverlay({
-  src,
-  onClose,
-}: {
-  src: string;
-  onClose: () => void;
-}) {
+function ImagePreviewOverlay({ src, onClose }: { src: string; onClose: () => void }) {
   React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="relative max-w-[90vw]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <img
-          src={src}
-          alt="Preview"
-          className="max-h-[85vh] max-w-full rounded-xl object-contain shadow-2xl"
-        />
-        <button
-          onClick={onClose}
-          className="absolute -right-2 -top-2 rounded-full bg-zinc-800 p-1.5 text-white transition-colors hover:bg-zinc-700"
-        >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+        <img src={src} alt="Preview" className="max-h-[85vh] max-w-full rounded-xl object-contain shadow-2xl" />
+        <button onClick={onClose} className="absolute -right-2 -top-2 rounded-full bg-zinc-800 p-1.5 text-white transition-colors hover:bg-zinc-700">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -71,39 +50,47 @@ function ImagePreviewOverlay({
   );
 }
 
+// ─── Agent mode definitions ───────────────────────────────────────────────────
+
+export interface AgentMode {
+  id: string | null;
+  label: string;
+  placeholder: string;
+}
+
+export const AGENT_MODES: AgentMode[] = [
+  { id: null, label: "Auto", placeholder: "Ask about products, orders, or anything..." },
+  { id: "product-discovery", label: "Products", placeholder: "Search, compare, or explore the catalog..." },
+  { id: "order-management", label: "Orders", placeholder: "Track, cancel, or return an order..." },
+  { id: "pricing-promotions", label: "Pricing", placeholder: "Check deals, coupons, or price trends..." },
+  { id: "review-sentiment", label: "Reviews", placeholder: "Analyse reviews or check sentiment..." },
+  { id: "inventory-fulfillment", label: "Inventory", placeholder: "Check stock or estimate shipping..." },
+];
+
 // ─── PromptInputBox ───────────────────────────────────────────────────────────
 
 export interface PromptInputBoxProps {
-  onSend: (message: string, files?: File[]) => void;
+  onSend: (message: string, agentMode?: string | null) => void;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  suggestions?: { label: string; prompt: string }[];
 }
 
-export const PromptInputBox = React.forwardRef<
-  HTMLDivElement,
-  PromptInputBoxProps
->(
-  (
-    {
-      onSend,
-      isLoading = false,
-      placeholder = "Type your message...",
-      className,
-      disabled = false,
-    },
-    ref
-  ) => {
+export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxProps>(
+  ({ onSend, isLoading = false, className, disabled = false, suggestions = [] }, ref) => {
     const [input, setInput] = React.useState("");
+    const [agentMode, setAgentMode] = React.useState<string | null>(null);
     const [attachedFile, setAttachedFile] = React.useState<File | null>(null);
     const [filePreview, setFilePreview] = React.useState<string | null>(null);
-    const [selectedImage, setSelectedImage] = React.useState<string | null>(
-      null
-    );
+    const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const MAX_HEIGHT = 240;
+
+    const currentMode = AGENT_MODES.find((m) => m.id === agentMode) ?? AGENT_MODES[0];
+    const placeholder = currentMode.placeholder;
 
     // Auto-resize textarea
     React.useEffect(() => {
@@ -118,7 +105,7 @@ export const PromptInputBox = React.forwardRef<
 
     const handleSubmit = () => {
       if (!hasContent || isDisabled) return;
-      onSend(input.trim(), attachedFile ? [attachedFile] : undefined);
+      onSend(input.trim(), agentMode);
       setInput("");
       setAttachedFile(null);
       setFilePreview(null);
@@ -132,8 +119,7 @@ export const PromptInputBox = React.forwardRef<
     };
 
     const attachFile = (file: File) => {
-      if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024)
-        return;
+      if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) return;
       setAttachedFile(file);
       const reader = new FileReader();
       reader.onload = (ev) => setFilePreview(ev.target?.result as string);
@@ -146,10 +132,7 @@ export const PromptInputBox = React.forwardRef<
       e.target.value = "";
     };
 
-    const removeFile = () => {
-      setAttachedFile(null);
-      setFilePreview(null);
-    };
+    const removeFile = () => { setAttachedFile(null); setFilePreview(null); };
 
     // Paste image
     React.useEffect(() => {
@@ -159,10 +142,7 @@ export const PromptInputBox = React.forwardRef<
         for (const item of Array.from(items)) {
           if (item.type.startsWith("image/")) {
             const file = item.getAsFile();
-            if (file) {
-              e.preventDefault();
-              attachFile(file);
-            }
+            if (file) { e.preventDefault(); attachFile(file); }
             break;
           }
         }
@@ -173,9 +153,7 @@ export const PromptInputBox = React.forwardRef<
 
     const handleDrop = (e: React.DragEvent) => {
       e.preventDefault();
-      const file = Array.from(e.dataTransfer.files).find((f) =>
-        f.type.startsWith("image/")
-      );
+      const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("image/"));
       if (file) attachFile(file);
     };
 
@@ -186,14 +164,32 @@ export const PromptInputBox = React.forwardRef<
             ref={ref}
             className={cn(
               "rounded-2xl border bg-background shadow-sm transition-colors duration-200",
-              isLoading
-                ? "border-teal-400/60"
-                : "border-border hover:border-zinc-300",
+              isLoading ? "border-teal-400/60" : "border-border hover:border-zinc-300",
               className
             )}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
           >
+            {/* Mode chips */}
+            <div className="flex gap-1 overflow-x-auto px-3 pt-2.5 pb-1 scrollbar-none">
+              {AGENT_MODES.map((mode) => (
+                <button
+                  key={String(mode.id)}
+                  type="button"
+                  onClick={() => setAgentMode(mode.id)}
+                  disabled={isDisabled}
+                  className={cn(
+                    "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                    agentMode === mode.id
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  )}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+
             {/* Attached image thumbnail */}
             <AnimatePresence>
               {filePreview && attachedFile && (
@@ -202,25 +198,13 @@ export const PromptInputBox = React.forwardRef<
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.18 }}
-                  className="overflow-hidden px-3 pt-3"
+                  className="overflow-hidden px-3 pt-2"
                 >
                   <div className="relative inline-block">
-                    <button
-                      type="button"
-                      className="block h-16 w-16 overflow-hidden rounded-lg"
-                      onClick={() => setSelectedImage(filePreview)}
-                    >
-                      <img
-                        src={filePreview}
-                        alt={attachedFile.name}
-                        className="h-full w-full object-cover"
-                      />
+                    <button type="button" className="block h-16 w-16 overflow-hidden rounded-lg" onClick={() => setSelectedImage(filePreview)}>
+                      <img src={filePreview} alt={attachedFile.name} className="h-full w-full object-cover" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={removeFile}
-                      className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-white transition-colors hover:bg-zinc-600"
-                    >
+                    <button type="button" onClick={removeFile} className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-700 p-0.5 text-white transition-colors hover:bg-zinc-600">
                       <X className="h-3 w-3" />
                     </button>
                   </div>
@@ -245,6 +229,32 @@ export const PromptInputBox = React.forwardRef<
               style={{ maxHeight: MAX_HEIGHT, scrollbarWidth: "thin" }}
             />
 
+            {/* Suggested prompts — shown when input is empty */}
+            <AnimatePresence>
+              {!input && suggestions.length > 0 && !isLoading && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="overflow-hidden px-3 pb-1"
+                >
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestions.slice(0, 3).map((s) => (
+                      <button
+                        key={s.label}
+                        type="button"
+                        onClick={() => { setInput(s.prompt); textareaRef.current?.focus(); }}
+                        className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-muted hover:text-foreground"
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Bottom actions */}
             <div className="flex items-center justify-between px-3 pb-3">
               {/* Attach button */}
@@ -262,13 +272,12 @@ export const PromptInputBox = React.forwardRef<
                 <TooltipContent>Attach image</TooltipContent>
               </Tooltip>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileChange}
-              />
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+
+              {/* Keyboard hint */}
+              <span className="hidden select-none text-[10px] text-muted-foreground/50 sm:block">
+                Enter to send · Shift+Enter newline
+              </span>
 
               {/* Send / Stop button */}
               <Tooltip>
@@ -290,43 +299,24 @@ export const PromptInputBox = React.forwardRef<
                   >
                     <AnimatePresence mode="wait" initial={false}>
                       {isLoading ? (
-                        <motion.span
-                          key="stop"
-                          initial={{ opacity: 0, scale: 0.7 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.7 }}
-                          transition={{ duration: 0.12 }}
-                        >
+                        <motion.span key="stop" initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.7 }} transition={{ duration: 0.12 }}>
                           <Square className="h-3.5 w-3.5 fill-white" />
                         </motion.span>
                       ) : (
-                        <motion.span
-                          key="send"
-                          initial={{ opacity: 0, scale: 0.7, y: 4 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.7, y: -4 }}
-                          transition={{ duration: 0.12 }}
-                        >
+                        <motion.span key="send" initial={{ opacity: 0, scale: 0.7, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.7, y: -4 }} transition={{ duration: 0.12 }}>
                           <ArrowUp className="h-4 w-4" />
                         </motion.span>
                       )}
                     </AnimatePresence>
                   </motion.button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {isLoading ? "Stop generation" : "Send message"}
-                </TooltipContent>
+                <TooltipContent>{isLoading ? "Stop generation" : "Send message"}</TooltipContent>
               </Tooltip>
             </div>
           </div>
         </TooltipProvider>
 
-        {selectedImage && (
-          <ImagePreviewOverlay
-            src={selectedImage}
-            onClose={() => setSelectedImage(null)}
-          />
-        )}
+        {selectedImage && <ImagePreviewOverlay src={selectedImage} onClose={() => setSelectedImage(null)} />}
       </>
     );
   }

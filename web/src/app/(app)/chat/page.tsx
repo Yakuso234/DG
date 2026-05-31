@@ -27,6 +27,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquarePlusIcon,
   Trash2Icon,
@@ -36,7 +37,12 @@ import {
   ShoppingCart,
   Copy,
   Check,
+  RotateCcw,
+  Share2,
+  Sparkles,
 } from "lucide-react";
+import { DEMO_SCENARIOS } from "@/lib/scenarios";
+import { AGENT_MODES } from "@/components/ui/ai-prompt-box";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,33 +58,6 @@ interface Message {
   streaming?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Copy-to-clipboard action
-// ---------------------------------------------------------------------------
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        } catch {
-          // clipboard unavailable — ignore
-        }
-      }}
-      aria-label="Copy message"
-      className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-    >
-      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
 interface Conversation {
   id: string;
   title: string;
@@ -87,10 +66,10 @@ interface Conversation {
 }
 
 // ---------------------------------------------------------------------------
-// Typing indicator
+// Thinking indicator (replaces generic typing dots)
 // ---------------------------------------------------------------------------
 
-function TypingDots() {
+function ThinkingIndicator({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 px-1 py-3">
       <Avatar className="size-7 shrink-0">
@@ -98,11 +77,75 @@ function TypingDots() {
           <BotIcon className="size-3.5" />
         </AvatarFallback>
       </Avatar>
-      <div className="flex items-center gap-1">
-        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
-        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:150ms]" />
-        <span className="inline-block size-2 animate-bounce rounded-full bg-muted-foreground [animation-delay:300ms]" />
-      </div>
+      <motion.div
+        className="flex items-center gap-1.5 text-xs text-muted-foreground"
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+      >
+        <Sparkles className="size-3 text-primary/70" />
+        <span>{label}</span>
+      </motion.div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Message action bar (copy, retry, share)
+// ---------------------------------------------------------------------------
+
+function MessageActions({
+  text,
+  onRetry,
+}: {
+  text: string;
+  onRetry: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  const handleShare = async () => {
+    try {
+      const url = `${window.location.origin}/chat?prompt=${encodeURIComponent(text.slice(0, 200))}`;
+      await navigator.clipboard.writeText(url);
+      setShared(true);
+      setTimeout(() => setShared(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <div className="mt-1.5 flex items-center gap-3">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <RotateCcw className="size-3" />
+        Retry
+      </button>
+      <button
+        type="button"
+        onClick={handleShare}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {shared ? <Check className="size-3" /> : <Share2 className="size-3" />}
+        {shared ? "Copied link" : "Share"}
+      </button>
     </div>
   );
 }
@@ -220,6 +263,7 @@ export default function ChatPage() {
   >(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isResponding, setIsResponding] = useState(false);
+  const [thinkingLabel, setThinkingLabel] = useState<string>("Routing to specialists...");
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const searchParams = useSearchParams();
@@ -328,10 +372,18 @@ export default function ChatPage() {
   );
 
   // ---- Core send logic (shared by form submit and ?q= auto-send) ----
-  async function sendMessage(text: string) {
+  async function sendMessage(text: string, agentMode?: string | null) {
     if (!text.trim() || isResponding) return;
 
     const trimmed = text.trim();
+
+    // Set initial thinking label from the selected mode
+    const modeEntry = AGENT_MODES.find((m) => m.id === agentMode);
+    setThinkingLabel(
+      modeEntry && modeEntry.id
+        ? `Routing to ${modeEntry.label}...`
+        : "Routing to specialists..."
+    );
 
     // Optimistic user message
     const userMessage: Message = {
@@ -379,6 +431,18 @@ export default function ChatPage() {
         controller.signal,
         {
           onStep: (step) => {
+            // Update thinking label with the active agent
+            const agent = step.agent ?? "orchestrator";
+            const AGENT_LABELS: Record<string, string> = {
+              orchestrator: "Routing...",
+              "product-discovery": "Product Discovery is searching...",
+              "order-management": "Order Management is looking up...",
+              "pricing-promotions": "Pricing is calculating...",
+              "review-sentiment": "Reviews is analysing...",
+              "inventory-fulfillment": "Inventory is checking stock...",
+            };
+            setThinkingLabel(AGENT_LABELS[agent] ?? `${agent} is working...`);
+
             setMessages((prev) => {
               if (!prev.some((m) => m.id === assistantId)) {
                 assistantCreated = true;
@@ -602,17 +666,36 @@ export default function ChatPage() {
                       msg.steps &&
                       msg.steps.length > 0 && <AgentTimeline steps={msg.steps} />}
 
-                    {msg.role === "assistant" &&
-                      !msg.streaming &&
-                      msg.content && <CopyButton text={msg.content} />}
+                    {msg.role === "assistant" && !msg.streaming && msg.content && (
+                      <MessageActions
+                        text={msg.content}
+                        onRetry={() => {
+                          // Find the user message immediately preceding this assistant message
+                          const msgIndex = messages.findIndex((m) => m.id === msg.id);
+                          const userMsg = messages
+                            .slice(0, msgIndex)
+                            .findLast((m) => m.role === "user");
+                          if (userMsg) sendMessage(userMsg.content);
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               ))}
 
-              {isResponding &&
-                messages[messages.length - 1]?.role !== "assistant" && (
-                  <TypingDots />
+              <AnimatePresence>
+                {isResponding && messages[messages.length - 1]?.role !== "assistant" && (
+                  <motion.div
+                    key="thinking"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <ThinkingIndicator label={thinkingLabel} />
+                  </motion.div>
                 )}
+              </AnimatePresence>
 
               <div ref={messagesEndRef} />
             </div>
@@ -623,13 +706,13 @@ export default function ChatPage() {
         <div className="border-t bg-background px-4 py-3">
           <div className="mx-auto max-w-3xl">
             <PromptInputBox
-              onSend={(message) => sendMessage(message)}
+              onSend={(message, agentMode) => sendMessage(message, agentMode)}
               isLoading={isResponding}
-              placeholder="Ask about products, orders, or anything..."
+              suggestions={DEMO_SCENARIOS.slice(0, 4).map((s) => ({
+                label: s.label,
+                prompt: s.prompt,
+              }))}
             />
-            <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
-              Powered by E-Commerce Agents multi-agent orchestration
-            </p>
           </div>
         </div>
       </div>
