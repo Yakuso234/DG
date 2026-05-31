@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
 
@@ -30,6 +31,12 @@ export default function RootLayout({
           }}
         />
         <AuthProvider>{children}</AuthProvider>
+        <Toaster
+          position="bottom-right"
+          richColors
+          closeButton
+          toastOptions={{ duration: 4000 }}
+        />
       </body>
     </html>
   );

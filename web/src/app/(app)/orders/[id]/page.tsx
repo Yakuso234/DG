@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import { toastOrderCancelled, toastReturnInitiated } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -349,6 +350,7 @@ export default function OrderDetailPage() {
       await api.cancelOrder(orderId, cancelReason);
       setCancelOpen(false);
       setCancelReason("");
+      toastOrderCancelled(orderId);
       await loadOrder();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel order");
@@ -361,10 +363,11 @@ export default function OrderDetailPage() {
     if (!returnReason.trim()) return;
     try {
       setReturning(true);
-      await api.initiateReturn(orderId, returnReason, refundMethod);
+      const result = await api.initiateReturn(orderId, returnReason, refundMethod);
       setReturnOpen(false);
       setReturnReason("");
       setRefundMethod("original_payment");
+      toastReturnInitiated(result?.return_id ?? orderId);
       await loadOrder();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to initiate return");

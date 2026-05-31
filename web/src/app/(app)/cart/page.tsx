@@ -6,6 +6,12 @@ import Link from "next/link";
 import { useCart } from "@/lib/cart-context";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
+import {
+  toastCouponApplied,
+  toastCouponFailed,
+  toastCartRemoved,
+  toastCartUpdated,
+} from "@/lib/toast";
 import { formatPrice } from "@/lib/format";
 import { productImageUrl } from "@/lib/images";
 import { Button } from "@/components/ui/button";
@@ -93,10 +99,11 @@ export default function CartPage() {
       await api.applyCoupon(code);
       await refreshCart();
       setCouponInput("");
+      toastCouponApplied(code);
     } catch (err) {
-      setCouponError(
-        err instanceof Error ? err.message : "Failed to apply coupon"
-      );
+      const msg = err instanceof Error ? err.message : "Failed to apply coupon";
+      setCouponError(msg);
+      toastCouponFailed(msg);
     } finally {
       setCouponLoading(false);
     }
@@ -124,6 +131,7 @@ export default function CartPage() {
     setUpdatingItems((prev) => new Set(prev).add(itemId));
     try {
       await updateItem(itemId, newQty);
+      toastCartUpdated();
     } finally {
       setUpdatingItems((prev) => {
         const next = new Set(prev);
@@ -137,6 +145,7 @@ export default function CartPage() {
     setUpdatingItems((prev) => new Set(prev).add(itemId));
     try {
       await removeItem(itemId);
+      toastCartRemoved("Item removed");
     } finally {
       setUpdatingItems((prev) => {
         const next = new Set(prev);

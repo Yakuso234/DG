@@ -302,3 +302,47 @@ Every span, metric, and log record includes these resource attributes:
 | **Logs** | `OTLPLogExporter` (HTTP) | `SimpleLogRecordProcessor` | Immediate (synchronous) export for real-time Aspire correlation |
 
 Logs use `SimpleLogRecordProcessor` instead of batch processing because immediate export is critical for trace-log correlation in the Aspire Dashboard. The trade-off is slightly higher overhead per log statement, but this is acceptable for a demo/development setup.
+
+---
+
+## Optional: Langfuse Integration
+
+[Langfuse](https://langfuse.com) is a purpose-built LLM observability platform. The platform supports it as a **parallel, flag-gated OTel sink** — Aspire remains the primary trace target; Langfuse receives a copy when enabled.
+
+### How it works
+
+`shared/telemetry.py` adds a second `BatchSpanProcessor` pointing at Langfuse's OTLP endpoint using the standard `opentelemetry-exporter-otlp-proto-http` package (already installed). No extra SDK dependency is needed.
+
+### Setup
+
+1. Create a free account at [cloud.langfuse.com](https://cloud.langfuse.com) and create a project.
+2. Copy the project's **Public Key** and **Secret Key** from the project settings.
+3. Add to your `.env`:
+
+```bash
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://cloud.langfuse.com   # default; omit for cloud
+```
+
+4. Restart the stack. Traces will appear in both the Aspire Dashboard and Langfuse.
+
+### Self-hosted Langfuse
+
+Point `LANGFUSE_HOST` at your self-hosted instance:
+
+```bash
+LANGFUSE_HOST=http://langfuse.internal:3000
+```
+
+### Failure behavior
+
+If the Langfuse exporter fails to initialize (wrong credentials, network unreachable), `setup_telemetry()` logs a warning and continues. Aspire tracing is unaffected — Langfuse is strictly additive.
+
+### What you see in Langfuse
+
+- Every agent invocation appears as a **trace** with the agent name as the root span.
+- A2A calls between orchestrator and specialists appear as **child spans** (`invoke_agent`).
+- LLM calls (OpenAI/Azure OpenAI) appear as spans with token counts, model name, and (optionally) prompt/completion content when `GENAI_CAPTURE_CONTENT=true`.
+- Tool calls appear as function spans with input/output when `agent_execution_steps` are populated.

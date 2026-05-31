@@ -87,9 +87,13 @@ def _do_setup(service_name: str, service_version: str) -> None:
         metric_exporter = OTLPMetricExporter(endpoint=f"{endpoint}/v1/metrics")
         logger.info("Using HTTP OTLP exporters → %s", endpoint)
 
-    # Traces
+    # Traces — primary sink (Aspire)
     tracer_provider = TracerProvider(resource=resource)
     tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
+
+    # Optional parallel sink: Langfuse
+    _maybe_add_langfuse(tracer_provider, BatchSpanProcessor)
+
     trace.set_tracer_provider(tracer_provider)
 
     # Metrics — 5s export interval for responsive Aspire dashboard updates
@@ -105,6 +109,42 @@ def _do_setup(service_name: str, service_version: str) -> None:
     _instrument_httpx()
     _instrument_asyncpg()
     _instrument_logging()
+
+
+def _maybe_add_langfuse(tracer_provider: Any, BatchSpanProcessor: Any) -> None:
+    """Add a Langfuse OTLP span processor when LANGFUSE_ENABLED=true.
+
+    Uses the standard OTLP HTTP exporter against Langfuse's OTel endpoint so
+    no extra SDK dependency is required — the OTel packages are already installed.
+    Fails silently: Langfuse is an additive sink; Aspire remains the primary.
+    """
+    if not settings.LANGFUSE_ENABLED:
+        return
+    if not (settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY):
+        logger.warning(
+            "LANGFUSE_ENABLED=true but LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY is empty — skipping"
+        )
+        return
+
+    import base64
+
+    try:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as OTLPHttpSpanExporter,
+        )
+
+        token = base64.b64encode(
+            f"{settings.LANGFUSE_PUBLIC_KEY}:{settings.LANGFUSE_SECRET_KEY}".encode()
+        ).decode()
+        host = settings.LANGFUSE_HOST.rstrip("/")
+        langfuse_exporter = OTLPHttpSpanExporter(
+            endpoint=f"{host}/api/public/otel/v1/traces",
+            headers={"Authorization": f"Basic {token}"},
+        )
+        tracer_provider.add_span_processor(BatchSpanProcessor(langfuse_exporter))
+        logger.info("Langfuse OTel sink enabled → %s", host)
+    except Exception:
+        logger.exception("Failed to add Langfuse span exporter — continuing without it")
 
 
 def instrument_fastapi(app: Any) -> None:

@@ -84,6 +84,14 @@ class Settings(BaseSettings):
     OTEL_SERVICE_NAME: str = "ecommerce"
     GENAI_CAPTURE_CONTENT: bool = False
 
+    # ── Langfuse (optional parallel OTel sink) ───────────────────────
+    # When enabled, traces are sent to Langfuse alongside the Aspire sink.
+    # Requires a Langfuse account; free tier is sufficient for a demo.
+    LANGFUSE_ENABLED: bool = False
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+
     # ── General ─────────────────────────────────────────────────────
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"

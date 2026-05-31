@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useCart } from "@/lib/cart-context";
 import { api, type CartResponse, type Address } from "@/lib/api";
+import { toastOrderPlaced } from "@/lib/toast";
 import { formatPrice } from "@/lib/format";
 import { productImageUrl } from "@/lib/images";
 import { Button } from "@/components/ui/button";
@@ -280,8 +281,7 @@ export default function CheckoutPage() {
 
       // Refresh the cart context (cart is now empty)
       await refreshCart();
-
-      // Redirect to order detail
+      toastOrderPlaced(result.order_id);
       router.push(`/orders/${result.order_id}?placed=true`);
     } catch (err) {
       setCheckoutError(
