@@ -8,6 +8,7 @@ describe("visibleGroups", () => {
     expect(labels).toContain("Home");
     expect(labels).toContain("Chat");
     expect(labels).toContain("Agents"); // visible to all authenticated users
+    expect(labels).toContain("Runs");   // Phase 4 — visible to all users
     expect(labels).toContain("Profile");
     expect(labels).not.toContain("Usage"); // adminOnly
     expect(labels).not.toContain("Seller"); // sellerOnly
@@ -39,6 +40,7 @@ describe("labelForPath", () => {
     expect(labelForPath("/admin/usage")).toBe("Usage");
     expect(labelForPath("/admin/audit")).toBe("Runs");
     expect(labelForPath("/admin")).toBe("Overview");
+    expect(labelForPath("/runs")).toBe("Runs"); // Phase 4 user-facing runs page
   });
 
   it("matches nested detail routes to their parent item", () => {
