@@ -9,7 +9,7 @@ export function StarRating({ rating, max = 5, size = "sm" }: { rating: number; m
         const filled = i < Math.floor(rating);
         const half = !filled && i < rating;
         return (
-          <Star key={i} className={`${sizeClass} ${filled ? "fill-amber-400 text-amber-400" : half ? "fill-amber-400/50 text-amber-400" : "fill-slate-200 text-slate-200"}`} />
+          <Star key={i} className={`${sizeClass} ${filled ? "fill-amber-400 text-amber-400" : half ? "fill-amber-400/50 text-amber-400" : "fill-border text-border"}`} />
         );
       })}
     </div>

@@ -58,16 +58,16 @@ interface Profile {
 // ---------------------------------------------------------------------------
 
 const TIER_COLORS: Record<string, { bg: string; text: string; accent: string }> = {
-  bronze: { bg: "bg-orange-50", text: "text-orange-800", accent: "#CD7F32" },
-  silver: { bg: "bg-slate-100", text: "text-slate-700", accent: "#C0C0C0" },
-  gold: { bg: "bg-amber-50", text: "text-amber-800", accent: "#FFD700" },
+  bronze: { bg: "bg-orange-50 dark:bg-orange-500/15", text: "text-orange-800 dark:text-orange-300", accent: "#CD7F32" },
+  silver: { bg: "bg-muted", text: "text-muted-foreground", accent: "#C0C0C0" },
+  gold: { bg: "bg-amber-50 dark:bg-amber-500/15", text: "text-amber-800 dark:text-amber-300", accent: "#FFD700" },
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  customer: "bg-sky-100 text-sky-700",
-  power_user: "bg-violet-100 text-violet-700",
-  seller: "bg-emerald-100 text-emerald-700",
-  admin: "bg-red-100 text-red-700",
+  customer: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  power_user: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  seller: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  admin: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
 const TIER_THRESHOLDS: Record<string, { next: string; amount: number } | null> = {
@@ -235,7 +235,7 @@ export default function ProfilePage() {
                         {profile.name}
                       </h2>
                       <Badge
-                        className={`${ROLE_COLORS[profile.role] ?? "bg-slate-100 text-slate-700"} border-0`}
+                        className={`${ROLE_COLORS[profile.role] ?? "bg-muted text-muted-foreground"} border-0`}
                       >
                         {profile.role === "admin" && (
                           <Shield className="mr-1 size-3" />
@@ -335,7 +335,7 @@ export default function ProfilePage() {
                     Loyalty Benefits
                   </CardTitle>
                   <Badge
-                    className={`${TIER_COLORS[profile.loyalty_tier]?.bg ?? "bg-slate-100"} ${TIER_COLORS[profile.loyalty_tier]?.text ?? "text-slate-700"} border-0 capitalize`}
+                    className={`${TIER_COLORS[profile.loyalty_tier]?.bg ?? "bg-muted"} ${TIER_COLORS[profile.loyalty_tier]?.text ?? "text-muted-foreground"} border-0 capitalize`}
                   >
                     {profile.loyalty_tier} Tier
                   </Badge>
@@ -455,7 +455,7 @@ export default function ProfilePage() {
                       <span>Role</span>
                     </div>
                     <Badge
-                      className={`${ROLE_COLORS[profile.role] ?? "bg-slate-100 text-slate-700"} border-0`}
+                      className={`${ROLE_COLORS[profile.role] ?? "bg-muted text-muted-foreground"} border-0`}
                     >
                       {formatRole(profile.role)}
                     </Badge>

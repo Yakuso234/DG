@@ -154,37 +154,37 @@ const STATUS_CONFIG: Record<
   { color: string; dotColor: string; icon: React.ElementType; label: string }
 > = {
   placed: {
-    color: "border-blue-200 bg-blue-50 text-blue-700",
+    color: "border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30",
     dotColor: "bg-blue-500",
     icon: Clock,
     label: "Placed",
   },
   confirmed: {
-    color: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    color: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-500/30",
     dotColor: "bg-indigo-500",
     icon: CheckCircle,
     label: "Confirmed",
   },
   shipped: {
-    color: "border-amber-200 bg-amber-50 text-amber-700",
+    color: "border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30",
     dotColor: "bg-amber-500",
     icon: Truck,
     label: "Shipped",
   },
   delivered: {
-    color: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    color: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30",
     dotColor: "bg-emerald-500",
     icon: CheckCircle,
     label: "Delivered",
   },
   returned: {
-    color: "border-orange-200 bg-orange-50 text-orange-700",
+    color: "border-orange-200 bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30",
     dotColor: "bg-orange-500",
     icon: RotateCcw,
     label: "Returned",
   },
   cancelled: {
-    color: "border-red-200 bg-red-50 text-red-700",
+    color: "border-red-200 bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 dark:border-red-500/30",
     dotColor: "bg-red-500",
     icon: XCircle,
     label: "Cancelled",
@@ -195,8 +195,8 @@ function getStatusConfig(status: string) {
   const key = status.toLowerCase();
   return (
     STATUS_CONFIG[key] || {
-      color: "border-slate-200 bg-slate-50 text-slate-700",
-      dotColor: "bg-slate-500",
+      color: "border-border bg-muted/50 text-muted-foreground",
+      dotColor: "bg-muted-foreground",
       icon: Package,
       label: status,
     }

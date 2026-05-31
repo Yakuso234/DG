@@ -65,7 +65,7 @@ export function RichMessage({ content, streaming, onAction }: RichMessageProps) 
         return (
           <div
             key={i}
-            className="prose prose-sm prose-slate max-w-none prose-p:my-1 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1 prose-ol:my-1 prose-strong:text-slate-800"
+            className="prose prose-sm prose-slate max-w-none prose-p:my-1 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1 prose-ol:my-1 prose-strong:text-foreground dark:prose-invert"
           >
             <SanitisedMarkdown>{seg.text}</SanitisedMarkdown>
           </div>

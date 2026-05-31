@@ -101,7 +101,7 @@ function getStatusConfig(status: string) {
   const key = status.toLowerCase();
   return (
     STATUS_CONFIG[key] || {
-      color: "border-slate-200 bg-slate-50 text-slate-700",
+      color: "border-border bg-muted/50 text-muted-foreground",
       icon: Package,
       label: status,
     }
