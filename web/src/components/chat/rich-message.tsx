@@ -103,7 +103,7 @@ export function RichMessage({ content, streaming, onAction }: RichMessageProps) 
 
 // ─── Types ────────────────────────────────────────────────────────────
 
-interface Segment {
+export interface Segment {
   type: string;
   text: string;
   data?: Record<string, unknown>;
@@ -116,7 +116,10 @@ interface Segment {
 // everything from the unclosed opener until the stream finishes.
 
 function stripUnclosedFence(content: string): string {
-  const openRegex = /```(product|order|products|checkout|return)\n/g;
+  // `products` listed before `product` so the longer kind wins; no trailing
+  // \n requirement — the SSE transport can drop the newline after the fence
+  // marker, collapsing ```product\n{...} into ```product{...}.
+  const openRegex = /```(products|product|order|checkout|return)/g;
   let cursor = 0;
   let lastUnclosedStart = -1;
   let match;
@@ -138,7 +141,12 @@ function stripUnclosedFence(content: string): string {
 // ─── 1. Fenced Code Block Parser (primary path) ──────────────────────
 
 function parseCodeBlocks(content: string): Segment[] | null {
-  const codeBlockRegex = /```(product|order|products|checkout|return)\n([\s\S]*?)```/g;
+  // The newline after the fence marker is OPTIONAL: the streaming transport
+  // frames a lone "\n" LLM token as an empty SSE data line, so it gets dropped
+  // and ```product\n{...} arrives as ```product{...}. We tolerate any
+  // whitespace (incl. none) and require the body to start with { or [ so a
+  // stray ```product-ideas block isn't misread as a card.
+  const codeBlockRegex = /```(products|product|order|checkout|return)\s*([[{][\s\S]*?)```/g;
   const segments: Segment[] = [];
   let lastIndex = 0;
   let match;
@@ -151,7 +159,7 @@ function parseCodeBlocks(content: string): Segment[] | null {
       if (text) segments.push({ type: "text", text });
     }
     try {
-      const data = JSON.parse(match[2]);
+      const data = JSON.parse(match[2].trim());
       if (match[1] === "products" && Array.isArray(data)) {
         // Two products → side-by-side comparison card
         if (data.length === 2) {
@@ -198,7 +206,34 @@ function parseCodeBlocks(content: string): Segment[] | null {
     if (text) segments.push({ type: "text", text });
   }
 
-  return suppressRedundantText(segments);
+  return dedupeCards(suppressRedundantText(segments));
+}
+
+// Collapse duplicate cards. The orchestrator often restates a specialist's
+// product/order data, so the same item can arrive twice — once as a clean
+// fenced block (→ card) and once as a collapsed-fence copy (now also a card).
+// Keyed by kind + id so duplicates render once.
+function dedupeCards(segments: Segment[]): Segment[] {
+  const seen = new Set<string>();
+  return segments.filter((seg) => {
+    let key: string | null = null;
+    if (seg.type === "product" && seg.data) {
+      const id = (seg.data as { id?: string }).id;
+      key = id ? `product:${id}` : null;
+    } else if (seg.type === "order" && seg.data) {
+      const d = seg.data as { id?: string; order_id?: string };
+      const id = d.id ?? d.order_id;
+      key = id ? `order:${id}` : null;
+    } else if (seg.type === "comparison" && Array.isArray(seg.data)) {
+      key =
+        "comparison:" +
+        (seg.data as Array<{ id?: string }>).map((p) => p?.id ?? "").join(",");
+    }
+    if (key === null) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // Remove text segments that are plain-text dumps of adjacent structured cards.
@@ -514,7 +549,7 @@ function tryParseProductParagraph(
 
 // ─── Main Parser ──────────────────────────────────────────────────────
 
-function parseContent(content: string): Segment[] {
+export function parseContent(content: string): Segment[] {
   // 1. Fenced code blocks (highest priority, most reliable)
   const codeBlockResult = parseCodeBlocks(content);
   if (codeBlockResult) return codeBlockResult;

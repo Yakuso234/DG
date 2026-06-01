@@ -69,7 +69,7 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
         </div>
         <div className="flex items-center gap-1.5">
           {orderId && (
-            <Link href={`/orders/${orderId}`}>
+            <Link href={`/orders/${orderId}`} target="_blank" rel="noopener noreferrer">
               <Button size="sm" variant="outline" className="h-7 text-xs">
                 <ExternalLink className="mr-1 size-3" /> View
               </Button>

@@ -116,6 +116,7 @@ function ProductColumn({
   isBetterRated: boolean;
   onAction?: (message: string) => void;
 }) {
+  const { isAuthenticated } = useAuth();
   return (
     <div className="flex flex-col gap-2 min-w-0">
       {/* Product image */}
@@ -194,7 +195,12 @@ function ProductColumn({
       <div className="flex flex-col gap-1.5 mt-auto pt-1">
         <AddToCartButton product={product} onAction={onAction} />
         {product.id && (
-          <Link href={`/products/${product.id}`} className="block">
+          <Link
+            href={isAuthenticated ? `/products/${product.id}` : `/shop/products/${product.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block"
+          >
             <Button size="sm" variant="outline" className="h-7 w-full text-xs">
               <ExternalLink className="mr-1 size-3" />
               Details

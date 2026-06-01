@@ -209,7 +209,11 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
             </Button>
           )}
           {data.id && (
-            <Link href={`/products/${data.id}`}>
+            <Link
+              href={isAuthenticated ? `/products/${data.id}` : `/shop/products/${data.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <Button size="sm" variant="outline" className="h-7 text-xs">
                 <ExternalLink className="mr-1 size-3" />
                 Details

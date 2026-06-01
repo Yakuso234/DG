@@ -50,8 +50,8 @@ export function ScenarioCard({ scenario, href, compact = false }: ScenarioCardPr
         &ldquo;{scenario.prompt}&rdquo;
       </p>
 
-      <div className="mt-3 flex items-center justify-between">
-        <div className="flex flex-wrap gap-1">
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap gap-1">
           {scenario.agents.map((a) => (
             <span
               key={a}
@@ -63,7 +63,7 @@ export function ScenarioCard({ scenario, href, compact = false }: ScenarioCardPr
             </span>
           ))}
         </div>
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors group-hover/sc:text-primary/80">
+        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors group-hover/sc:bg-primary group-hover/sc:text-primary-foreground">
           Try it <ArrowRight className="size-3" />
         </span>
       </div>
