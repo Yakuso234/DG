@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Star, ShoppingCart, ExternalLink, Check, AlertCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Star, ShoppingCart, ExternalLink, Check, AlertCircle, LogIn } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { productImageUrl } from "@/lib/images";
 import { useCart } from "@/lib/cart-context";
+import { useAuth } from "@/lib/auth-context";
 
 interface ProductData {
   id?: string;
@@ -36,6 +38,8 @@ function AddToCartButton({
   onAction?: (message: string) => void;
 }) {
   const { cart, addItem } = useCart();
+  const { isAuthenticated } = useAuth();
+  const router = useRouter();
   const [optimistic, setOptimistic] = useState(false);
   const [error, setError] = useState(false);
 
@@ -43,6 +47,23 @@ function AddToCartButton({
   const added = inCart || optimistic;
 
   if (!product.id) return null;
+
+  if (!isAuthenticated) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 w-full text-xs"
+        onClick={(e) => {
+          e.stopPropagation();
+          router.push("/login");
+        }}
+      >
+        <LogIn className="mr-1 size-3" />
+        Sign in to buy
+      </Button>
+    );
+  }
 
   return (
     <Button

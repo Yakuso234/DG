@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Store, Search, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { CartProvider } from "@/lib/cart-context";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -29,6 +30,7 @@ export default function ShopLayout({ children }: { children: React.ReactNode }) 
   }
 
   return (
+    <CartProvider>
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
@@ -94,5 +96,6 @@ export default function ShopLayout({ children }: { children: React.ReactNode }) 
         </div>
       </footer>
     </div>
+    </CartProvider>
   );
 }

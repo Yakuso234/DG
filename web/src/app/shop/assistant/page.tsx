@@ -3,12 +3,11 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import ReactMarkdown from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
 import { Sparkles, ArrowUp, Loader2, User as UserIcon, Bot } from "lucide-react";
 import { api, type AgentStep } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentTimeline } from "@/components/chat/agent-timeline";
+import { RichMessage } from "@/components/chat/rich-message";
 
 interface Msg {
   role: "user" | "assistant";
@@ -143,9 +142,11 @@ function Assistant() {
                     {m.role === "assistant" && !m.content ? (
                       <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     ) : m.role === "assistant" ? (
-                      <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
-                        <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{m.content}</ReactMarkdown>
-                      </div>
+                      <RichMessage
+                        content={m.content}
+                        streaming={streaming && i === messages.length - 1}
+                        onAction={(text) => send(text)}
+                      />
                     ) : (
                       m.content
                     )}

@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Star, ExternalLink, ShoppingCart, ShoppingBag, Check, AlertCircle, GitCompare, MessageSquare } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Star, ExternalLink, ShoppingCart, ShoppingBag, Check, AlertCircle, GitCompare, MessageSquare, LogIn } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { productImageUrl } from "@/lib/images";
 import { useCart } from "@/lib/cart-context";
+import { useAuth } from "@/lib/auth-context";
 
 interface ProductData {
   id?: string;
@@ -37,6 +39,8 @@ interface ChatProductCardProps {
 
 export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
   const { cart, addItem } = useCart();
+  const { isAuthenticated } = useAuth();
+  const router = useRouter();
   const [optimisticAdded, setOptimisticAdded] = useState(false);
   const [error, setError] = useState(false);
 
@@ -147,7 +151,21 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
       {/* Action buttons */}
       {(data.id || onAction) && (
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
-          {data.id && (
+          {data.id && !isAuthenticated && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push("/login");
+              }}
+            >
+              <LogIn className="mr-1 size-3" />
+              Sign in to buy
+            </Button>
+          )}
+          {data.id && isAuthenticated && (
             <Button
               size="sm"
               className={`h-7 text-xs ${
