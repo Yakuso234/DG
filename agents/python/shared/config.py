@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # ── LLM ─────────────────────────────────────────────────────────
     LLM_PROVIDER: str = "openai"  # openai | azure
     LLM_MODEL: str = "gpt-4.1"
+    # Sampling temperature for every agent run. Defaults LOW for consistent,
+    # reproducible answers — at the provider default (~1.0) the same query can
+    # yield categorically different results (e.g. finding vs. not finding a
+    # borderline-priced product). Raise toward 1.0 for more varied phrasing.
+    LLM_TEMPERATURE: float = 0.2
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     OPENAI_API_KEY: str = ""
 

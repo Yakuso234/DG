@@ -48,6 +48,16 @@ def _history_as_maf_messages(history: list[dict] | None, user_message: str) -> l
     return messages
 
 
+def _run_options() -> dict[str, Any]:
+    """Per-run chat options applied to every agent. Pins the sampling
+    temperature so the same query yields consistent answers (the provider
+    default of ~1.0 makes identical prompts diverge — see LLM_TEMPERATURE).
+    """
+    from shared.config import settings
+
+    return {"temperature": settings.LLM_TEMPERATURE}
+
+
 async def _run_agent_native(
     agent: Any,
     user_message: str,
@@ -55,7 +65,7 @@ async def _run_agent_native(
 ) -> str:
     """Run an agent via MAF's native execution path and return answer text."""
     messages = _history_as_maf_messages(history, user_message)
-    response = await agent.run(messages)
+    response = await agent.run(messages, options=_run_options())
     return response.text or ""
 
 
@@ -66,7 +76,7 @@ async def _run_agent_native_stream(
 ) -> AsyncGenerator[str, None]:
     """Streaming variant — yields text chunks as MAF produces them."""
     messages = _history_as_maf_messages(history, user_message)
-    async for update in agent.run(messages, stream=True):
+    async for update in agent.run(messages, stream=True, options=_run_options()):
         text = getattr(update, "text", None)
         if text:
             yield text

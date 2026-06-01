@@ -152,10 +152,12 @@ class _FakeAgent:
         self._text = text
         self.last_call_messages: list | None = None
         self.last_call_stream: bool | None = None
+        self.last_options: dict | None = None
 
-    def run(self, messages=None, *, stream: bool = False):
+    def run(self, messages=None, *, stream: bool = False, options=None, **_kwargs):
         self.last_call_messages = list(messages or [])
         self.last_call_stream = stream
+        self.last_options = options
 
         if stream:
             async def _gen():
@@ -174,6 +176,18 @@ async def test_run_agent_native_returns_response_text() -> None:
     agent = _FakeAgent("Paris is the capital of France.")
     text = await _run_agent_native(agent, "What's the capital of France?")
     assert text == "Paris is the capital of France."
+
+
+@pytest.mark.asyncio
+async def test_run_agent_native_pins_temperature() -> None:
+    """Every run must carry the configured temperature so identical queries
+    produce consistent answers (provider default ~1.0 makes them diverge)."""
+    from shared.config import settings
+
+    agent = _FakeAgent("ok")
+    await _run_agent_native(agent, "hi")
+    assert agent.last_options is not None
+    assert agent.last_options.get("temperature") == settings.LLM_TEMPERATURE
 
 
 @pytest.mark.asyncio
@@ -202,7 +216,7 @@ async def test_run_agent_native_stream_skips_empty_updates() -> None:
     """Some providers emit empty delta events; the helper must filter them."""
 
     class _AgentWithEmptyDeltas:
-        def run(self, messages=None, *, stream: bool = False):
+        def run(self, messages=None, *, stream: bool = False, options=None, **_kwargs):
             async def _gen():
                 yield _FakeStreamingUpdate("")
                 yield _FakeStreamingUpdate("real")
