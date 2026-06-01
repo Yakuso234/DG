@@ -23,24 +23,26 @@ describe("visibleGroups", () => {
     expect(labels).not.toContain("Usage");
   });
 
-  it("shows admin items (Approvals, Usage, Runs) to an admin — no old labels", () => {
+  it("shows admin items (Overview, Approvals, Usage) to an admin — no old labels", () => {
     const groups = visibleGroups({ isAdmin: true, isSeller: true });
     const labels = groups.flatMap((g) => g.items.map((i) => i.label));
+    expect(labels).toContain("Overview");
     expect(labels).toContain("Approvals");
     expect(labels).toContain("Usage");
-    expect(labels).toContain("Runs");
+    expect(labels).toContain("Runs"); // single Runs entry, from the Shop group
     expect(labels).toContain("Seller");
     expect(labels).not.toContain("Requests");
     expect(labels).not.toContain("Audit");
+    // Only ONE "Runs" entry now (the admin /admin/audit duplicate was removed)
+    expect(labels.filter((l) => l === "Runs")).toHaveLength(1);
   });
 });
 
 describe("labelForPath", () => {
   it("matches the most specific nav item", () => {
     expect(labelForPath("/admin/usage")).toBe("Usage");
-    expect(labelForPath("/admin/audit")).toBe("Runs");
     expect(labelForPath("/admin")).toBe("Overview");
-    expect(labelForPath("/runs")).toBe("Runs"); // Phase 4 user-facing runs page
+    expect(labelForPath("/runs")).toBe("Runs"); // the single user-facing runs page
   });
 
   it("matches nested detail routes to their parent item", () => {
