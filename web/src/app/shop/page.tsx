@@ -50,18 +50,21 @@ export default function ShopHome() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
+              href="/shop/assistant"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+            >
+              <Sparkles className="size-4" /> Ask the assistant
+            </Link>
+            <Link
               href="/shop/products"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
             >
               Browse products <ArrowRight className="size-4" />
             </Link>
-            <Link
-              href="/shop/assistant"
-              className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Sparkles className="size-4 text-primary" /> Ask the assistant
-            </Link>
           </div>
+          <p className="mt-3 text-xs text-muted-foreground/70">
+            Try: &ldquo;wireless headphones under $300&rdquo; · &ldquo;compare Sony WH-1000XM5 with AirPods Max&rdquo;
+          </p>
         </div>
       </section>
 

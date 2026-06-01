@@ -8,6 +8,7 @@ import {
   MapPin,
   CalendarDays,
   Clock,
+  Navigation,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OrderStatusBadge } from "@/components/status-badge";
@@ -73,6 +74,17 @@ export function ChatOrderCard({ data, onAction }: ChatOrderCardProps) {
                 <ExternalLink className="mr-1 size-3" /> View
               </Button>
             </Link>
+          )}
+          {(data.tracking || data.carrier) && onAction && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-sky-200 text-sky-600 hover:bg-sky-50 dark:border-sky-500/30 dark:text-sky-300 dark:hover:bg-sky-500/10"
+              onClick={() => onAction(`Track the shipment for my order #${data.id || data.order_id}`)}
+            >
+              <Navigation className="mr-1 size-3" />
+              Track
+            </Button>
           )}
           {(data.status === "placed" || data.status === "confirmed") && (
             <Button

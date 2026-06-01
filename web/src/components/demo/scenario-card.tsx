@@ -63,7 +63,7 @@ export function ScenarioCard({ scenario, href, compact = false }: ScenarioCardPr
             </span>
           ))}
         </div>
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover/sc:opacity-100">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors group-hover/sc:text-primary/80">
           Try it <ArrowRight className="size-3" />
         </span>
       </div>

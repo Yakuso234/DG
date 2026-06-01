@@ -281,47 +281,58 @@ class ApiClient {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        // Keep the last potentially incomplete line in the buffer
-        buffer = lines.pop() ?? "";
 
-        let currentEventType = "";
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            currentEventType = line.slice(7).trim();
+        // Split on double-newline to get complete SSE events.
+        // Splitting on "\n" alone loses newlines embedded in data payloads
+        // (e.g. the \n between a ```product fence and its JSON body), because
+        // each \n-split line is treated independently and empty data: lines
+        // (from a lone-\n token) are silently dropped. Per SSE spec, an event
+        // is terminated by \n\n; multiple data: lines within one event must be
+        // joined with \n to reconstruct the original value.
+        const events = buffer.split("\n\n");
+        // Last entry is an incomplete event — keep it in the buffer
+        buffer = events.pop() ?? "";
+
+        for (const event of events) {
+          const lines = event.split("\n");
+          let currentEventType = "";
+          const dataParts: string[] = [];
+
+          for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              currentEventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ")) {
+              dataParts.push(line.slice(6));
+            }
+          }
+
+          if (dataParts.length === 0) continue;
+
+          // Rejoin multi-line data fields with \n (SSE spec §9.2.6)
+          const data = dataParts.join("\n");
+
+          if (data === "[DONE]") continue;
+
+          if (currentEventType === "step") {
+            try {
+              options.onStep?.(JSON.parse(data) as AgentStep);
+            } catch {
+              // Ignore malformed step
+            }
             continue;
           }
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
 
-            if (data === "[DONE]") {
-              continue;
+          if (currentEventType === "metadata") {
+            try {
+              metadata = JSON.parse(data);
+            } catch {
+              // Ignore malformed metadata
             }
-
-            if (currentEventType === "step") {
-              try {
-                options.onStep?.(JSON.parse(data) as AgentStep);
-              } catch {
-                // Ignore malformed step
-              }
-              currentEventType = "";
-              continue;
-            }
-
-            if (currentEventType === "metadata") {
-              try {
-                metadata = JSON.parse(data);
-              } catch {
-                // Ignore malformed metadata
-              }
-              currentEventType = "";
-              continue;
-            }
-
-            // Regular text chunk
-            onChunk(data);
-            currentEventType = "";
+            continue;
           }
+
+          // Regular text / delta chunk
+          onChunk(data);
         }
       }
     } catch (err) {

@@ -57,6 +57,8 @@ export const OrderItemSchema = z
 export const TimelineEventSchema = z
   .object({
     label: optionalSafeString,
+    // order-card.tsx renders event.status; backend may emit either field
+    status: optionalSafeString,
     date: optionalSafeString,
     completed: z.boolean().optional(),
   })

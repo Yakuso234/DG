@@ -5,10 +5,12 @@ export function generateStaticParams() {
   return AGENTS.map((a) => ({ slug: a.slug }));
 }
 
-export default function AgentDetailPage({
+// Next.js 16: params is a Promise — must be awaited
+export default async function AgentDetailPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  return <AgentDetailClient slug={params.slug} />;
+  const { slug } = await params;
+  return <AgentDetailClient slug={slug} />;
 }

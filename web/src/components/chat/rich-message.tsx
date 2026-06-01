@@ -7,6 +7,7 @@ import { ChatProductCard } from "./product-card";
 import { ChatOrderCard } from "./order-card";
 import { ChatCheckoutCard } from "./checkout-card";
 import { ChatReturnCard } from "./return-card";
+import { ComparisonCard } from "./comparison-card";
 import { listItem } from "@/lib/motion";
 import {
   CardKind,
@@ -80,6 +81,13 @@ export function RichMessage({ content, streaming, onAction }: RichMessageProps) 
             </CardMotion>
           );
         }
+        if (seg.type === "comparison" && seg.data) {
+          return (
+            <CardMotion key={i}>
+              <ComparisonCard products={seg.data as any} onAction={onAction} />
+            </CardMotion>
+          );
+        }
         return (
           <div
             key={i}
@@ -145,12 +153,26 @@ function parseCodeBlocks(content: string): Segment[] | null {
     try {
       const data = JSON.parse(match[2]);
       if (match[1] === "products" && Array.isArray(data)) {
-        data.forEach((d: unknown) => {
-          const validated = validateCard("product", d);
-          if (validated) {
-            segments.push({ type: "product", text: "", data: validated });
+        // Two products → side-by-side comparison card
+        if (data.length === 2) {
+          const [p1, p2] = data.map((d: unknown) => validateCard("product", d));
+          if (p1 && p2) {
+            segments.push({ type: "comparison", text: "", data: [p1, p2] as any });
+          } else {
+            // Fallback: render as individual cards
+            data.forEach((d: unknown) => {
+              const validated = validateCard("product", d);
+              if (validated) segments.push({ type: "product", text: "", data: validated });
+            });
           }
-        });
+        } else {
+          data.forEach((d: unknown) => {
+            const validated = validateCard("product", d);
+            if (validated) {
+              segments.push({ type: "product", text: "", data: validated });
+            }
+          });
+        }
       } else {
         const kind = match[1] as CardKind;
         const validated = validateCard(kind, data);

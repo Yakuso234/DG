@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Star, ExternalLink, ShoppingCart, ShoppingBag, Check, AlertCircle } from "lucide-react";
+import { Star, ExternalLink, ShoppingCart, ShoppingBag, Check, AlertCircle, GitCompare, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { productImageUrl } from "@/lib/images";
@@ -197,6 +197,34 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
                 Details
               </Button>
             </Link>
+          )}
+          {onAction && data.name && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction(`Compare the ${data.name} with similar products`);
+              }}
+            >
+              <GitCompare className="mr-1 size-3" />
+              Compare
+            </Button>
+          )}
+          {onAction && data.name && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction(`What are the reviews like for the ${data.name}?`);
+              }}
+            >
+              <MessageSquare className="mr-1 size-3" />
+              Reviews
+            </Button>
           )}
         </div>
       )}
