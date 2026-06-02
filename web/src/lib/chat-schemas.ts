@@ -139,6 +139,28 @@ const SCHEMAS = {
 } as const;
 
 /**
+ * Recursively drop keys whose value is `null` (and `null` array elements).
+ * The LLM/backend emit `null` for empty fields (e.g. "shipping_address":
+ * null), but Zod `.optional()` accepts `undefined`, not `null` — so a stray
+ * null would fail the whole schema and drop an otherwise-valid card. Treat
+ * null as "absent" before validating.
+ */
+function dropNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== null).map(dropNulls);
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === null) continue;
+      out[k] = dropNulls(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
  * Validate a parsed JSON value against the schema for `kind`. Returns
  * the sanitised data on success, or `null` if validation fails — which
  * the renderer treats as "drop the card, render the raw text instead".
@@ -147,6 +169,6 @@ export function validateCard<K extends CardKind>(
   kind: K,
   raw: unknown
 ): z.infer<(typeof SCHEMAS)[K]> | null {
-  const result = SCHEMAS[kind].safeParse(raw);
+  const result = SCHEMAS[kind].safeParse(dropNulls(raw));
   return result.success ? (result.data as z.infer<(typeof SCHEMAS)[K]>) : null;
 }

@@ -228,6 +228,14 @@ function dedupeCards(segments: Segment[]): Segment[] {
       key =
         "comparison:" +
         (seg.data as Array<{ id?: string }>).map((p) => p?.id ?? "").join(",");
+    } else if (seg.type === "checkout" && seg.data) {
+      // No id on a checkout — key on the cart shape (the orchestrator often
+      // restates the same checkout twice in one message).
+      const d = seg.data as { item_count?: number; total?: number };
+      key = `checkout:${d.item_count ?? ""}:${d.total ?? ""}`;
+    } else if (seg.type === "return" && seg.data) {
+      const d = seg.data as { return_id?: string; order_id?: string };
+      key = `return:${d.return_id ?? d.order_id ?? ""}`;
     }
     if (key === null) return true;
     if (seen.has(key)) return false;

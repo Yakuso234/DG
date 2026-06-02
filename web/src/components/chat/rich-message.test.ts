@@ -90,4 +90,31 @@ describe("parseContent — card fence parsing", () => {
     const segs = parseContent(content);
     expect(cardTypes(segs)).toEqual(["order"]);
   });
+
+  it("renders a checkout card even when fields are null (shipping_address: null)", () => {
+    const checkout = {
+      message: "Your cart is ready!",
+      item_count: 1,
+      subtotal: 45.49,
+      discount: 0,
+      total: 45.49,
+      items: [{ name: "Designing Data-Intensive Applications", brand: "O'Reilly", quantity: 1, unit_price: 45.49, subtotal: 45.49 }],
+      shipping_address: null, // backend sends null, not undefined — must not drop the card
+      address_ready: false,
+    };
+    const content = "Your cart:\n```checkout\n" + JSON.stringify(checkout) + "\n```\nProceed?";
+    const segs = parseContent(content);
+    expect(cardTypes(segs)).toEqual(["checkout"]);
+    // raw JSON must not leak as text
+    expect(textOf(segs)).not.toContain("address_ready");
+  });
+
+  it("dedupes a checkout that the orchestrator restated twice", () => {
+    const checkout = { message: "Your cart is ready!", item_count: 1, total: 45.49, items: [{ name: "Book", unit_price: 45.49, quantity: 1 }], shipping_address: null };
+    const content =
+      "Here:```checkout" + JSON.stringify(checkout) + "```" +
+      "Hi! Again:\n```checkout\n" + JSON.stringify(checkout) + "\n```\nProceed?";
+    const segs = parseContent(content);
+    expect(cardTypes(segs)).toEqual(["checkout"]);
+  });
 });
