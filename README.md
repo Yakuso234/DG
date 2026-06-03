@@ -210,39 +210,7 @@ graph TB
 ## Screens
 
 <details open>
-<summary>Screenshots — guest browsing, the AI shopping flow, and the platform (click to collapse)</summary>
-
-### Guest experience (no login required)
-
-Anyone can browse the catalog, use the AI shopping assistant, and explore product details without creating an account.
-
-<table>
-<tr><td><img src="docs/images/flow-guest-storefront.png" alt="Public storefront — browse without signing in" width="820"/></td></tr>
-<tr><td align="center"><em>Public storefront — browse the full catalog without an account</em></td></tr>
-<tr><td><img src="docs/images/flow-guest-browse.png" alt="Public product grid" width="820"/></td></tr>
-<tr><td align="center"><em>Product catalog — filter and browse anonymously</em></td></tr>
-<tr><td><img src="docs/images/flow-guest-product.png" alt="Product detail page" width="820"/></td></tr>
-<tr><td align="center"><em>Product detail — full info, pricing, reviews, and stock status</em></td></tr>
-<tr><td><img src="docs/images/flow-guest-assistant.png" alt="Public AI shopping assistant" width="820"/></td></tr>
-<tr><td align="center"><em>AI shopping assistant — product questions answered via multi-agent routing, no login needed</em></td></tr>
-</table>
-
-### AI shopping flow (signed in)
-
-Sign in as any seeded user to access cart, checkout, order tracking, and returns — all driven by natural language in the chat interface.
-
-<table>
-<tr><td><img src="docs/images/flow-product-search.png" alt="AI chat — product search with cards" width="820"/></td></tr>
-<tr><td align="center"><em>Find a product — orchestrator routes to Product Discovery; results render as interactive cards</em></td></tr>
-<tr><td><img src="docs/images/flow-add-to-cart.png" alt="AI chat — add to cart" width="820"/></td></tr>
-<tr><td align="center"><em>Add to cart — ask the assistant; it calls the cart API and confirms with a card</em></td></tr>
-<tr><td><img src="docs/images/flow-view-cart.png" alt="AI chat — cart summary" width="820"/></td></tr>
-<tr><td align="center"><em>View cart — the agent renders a cart summary with totals and a checkout link</em></td></tr>
-<tr><td><img src="docs/images/flow-order-tracking.png" alt="AI chat — order tracking" width="820"/></td></tr>
-<tr><td align="center"><em>Track an order — Order Management agent returns live status and shipment detail</em></td></tr>
-<tr><td><img src="docs/images/flow-refund.png" alt="AI chat — return / refund request" width="820"/></td></tr>
-<tr><td align="center"><em>Return / refund — agent initiates the return flow and issues a return label</em></td></tr>
-</table>
+<summary>Screenshots — platform (click to collapse)</summary>
 
 ### Platform
 
@@ -251,6 +219,8 @@ Sign in as any seeded user to access cart, checkout, order tracking, and returns
 <tr><td align="center"><em>Agent timeline — orchestrator → specialist → tool routing surfaced live in chat</em></td></tr>
 <tr><td><img src="docs/images/storefront.png" alt="Product storefront" width="820"/></td></tr>
 <tr><td align="center"><em>Product storefront — authenticated view with cart and account access</em></td></tr>
+<tr><td><img src="docs/images/cart.png" alt="Cart summary" width="820"/></td></tr>
+<tr><td align="center"><em>Cart — agent renders a cart summary with totals and a checkout link</em></td></tr>
 <tr><td><img src="docs/images/marketplace.png" alt="Agent marketplace" width="820"/></td></tr>
 <tr><td align="center"><em>Agent marketplace — browse, request, and manage specialist agent access</em></td></tr>
 <tr><td><img src="docs/images/admin-dashboard.png" alt="Admin dashboard" width="820"/></td></tr>
