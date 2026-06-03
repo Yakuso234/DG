@@ -209,32 +209,57 @@ graph TB
 
 ## Screens
 
+<details open>
+<summary>Screenshots — guest browsing, the AI shopping flow, and the platform (click to collapse)</summary>
+
+### Guest experience (no login required)
+
+Anyone can browse the catalog, use the AI shopping assistant, and explore product details without creating an account.
+
 <table>
-<tr>
-  <td><img src="docs/images/shop-ai-assistant.png" alt="AI shopping assistant with product cards" width="400"/></td>
-  <td><img src="docs/images/agent-timeline.png" alt="Live agent activity timeline" width="400"/></td>
-</tr>
-<tr>
-  <td align="center"><em>AI shopping assistant with product cards</em></td>
-  <td align="center"><em>Live agent activity timeline (orchestrator → specialist → tool)</em></td>
-</tr>
-<tr>
-  <td><img src="docs/images/storefront.png" alt="Product storefront" width="400"/></td>
-  <td><img src="docs/images/marketplace.png" alt="Agent marketplace" width="400"/></td>
-</tr>
-<tr>
-  <td align="center"><em>Product storefront</em></td>
-  <td align="center"><em>Agent marketplace</em></td>
-</tr>
-<tr>
-  <td><img src="docs/images/admin-dashboard.png" alt="Admin dashboard" width="400"/></td>
-  <td><img src="docs/images/seller-dashboard.png" alt="Seller dashboard" width="400"/></td>
-</tr>
-<tr>
-  <td align="center"><em>Admin dashboard</em></td>
-  <td align="center"><em>Seller dashboard</em></td>
-</tr>
+<tr><td><img src="docs/images/flow-guest-storefront.png" alt="Public storefront — browse without signing in" width="820"/></td></tr>
+<tr><td align="center"><em>Public storefront — browse the full catalog without an account</em></td></tr>
+<tr><td><img src="docs/images/flow-guest-browse.png" alt="Public product grid" width="820"/></td></tr>
+<tr><td align="center"><em>Product catalog — filter and browse anonymously</em></td></tr>
+<tr><td><img src="docs/images/flow-guest-product.png" alt="Product detail page" width="820"/></td></tr>
+<tr><td align="center"><em>Product detail — full info, pricing, reviews, and stock status</em></td></tr>
+<tr><td><img src="docs/images/flow-guest-assistant.png" alt="Public AI shopping assistant" width="820"/></td></tr>
+<tr><td align="center"><em>AI shopping assistant — product questions answered via multi-agent routing, no login needed</em></td></tr>
 </table>
+
+### AI shopping flow (signed in)
+
+Sign in as any seeded user to access cart, checkout, order tracking, and returns — all driven by natural language in the chat interface.
+
+<table>
+<tr><td><img src="docs/images/flow-product-search.png" alt="AI chat — product search with cards" width="820"/></td></tr>
+<tr><td align="center"><em>Find a product — orchestrator routes to Product Discovery; results render as interactive cards</em></td></tr>
+<tr><td><img src="docs/images/flow-add-to-cart.png" alt="AI chat — add to cart" width="820"/></td></tr>
+<tr><td align="center"><em>Add to cart — ask the assistant; it calls the cart API and confirms with a card</em></td></tr>
+<tr><td><img src="docs/images/flow-view-cart.png" alt="AI chat — cart summary" width="820"/></td></tr>
+<tr><td align="center"><em>View cart — the agent renders a cart summary with totals and a checkout link</em></td></tr>
+<tr><td><img src="docs/images/flow-order-tracking.png" alt="AI chat — order tracking" width="820"/></td></tr>
+<tr><td align="center"><em>Track an order — Order Management agent returns live status and shipment detail</em></td></tr>
+<tr><td><img src="docs/images/flow-refund.png" alt="AI chat — return / refund request" width="820"/></td></tr>
+<tr><td align="center"><em>Return / refund — agent initiates the return flow and issues a return label</em></td></tr>
+</table>
+
+### Platform
+
+<table>
+<tr><td><img src="docs/images/agent-timeline.png" alt="Live agent activity timeline" width="820"/></td></tr>
+<tr><td align="center"><em>Agent timeline — orchestrator → specialist → tool routing surfaced live in chat</em></td></tr>
+<tr><td><img src="docs/images/storefront.png" alt="Product storefront" width="820"/></td></tr>
+<tr><td align="center"><em>Product storefront — authenticated view with cart and account access</em></td></tr>
+<tr><td><img src="docs/images/marketplace.png" alt="Agent marketplace" width="820"/></td></tr>
+<tr><td align="center"><em>Agent marketplace — browse, request, and manage specialist agent access</em></td></tr>
+<tr><td><img src="docs/images/admin-dashboard.png" alt="Admin dashboard" width="820"/></td></tr>
+<tr><td align="center"><em>Admin dashboard — usage analytics, approval queues, and audit log</em></td></tr>
+<tr><td><img src="docs/images/seller-dashboard.png" alt="Seller dashboard" width="820"/></td></tr>
+<tr><td align="center"><em>Seller dashboard — product catalog and order management</em></td></tr>
+</table>
+
+</details>
 
 ---
 
@@ -245,8 +270,8 @@ Pre-seeded accounts for testing different roles:
 | Email | Password | Role | Loyalty Tier |
 |-------|----------|------|-------------|
 | `admin.demo@gmail.com` | admin123 | Admin | Gold |
-| `power.demo@gmail.com` | power123 | Power User | Gold |
 | `seller.demo@gmail.com` | seller123 | Seller | Bronze |
+| `seller2.demo@gmail.com` | seller123 | Seller | Bronze |
 | `alice.johnson@gmail.com` | customer123 | Customer | Gold |
 | `bob.smith@gmail.com` | customer123 | Customer | Silver |
 
@@ -424,20 +449,23 @@ See [Deployment Guide](docs/deployment.md) for all configuration options.
 
 ## Roadmap
 
-This is v1. The Python platform is live and stable. Several high-impact capabilities are actively in progress.
+This is v1. The Python platform is live and stable. The .NET port is also available.
 
 Legend: `- [x]` shipped · `- [ ]` planned or in progress.
 
-### In Progress — Coming Soon
+### Shipped in v1
 
-- [ ] **Agent evaluators** `In progress` — automated response-quality measurement across every specialist. Scripted eval sets (precision@k, recall@k, answer faithfulness, tool-call correctness) run against the seeded catalog with nightly CI gating.
-- [ ] **Prompt injection prevention** `In progress` — input classification, system-prompt isolation, tool-allow-listing per role, and output filtering before any user-facing render.
-- [ ] **Session memory & context persistence** `In progress` — per-user preferences, recent intents, and past orders surfaced to the orchestrator via a dedicated memory tool, so follow-ups feel continuous.
-- [ ] **Human-in-the-loop approval flows** `In progress` — explicit approval gates for high-stakes actions (refunds over threshold, inventory writes, bulk price changes). The agent pauses, renders an approval card in the UI, and proceeds once the operator confirms.
-- [ ] **Per-agent cost tracking** `In progress` — token spend and dollar cost per specialist, per tool call, per user session as first-class OpenTelemetry metrics.
-- [ ] **Full .NET / C# port** `In progress` — same six agents, same A2A protocol, same PostgreSQL schema — idiomatic .NET throughout.
+- [x] **Agent evaluators** — scripted eval sets (precision@k, recall@k, answer faithfulness, tool-call correctness) across all six specialists, run against the seeded catalog. Nightly CI via `.github/workflows/evals.yml` (deliberately not a PR gate — LLM calls are slow and non-deterministic; nightly is the right cadence).
+- [x] **Prompt injection prevention** — `shared/guardrails/` wired into the middleware stack for all agents. Enabled by default (`GUARDRAILS_ENABLED=true`); runs in observe-first mode (`GUARDRAILS_FAIL_OPEN=true`) — flags and logs injections. Set `GUARDRAILS_BLOCK_ON_INJECTION=true` to enable hard blocking once false-positive rates are measured in your environment.
+- [x] **Session memory & context persistence** — `store_memory` / `recall_memories` tools in `shared/tools/memory_tools.py`, surfaced to the orchestrator via `shared/context_providers.py`. Per-user preferences, recent intents, and history make follow-ups feel continuous.
+- [x] **Full .NET / C# port** — same six specialist agents plus an MCP server, same A2A protocol and PostgreSQL schema, idiomatic .NET throughout. Nine test projects, ~191 tests. See [`agents/dotnet/`](./agents/dotnet/).
+- [x] **Observability dashboards** — pre-built Aspire Dashboard views for agent latency, tool error rates, and LLM token spend per specialist.
 
-> **Status:** the Python version is live today. The .NET version is coming.
+### In Progress
+
+- [ ] **Human-in-the-loop approval flows** — backend approval endpoints and admin review UI are complete (`/api/admin/hitl/requests`). The remaining piece is the in-chat agent-pause card: the agent suspends mid-task, renders an approval prompt in the UI, and resumes once an operator confirms. High-stakes actions (refunds over threshold, inventory writes, bulk price changes) are the first targets.
+- [ ] **Per-agent cost tracking** — per-specialist token counts are persisted in the database (`shared/usage_db.py`) and surfaced on the admin usage page. The remaining piece is first-class OpenTelemetry metrics (token + dollar cost per specialist as OTLP counters), so the Aspire Dashboard and any OTLP sink can alert on spend anomalies.
+- [ ] **Streaming tool calls end-to-end** — text-delta streaming is live and product/order cards render progressively as the LLM generates the response. The remaining piece is propagating raw tool-result payloads as separate SSE frames so cards can appear before the text completes.
 
 ---
 
@@ -474,8 +502,6 @@ Planned next:
 ### Planned — Platform & Observability
 
 - [ ] **Prompt caching** — cache system prompts and tool schemas per agent to reduce per-request token cost on repeated specialist invocations.
-- [ ] **Streaming tool calls end-to-end** `In progress` — propagate partial tool results over SSE so the UI renders product cards as they arrive.
-- [x] **Observability dashboards** — pre-built Aspire Dashboard views for agent latency, tool error rates, and LLM token spend per specialist.
 
 ---
 

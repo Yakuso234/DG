@@ -47,7 +47,7 @@ Execution order (revised 2026-05-29 after building 1–2 and a Playwright UI aud
 | 1 | 1 | [01-ui-foundation.md](01-ui-foundation.md) | Motion, grouped sidebar shell + top bar + theme toggle, primitives, Cmd-K palette | ✅ done |
 | 2 | 2 | [02-dashboard-home.md](02-dashboard-home.md) | Authenticated concierge home + public recruiter landing | ✅ done |
 | 3 | 1.5 | [08-dark-mode-migration.md](08-dark-mode-migration.md) | Token-migrate the ~10 pages that still break in dark mode | ⏳ next |
-| 4 | 4 | [04-agentic-timeline.md](04-agentic-timeline.md) | Built-in agent timeline (backend capture + SSE + UI) — highest leverage | ⏳ queued |
+| 4 | 4 | [04-agentic-timeline.md](04-agentic-timeline.md) | Built-in agent timeline (backend capture + SSE + UI) — highest leverage | ✅ done (chat; home widget still "coming soon") |
 | 5 | 3 | [03-agent-workspaces.md](03-agent-workspaces.md) | **Lean** per-agent detail pages (after Phase 4 so stats/runs are real) | ⏳ queued |
 | 6 | 5 | [05-chat-uplift.md](05-chat-uplift.md) | Prompt-box modes/suggestions, per-agent thinking states, message actions | ⏳ queued |
 | 7 | 6 | [06-docs-refresh.md](06-docs-refresh.md) | Frontend doc, troubleshooting, CONTRIBUTING, dedup, screenshot tour, badges | ⏳ queued |
