@@ -51,6 +51,17 @@ async function login(page: Page, email: string, password: string) {
   await page.waitForLoadState("networkidle").catch(() => {});
 }
 
+async function scrollToTop(page: Page) {
+  // Chat messages live in an overflow-y-auto div that auto-scrolls to the latest
+  // message. Reset every scroll container so the user query is visible at the top.
+  await page.evaluate(() => {
+    document.querySelectorAll(".overflow-y-auto").forEach((el) => {
+      el.scrollTop = 0;
+    });
+  });
+  await page.waitForTimeout(400);
+}
+
 async function shoot(page: Page, filename: string, fullPage = true) {
   await page.waitForTimeout(800);
   await page.screenshot({
@@ -119,7 +130,8 @@ test("guest-04 public AI assistant", async ({ page }) => {
   await page.goto("/shop/assistant");
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(500);
-  await sendChat(page, "Show me wireless headphones under $150 — what are my best options?", 28_000);
+  await sendChat(page, "Show me wireless headphones", 28_000);
+  await scrollToTop(page);
   await shoot(page, "flow-guest-assistant.png");
 });
 
@@ -131,7 +143,8 @@ test("flow-01 product search", async ({ page }) => {
   await login(page, USERS.customer.email, USERS.customer.password);
   await page.goto("/chat");
   await page.waitForLoadState("networkidle").catch(() => {});
-  await sendChat(page, "Show me wireless headphones under $100", 28_000);
+  await sendChat(page, "Show me wireless headphones", 28_000);
+  await scrollToTop(page);
   await shoot(page, "flow-product-search.png");
 });
 
@@ -139,7 +152,8 @@ test("flow-02 add to cart", async ({ page }) => {
   await login(page, USERS.customer.email, USERS.customer.password);
   await page.goto("/chat");
   await page.waitForLoadState("networkidle").catch(() => {});
-  await sendChat(page, "Recommend a stylish backpack and add the best one to my cart", 28_000);
+  await sendChat(page, "Find me noise-cancelling headphones and add the best one to my cart", 28_000);
+  await scrollToTop(page);
   await shoot(page, "flow-add-to-cart.png");
 });
 
@@ -148,6 +162,7 @@ test("flow-03 view cart", async ({ page }) => {
   await page.goto("/chat");
   await page.waitForLoadState("networkidle").catch(() => {});
   await sendChat(page, "Show me what's in my cart", 25_000);
+  await scrollToTop(page);
   await shoot(page, "flow-view-cart.png");
 });
 
@@ -156,6 +171,7 @@ test("flow-04 order tracking", async ({ page }) => {
   await page.goto("/chat");
   await page.waitForLoadState("networkidle").catch(() => {});
   await sendChat(page, "What's the status of my latest order?", 28_000);
+  await scrollToTop(page);
   await shoot(page, "flow-order-tracking.png");
 });
 
@@ -165,8 +181,9 @@ test("flow-05 refund / return", async ({ page }) => {
   await page.waitForLoadState("networkidle").catch(() => {});
   await sendChat(
     page,
-    "I want to return my most recent delivered order — what do I need to do?",
+    "Start a return for my most recent delivered order and give me the return shipping label.",
     28_000,
   );
+  await scrollToTop(page);
   await shoot(page, "flow-refund.png");
 });
