@@ -327,10 +327,13 @@ e-commerce-agents/
 ├── .env.example                     # Environment template
 ├── agents/                          # Both backends live here
 │   ├── python/                      # Python backend
-│   │   ├── Dockerfile               # Multi-target (ARG AGENT_NAME)
-│   │   ├── pyproject.toml           # Dependencies (MAF, OTel, FastAPI)
+│   │   ├── Dockerfile               # Multi-target agent image (ARG AGENT_NAME)
+│   │   ├── Dockerfile.mcp           # Lean MCP server image (ARG MCP_PACKAGE)
+│   │   ├── pyproject.toml           # Workspace root + dependencies (MAF, OTel, FastAPI)
+│   │   ├── packages/                # Standalone publishable MCP server packages
+│   │   │   ├── mcp-product/         # ecommerce-mcp-product (:9000)
+│   │   │   └── mcp-inventory/       # ecommerce-mcp-inventory (:9001)
 │   │   ├── shared/                  # Shared library (config, auth, DB, prompts, telemetry)
-│   │   ├── mcp_servers/             # Optional MCP servers (flag-gated via MCP_ENABLED)
 │   │   ├── config/prompts/          # YAML prompt configs (shared with .NET)
 │   │   ├── orchestrator/            # Customer Support (:8080)
 │   │   ├── product_discovery/       # Product Discovery (:8081)
@@ -456,6 +459,7 @@ Legend: `- [x]` shipped · `- [ ]` planned or in progress.
 - [x] **Session memory & context persistence** — `store_memory` / `recall_memories` tools in `shared/tools/memory_tools.py`, surfaced to the orchestrator via `shared/context_providers.py`. Per-user preferences, recent intents, and history make follow-ups feel continuous.
 - [x] **Full .NET / C# port** — same six specialist agents plus an MCP server, same A2A protocol and PostgreSQL schema, idiomatic .NET throughout. Nine test projects, ~191 tests. See [`agents/dotnet/`](./agents/dotnet/).
 - [x] **Observability dashboards** — pre-built Aspire Dashboard views for agent latency, tool error rates, and LLM token spend per specialist.
+- [x] **MCP data-access layer (2 servers)** — `mcp-product` (:9000) and `mcp-inventory` (:9001) are standalone, independently publishable Python packages (`packages/mcp-product`, `packages/mcp-inventory`) in a uv workspace. They expose product and inventory data over the MCP streamable HTTP transport (FastMCP). Flag-gated via `MCP_ENABLED`; `product-discovery` and `inventory-fulfillment` swap their direct-asyncpg `@tool` set for `MCPStreamableHTTPTool` with no behavior change. Any MCP-compatible client — Claude Desktop, Cursor, LangGraph — can use them without this codebase. See [MCP Integration](docs/mcp-integration.md).
 
 ### In Progress
 
@@ -478,19 +482,29 @@ Text-to-SQL was considered and rejected: `user_email`/`user_role` scoping via Co
 
 ---
 
-### Planned — MCP as the Agent Data-Access Layer
+### MCP as the Agent Data-Access Layer
 
-Two MCP servers are live today, flag-gated behind `MCP_ENABLED`:
+| Server | Port | Domain |
+|--------|------|--------|
+| `mcp-product` | 9000 | Product search, details, comparison, trending, price history |
+| `mcp-inventory` | 9001 | Stock levels, warehouses, shipping, carriers |
 
-- `mcp-product` on port 9000 — product search, details, comparison, price history
-- `mcp-inventory` on port 9001 — stock levels, warehouses, shipping, carriers
+Both are standalone publishable packages in a uv workspace (`packages/mcp-product`, `packages/mcp-inventory`). Start them with:
 
-See [MCP Integration](docs/mcp-integration.md) for the full setup guide and how to inspect the servers.
+```bash
+docker compose --profile mcp --profile agents up
 
-Planned next:
+# then set in .env
+MCP_ENABLED=true
+MCP_PRODUCT_SERVER_URL=http://localhost:9000/mcp
+MCP_INVENTORY_SERVER_URL=http://localhost:9001/mcp
+```
 
-- [ ] **Expand MCP surface** — port `order_tools`, `pricing_tools`, `cart_tools`, and `review_tools` into MCP servers so all five specialists have a portable, language-agnostic data layer.
-- [ ] **External integration surface** — any MCP-compatible client (Claude Desktop, Cursor, LangGraph) can consume the same tools the internal specialists use, with identical auth and observability.
+See [MCP Integration](docs/mcp-integration.md) for the full setup guide, tool coverage table, external client examples (Claude Desktop, LangGraph), and publishing instructions.
+
+Planned:
+
+- [ ] **External integration surface** — publish `ecommerce-mcp-product` and `ecommerce-mcp-inventory` to PyPI so any MCP-compatible client can `pip install` and run them against any PostgreSQL database without this codebase.
 - [ ] **Eval gate** — run each eval dataset twice (native tools vs MCP path) and fail CI if the MCP run scores below the native baseline.
 
 ---

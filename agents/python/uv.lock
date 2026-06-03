@@ -7,6 +7,13 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+members = [
+    "e-commerce-agents",
+    "ecommerce-mcp-inventory",
+    "ecommerce-mcp-product",
+]
+
 [[package]]
 name = "a2a-sdk"
 version = "0.3.23"
@@ -1308,6 +1315,40 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.34" },
 ]
 provides-extras = ["dev"]
+
+[[package]]
+name = "ecommerce-mcp-inventory"
+version = "0.1.0"
+source = { editable = "packages/mcp-inventory" }
+dependencies = [
+    { name = "asyncpg" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", specifier = ">=0.30" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "uvicorn", specifier = ">=0.34" },
+]
+
+[[package]]
+name = "ecommerce-mcp-product"
+version = "0.1.0"
+source = { editable = "packages/mcp-product" }
+dependencies = [
+    { name = "asyncpg" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", specifier = ">=0.30" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "uvicorn", specifier = ">=0.34" },
+]
 
 [[package]]
 name = "fastapi"

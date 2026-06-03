@@ -1,0 +1,66 @@
+# ============================================================
+# E-Commerce Agents — MCP Server Dockerfile
+# Build context: ./agents/python  (workspace root)
+#
+# Each MCP server is a standalone, independently publishable package.
+# This Dockerfile installs only the target package and its dependencies,
+# producing a lean image that does NOT include the main agent application.
+#
+# Usage:
+#   docker build -f Dockerfile.mcp \
+#     --build-arg MCP_PACKAGE=ecommerce-mcp-product \
+#     --build-arg MCP_DIR=packages/mcp-product \
+#     --build-arg MCP_MODULE=ecommerce_mcp_product.server:app \
+#     --build-arg MCP_PORT=9000 \
+#     -t mcp-product .
+# ============================================================
+
+FROM python:3.12-slim AS base
+
+# curl for healthcheck
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libpq-dev curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Create non-root user
+RUN groupadd -r mcp && useradd -r -g mcp -d /app -s /sbin/nologin mcp
+
+WORKDIR /app
+
+# ── Build args ──────────────────────────────────────────────
+ARG MCP_PACKAGE=ecommerce-mcp-product
+ARG MCP_DIR=packages/mcp-product
+ARG MCP_MODULE=ecommerce_mcp_product.server:app
+ARG MCP_PORT=9000
+
+# ── Install only the target package (uses workspace-aware lock) ─
+# Copy workspace manifests first for the dependency install layer.
+COPY pyproject.toml uv.lock ./
+COPY ${MCP_DIR}/pyproject.toml ${MCP_DIR}/pyproject.toml
+
+# Install only the target package + its deps (--package scopes the install).
+# --frozen: never re-resolve; --no-dev: skip test/lint tools.
+RUN uv sync --frozen --no-dev --package ${MCP_PACKAGE}
+
+# Copy the package source (after the dep layer so source changes are cheap).
+COPY ${MCP_DIR}/src ${MCP_DIR}/src
+
+RUN chown -R mcp:mcp /app
+
+ENV MCP_MODULE=${MCP_MODULE}
+ENV MCP_PORT=${MCP_PORT}
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV UV_CACHE_DIR=/app/.cache/uv
+
+USER mcp
+
+EXPOSE ${MCP_PORT}
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:${MCP_PORT}/mcp || exit 1
+
+CMD uv run --no-project uvicorn ${MCP_MODULE} --host 0.0.0.0 --port ${MCP_PORT}

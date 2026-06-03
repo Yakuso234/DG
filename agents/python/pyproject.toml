@@ -53,6 +53,9 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv.workspace]
+members = ["packages/mcp-product", "packages/mcp-inventory"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment"]
 

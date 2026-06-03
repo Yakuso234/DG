@@ -53,6 +53,37 @@ jobs:
           path: agents/python/coverage.xml
           retention-days: 30
 
+  mcp-package-tests:
+    name: MCP packages · smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Registration/import smoke tests only — no testcontainer Postgres needed.
+    # Integration-marked tests are skipped here; they run in the nightly evals job
+    # which already provisions a Postgres container.
+    strategy:
+      matrix:
+        package:
+          - { name: ecommerce-mcp-product, dir: packages/mcp-product }
+          - { name: ecommerce-mcp-inventory, dir: packages/mcp-inventory }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Sync package deps
+        working-directory: agents/python
+        run: uv sync --frozen --package ${{ matrix.package.name }}
+
+      - name: Run smoke tests (skip integration)
+        working-directory: agents/python
+        run: uv run --package ${{ matrix.package.name }} pytest ${{ matrix.package.dir }}/tests -m "not integration" -v
+
   dotnet-tests:
     name: .NET · dotnet test + coverage
     runs-on: ubuntu-latest

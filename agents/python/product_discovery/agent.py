@@ -1,7 +1,7 @@
 """Product Discovery agent definition.
 
 When ``settings.MCP_ENABLED`` is True the agent connects to the Product MCP
-server (``mcp_servers.product_server``) via ``MCPStreamableHTTPTool`` instead
+server (``ecommerce_mcp_product.server``) via ``MCPStreamableHTTPTool`` instead
 of calling asyncpg directly. Both modes expose the same capabilities.
 """
 

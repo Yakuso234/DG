@@ -190,16 +190,22 @@ services:
     profiles: ["agents"]
 
   # ── MCP Servers (optional — enable with MCP_ENABLED=true) ──────
+  #
+  # Each server is a standalone publishable package under packages/.
+  # Built with Dockerfile.mcp which installs only that package's deps,
+  # keeping the image lean and independent of the main agent application.
 
-  # Product Discovery MCP server — exposes product search, details,
-  # comparison, trending, and price history via MCP streamable HTTP.
+  # Product Discovery MCP server — product search, details, comparison,
+  # trending products, and price history via MCP streamable HTTP.
   mcp-product:
     build:
       context: ./agents/python
+      dockerfile: Dockerfile.mcp
       args:
-        AGENT_NAME: orchestrator   # reuses the same image; CMD overridden below
-        AGENT_PORT: 9000
-    command: uv run uvicorn mcp_servers.product_server:app --host 0.0.0.0 --port 9000
+        MCP_PACKAGE: ecommerce-mcp-product
+        MCP_DIR: packages/mcp-product
+        MCP_MODULE: ecommerce_mcp_product.server:app
+        MCP_PORT: 9000
     ports: ["9000:9000"]
     depends_on:
       db: { condition: service_healthy }
@@ -212,14 +218,16 @@ services:
       retries: 5
     profiles: ["mcp"]
 
-  # Inventory & Fulfillment MCP server — stock, warehouses, shipping, carriers.
+  # Inventory & Fulfillment MCP server — stock levels, warehouses, shipping, carriers.
   mcp-inventory:
     build:
       context: ./agents/python
+      dockerfile: Dockerfile.mcp
       args:
-        AGENT_NAME: orchestrator
-        AGENT_PORT: 9001
-    command: uv run uvicorn mcp_servers.inventory_server:app --host 0.0.0.0 --port 9001
+        MCP_PACKAGE: ecommerce-mcp-inventory
+        MCP_DIR: packages/mcp-inventory
+        MCP_MODULE: ecommerce_mcp_inventory.server:app
+        MCP_PORT: 9001
     ports: ["9001:9001"]
     depends_on:
       db: { condition: service_healthy }
