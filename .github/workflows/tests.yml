@@ -78,11 +78,11 @@ jobs:
 
       - name: Sync package deps
         working-directory: agents/python
-        run: uv sync --frozen --package ${{ matrix.package.name }}
+        run: uv sync --frozen --extra dev
 
       - name: Run smoke tests (skip integration)
         working-directory: agents/python
-        run: uv run --package ${{ matrix.package.name }} pytest ${{ matrix.package.dir }}/tests -m "not integration" -v
+        run: uv run pytest ${{ matrix.package.dir }}/tests -m "not integration" -v
 
   dotnet-tests:
     name: .NET · dotnet test + coverage
