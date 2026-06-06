@@ -25,7 +25,9 @@ obj/
 .vs/
 .dotnet/
 project.lock.json
-packages/
+agents/dotnet/packages/
+# Python MCP packages under agents/python/packages/ are intentionally tracked
+!agents/python/packages/
 TestResults/
 [Dd]ebug/
 [Rr]elease/
