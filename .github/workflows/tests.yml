@@ -78,7 +78,7 @@ jobs:
 
       - name: Sync package deps
         working-directory: agents/python
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --all-packages --extra dev
 
       - name: Run smoke tests (skip integration)
         working-directory: agents/python
