@@ -52,6 +52,8 @@ Execution order (revised 2026-05-29 after building 1–2 and a Playwright UI aud
 | 6 | 5 | [05-chat-uplift.md](05-chat-uplift.md) | Prompt-box modes/suggestions, per-agent thinking states, message actions | ⏳ queued |
 | 7 | 6 | [06-docs-refresh.md](06-docs-refresh.md) | Frontend doc, troubleshooting, CONTRIBUTING, dedup, screenshot tour, badges | ⏳ queued |
 | — | 7 | [07-new-features.md](07-new-features.md) | Feature backlog, each sequenced after its unblocking phase | backlog |
+| 8 | 2.6 | [09-public-storefront.md](09-public-storefront.md) | Public storefront front door (`/shop`), guest cart, gated account actions | ✅ done |
+| 9 | 2.7 | [10-oauth-authorization.md](10-oauth-authorization.md) | Self-hosted OAuth2 authorization server (authlib, RS256/JWKS, offline — no external IdP) issuing tokens for user login (orchestrator-brokered ROPC), A2A (client credentials), and both MCP servers; opt-in `AUTH_MODE=oauth` / `MCP_AUTH_ENABLED`, Python + .NET parity | not started |
 
 Each phase is independently demo-able. Phase 1 is the substrate; **Phase 4 (agentic timeline) is
 the highest-leverage credibility feature and now runs before Phase 3** so the agent pages are

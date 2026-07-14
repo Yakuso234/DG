@@ -245,6 +245,8 @@ else:
 | Enable HTTPS everywhere | TLS termination at the AKS ingress; no plain HTTP between pods |
 | Network policy | Restrict specialist ports (8081–8085) to orchestrator pod only |
 | Complete role enforcement | Add `@requires_role` on open items in the [audit matrix](agent-audit-matrix.md) |
+| Enable the self-hosted OAuth server | `AUTH_MODE=oauth` — user login via ROPC brokered by the orchestrator, client-credentials service tokens for A2A, RS256 signing with a rotating JWKS; retires `JWT_SECRET` and `AGENT_SHARED_SECRET`. Set `AUTH_SIGNING_KEY_ENCRYPTION_KEY` and per-service `OAUTH_CLIENT_SECRET` from your secret store; never ship the `OAUTH_SEED_KEY` dev default. See [`10-oauth-authorization.md`](../.claude/plans/enhancements/10-oauth-authorization.md) |
+| Protect MCP servers | `MCP_AUTH_ENABLED=true` — MCP servers validate the auth-server's RS256 bearer tokens (audience + scope) against its JWKS, expose `.well-known/oauth-protected-resource`, and reject unauthenticated calls with `401` + `WWW-Authenticate` |
 
 ---
 

@@ -515,6 +515,12 @@ Planned:
 
 ---
 
+### Planned — Identity & Access
+
+- [ ] **Self-hosted OAuth2 Authorization Server** — opt-in `AUTH_MODE=oauth` path with the token issuer living *inside* this repo (`agents/python/auth_server/`, built on `authlib`), so login and every service call become genuinely OAuth2-compliant with no external identity provider or cloud dependency. RS256 signing with an AS-generated keypair and a JWKS endpoint; user login via the resource-owner-password grant brokered by the orchestrator (the browser keeps its email/password form); client-credentials service tokens replacing the static A2A shared secret; and the two MCP servers hardened into OAuth 2.1 resource servers (audience/scope validation, `.well-known/oauth-protected-resource`, `WWW-Authenticate` challenge) for both the Python and .NET stacks. Fully additive — `AUTH_MODE=local` (self-issued JWT + shared secret) stays the zero-config default, so the OpenAI-key-only quick-start is unaffected. See [`.claude/plans/enhancements/10-oauth-authorization.md`](.claude/plans/enhancements/10-oauth-authorization.md).
+
+---
+
 ## Contributing
 
 1. Fork the repository
