@@ -11,7 +11,7 @@
 
 A **multi-agent e-commerce platform** built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (MAF) Python SDK. Six specialized AI agents collaborate via **A2A protocol** to handle product discovery, orders, pricing, reviews, inventory, and customer support.
 
-Companion demo repo for the AI article series on [nitinksingh.com](https://nitinksingh.com).
+Companion demo repo for the AI article series on [nitinksingh.com](https://nitinksingh.com/posts/maf-v1-21-putting-it-all-together/).
 
 ![AI shopping assistant with product cards](docs/images/shop-ai-assistant.png)
 
