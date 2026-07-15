@@ -30,11 +30,18 @@ builder.Services.AddSingleton(new PromptLoader(PromptsRoot()));
 builder.Services.AddAgentTelemetry(settings);
 
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient<JwksKeyProvider>();
+builder.Services.AddHttpClient<AuthServerClient>();
 builder.Services.AddSingleton(sp =>
 {
     var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("a2a");
     http.Timeout = TimeSpan.FromSeconds(30);
-    return new A2AClient(http, settings, sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<A2AClient>>());
+    return new A2AClient(
+        http,
+        settings,
+        sp.GetRequiredService<AuthServerClient>(),
+        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<A2AClient>>()
+    );
 });
 builder.Services.AddSingleton<OrchestratorTools>();
 builder.Services.AddSingleton<AIAgent>(sp =>
@@ -46,7 +53,7 @@ builder.Services.AddSingleton<AIAgent>(sp =>
 
 var app = builder.Build();
 
-app.UseAgentAuth();
+app.UseAgentAuth(isOrchestrator: true);
 
 app.MapGet("/", () => Results.Ok(new { status = "ok", service = "orchestrator", port = 8080 }));
 app.MapGet("/health", () => Results.Ok(new { healthy = true }));

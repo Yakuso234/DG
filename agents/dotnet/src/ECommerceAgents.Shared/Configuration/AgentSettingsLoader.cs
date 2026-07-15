@@ -39,14 +39,23 @@ public static class AgentSettingsLoader
             return double.TryParse(raw, out var parsed) ? parsed : fallback;
         }
 
+        int GetInt(string key, int fallback)
+        {
+            var raw = Get(key);
+            return int.TryParse(raw, out var parsed) ? parsed : fallback;
+        }
+
         var databaseUrl =
             config.GetConnectionString("Postgres")
             ?? Get("DATABASE_URL", "postgresql://ecommerce:ecommerce_secret@localhost:5432/ecommerce_agents");
+        var redisUrl =
+            config.GetConnectionString("Redis")
+            ?? Get("REDIS_URL", "redis://localhost:6379");
 
         return new AgentSettings
         {
             DatabaseUrl = databaseUrl,
-            RedisUrl = Get("REDIS_URL", "redis://localhost:6379"),
+            RedisUrl = redisUrl,
 
             LlmProvider = Get("LLM_PROVIDER", "openai").ToLowerInvariant(),
             LlmModel = Get("LLM_MODEL", "gpt-4.1"),
@@ -61,6 +70,24 @@ public static class AgentSettingsLoader
 
             JwtSecret = Get("JWT_SECRET", "change-me-in-production"),
             AgentSharedSecret = Get("AGENT_SHARED_SECRET", "agent-internal-secret"),
+
+            AuthMode = Get("AUTH_MODE", "local").ToLowerInvariant(),
+            AuthServerIssuer = Get("AUTH_SERVER_ISSUER", "http://localhost:8090"),
+            AuthServerJwksUrl = Get("AUTH_SERVER_JWKS_URL", "http://localhost:8090/.well-known/jwks.json"),
+            AuthServerTokenUrl = Get("AUTH_SERVER_TOKEN_URL", "http://localhost:8090/oauth/token"),
+            AuthJwksCacheTtl = GetInt("AUTH_JWKS_CACHE_TTL", 900),
+            OAuthClientId = Get("OAUTH_CLIENT_ID"),
+            OAuthClientSecret = Get("OAUTH_CLIENT_SECRET"),
+            OAuthSeedKey = Get("OAUTH_SEED_KEY", "dev-oauth-seed-change-me"),
+            AuthOrchAudience = Get("AUTH_ORCH_AUDIENCE", "ecommerce-orchestrator"),
+            AuthAgentAudience = Get("AUTH_AGENT_AUDIENCE", "ecommerce-agents"),
+            GuardrailsEnabled = GetBool("GUARDRAILS_ENABLED", true),
+            GuardrailsStrictIdentity = GetBool("GUARDRAILS_STRICT_IDENTITY", false),
+
+            McpAuthEnabled = GetBool("MCP_AUTH_ENABLED", false),
+            McpAudience = Get("MCP_INVENTORY_AUDIENCE", "mcp-inventory"),
+            McpRequiredScope = Get("MCP_INVENTORY_REQUIRED_SCOPE", "mcp:inventory"),
+            McpResourceUrl = Get("MCP_INVENTORY_RESOURCE_URL", "http://localhost:9001/mcp"),
 
             AgentRegistry = Get("AGENT_REGISTRY", "{}"),
 

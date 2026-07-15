@@ -9,6 +9,7 @@ from pydantic import Field
 
 from shared.context import current_user_email
 from shared.db import get_pool
+from shared.guardrails.roles import requires_role
 
 
 @tool(name="get_restock_schedule", description="Get upcoming restock schedule for a product across all warehouses.")
@@ -220,6 +221,7 @@ async def get_tracking_status(
 
 
 @tool(name="calculate_fulfillment_plan", description="Calculate the optimal fulfillment plan for a multi-item order. Determines the best warehouse for each product and estimates total shipping cost.")
+@requires_role("seller", "admin")
 async def calculate_fulfillment_plan(
     product_ids: Annotated[list[str], Field(description="List of product UUIDs to fulfill")],
     destination_region: Annotated[str, Field(description="Destination region: 'east', 'central', or 'west'")],
@@ -318,6 +320,7 @@ async def calculate_fulfillment_plan(
     description="Place a backorder for an out-of-stock product. Checks stock first and only creates a backorder if the product is truly unavailable.",
     approval_mode="always_require",
 )
+@requires_role("seller", "admin")
 async def place_backorder(
     product_id: Annotated[str, Field(description="UUID of the product to backorder")],
     quantity: Annotated[int, Field(description="Quantity to backorder")],

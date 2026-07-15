@@ -1,5 +1,6 @@
 using Dapper;
 using ECommerceAgents.Shared.Auth;
+using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -13,6 +14,14 @@ namespace ECommerceAgents.Orchestrator.Routes;
 /// identical scheme to the Python bcrypt calls — so rows created by
 /// either backend authenticate from the other.
 /// </summary>
+/// <remarks>
+/// In <c>AuthMode=oauth</c>, Login and Refresh broker to the self-hosted
+/// auth-server via <see cref="AuthServerClient"/> instead of issuing HS256
+/// tokens locally — the AS is the sole authority on credentials (it
+/// re-verifies the same bcrypt hash), so this does not duplicate the
+/// password check. Signup is untouched in both modes: new users are always
+/// created locally and issued a local token, matching Python's behavior.
+/// </remarks>
 public static class AuthRoutes
 {
     public sealed record SignupRequest(string Email, string Password, string? FullName, string? Role);
@@ -71,7 +80,9 @@ public static class AuthRoutes
     private static async Task<IResult> Login(
         [FromBody] LoginRequest request,
         DatabasePool pool,
-        JwtTokenService jwt
+        JwtTokenService jwt,
+        AgentSettings settings,
+        AuthServerClient authServer
     )
     {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -80,6 +91,47 @@ public static class AuthRoutes
         }
 
         var email = request.Email.Trim().ToLowerInvariant();
+
+        if (settings.AuthMode == "oauth")
+        {
+            AuthServerTokenResponse token;
+            try
+            {
+                token = await authServer.RequestTokenAsync(
+                    "password",
+                    new Dictionary<string, string>
+                    {
+                        ["username"] = email,
+                        ["password"] = request.Password,
+                        ["scope"] = "api:chat",
+                    }
+                );
+            }
+            catch (HttpRequestException)
+            {
+                return Results.Unauthorized();
+            }
+
+            await using var oauthConn = await pool.OpenAsync();
+            var oauthUser = await oauthConn.QueryFirstOrDefaultAsync(
+                "SELECT email, role FROM users WHERE email = @email",
+                new { email }
+            );
+            // The AS validated these credentials against the same `users`
+            // table; a missing row here would mean it vanished between reads.
+            if (oauthUser is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(new TokenResponse(
+                AccessToken: token.AccessToken,
+                RefreshToken: token.RefreshToken ?? "",
+                Email: email,
+                Role: (string)oauthUser.role
+            ));
+        }
+
         await using var conn = await pool.OpenAsync();
         var user = await conn.QueryFirstOrDefaultAsync(
             "SELECT email, password_hash, role FROM users WHERE email = @email",
@@ -99,11 +151,32 @@ public static class AuthRoutes
         ));
     }
 
-    private static IResult Refresh([FromBody] RefreshRequest request, JwtTokenService jwt)
+    private static async Task<IResult> Refresh(
+        [FromBody] RefreshRequest request,
+        JwtTokenService jwt,
+        AgentSettings settings,
+        AuthServerClient authServer
+    )
     {
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
         {
             return Results.BadRequest(new { detail = "refresh_token is required" });
+        }
+
+        if (settings.AuthMode == "oauth")
+        {
+            try
+            {
+                var token = await authServer.RequestTokenAsync(
+                    "refresh_token",
+                    new Dictionary<string, string> { ["refresh_token"] = request.RefreshToken }
+                );
+                return Results.Ok(new { access_token = token.AccessToken });
+            }
+            catch (HttpRequestException)
+            {
+                return Results.Unauthorized();
+            }
         }
 
         try

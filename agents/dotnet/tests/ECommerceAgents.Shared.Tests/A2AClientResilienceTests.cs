@@ -1,4 +1,5 @@
 using ECommerceAgents.Shared.A2A;
+using ECommerceAgents.Shared.Auth;
 using ECommerceAgents.Shared.Configuration;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -26,6 +27,7 @@ public sealed class A2AClientResilienceTests
         new(
             new HttpClient(handler) { BaseAddress = new Uri("http://localhost") },
             DefaultSettings(),
+            new AuthServerClient(new HttpClient(), DefaultSettings()),
             NullLogger<A2AClient>.Instance
         );
 

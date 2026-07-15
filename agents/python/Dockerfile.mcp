@@ -37,16 +37,20 @@ ARG MCP_MODULE=ecommerce_mcp_product.server:app
 ARG MCP_PORT=9000
 
 # ── Install only the target package (uses workspace-aware lock) ─
-# Copy workspace manifests first for the dependency install layer.
+# `uv sync` builds this package's own editable wheel as part of the sync,
+# and hatchling needs the real `src/` tree (plus the README its pyproject.toml
+# points at) present to do that correctly — copying only pyproject.toml here
+# and `src/` in a later layer produces a *silently broken* editable install
+# (dist-info written, but no .pth/finder redirect at all, so the module
+# 404s at import time). So the source has to land before `uv sync` runs,
+# giving up the "source changes don't invalidate the deps layer" caching
+# trick — an acceptable tradeoff for a package this small.
 COPY pyproject.toml uv.lock ./
-COPY ${MCP_DIR}/pyproject.toml ${MCP_DIR}/pyproject.toml
+COPY ${MCP_DIR} ${MCP_DIR}
 
 # Install only the target package + its deps (--package scopes the install).
 # --frozen: never re-resolve; --no-dev: skip test/lint tools.
 RUN uv sync --frozen --no-dev --package ${MCP_PACKAGE}
-
-# Copy the package source (after the dep layer so source changes are cheap).
-COPY ${MCP_DIR}/src ${MCP_DIR}/src
 
 RUN chown -R mcp:mcp /app
 
@@ -60,7 +64,10 @@ USER mcp
 
 EXPOSE ${MCP_PORT}
 
+# When MCP_AUTH_ENABLED=true, /mcp is wrapped in RequireAuthMiddleware and
+# always 401s — point the healthcheck at the SDK's auto-mounted,
+# unauthenticated protected-resource metadata endpoint instead.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:${MCP_PORT}/mcp || exit 1
+    CMD sh -c 'if [ "$MCP_AUTH_ENABLED" = "true" ]; then curl -sf "http://localhost:${MCP_PORT}/.well-known/oauth-protected-resource/mcp"; else curl -sf "http://localhost:${MCP_PORT}/mcp"; fi'
 
 CMD uv run --no-project uvicorn ${MCP_MODULE} --host 0.0.0.0 --port ${MCP_PORT}

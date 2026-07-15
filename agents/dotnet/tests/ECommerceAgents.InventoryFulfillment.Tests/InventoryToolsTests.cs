@@ -28,14 +28,18 @@ public sealed class InventoryToolsTests : IAsyncLifetime
     {
         _pg = pg;
         RequestContext.CurrentUserEmail = Email;
+        // CalculateFulfillmentPlan/PlaceBackorder are role-gated (seller/admin) —
+        // this fixture exercises them as a seller.
+        RequestContext.CurrentUserRole = "seller";
     }
 
     public async Task InitializeAsync()
     {
         var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString };
         _pool = new DatabasePool(settings);
-        _tools = new InventoryTools(_pool);
+        _tools = new InventoryTools(_pool, settings);
         RequestContext.CurrentUserEmail = Email;
+        RequestContext.CurrentUserRole = "seller";
         await SeedAsync();
     }
 
@@ -48,10 +52,15 @@ public sealed class InventoryToolsTests : IAsyncLifetime
                        products, users RESTART IDENTITY CASCADE"
         );
         RequestContext.CurrentUserEmail = "";
+        RequestContext.CurrentUserRole = "";
         await _pool.DisposeAsync();
     }
 
-    private void EnsureUserScope() => RequestContext.CurrentUserEmail = Email;
+    private void EnsureUserScope()
+    {
+        RequestContext.CurrentUserEmail = Email;
+        RequestContext.CurrentUserRole = "seller";
+    }
 
     // ─────────────────────── get_restock_schedule ────────────
 
@@ -169,8 +178,18 @@ public sealed class InventoryToolsTests : IAsyncLifetime
     // ─────────────────────── calculate_fulfillment_plan ─────
 
     [Fact]
+    public async Task CalculateFulfillmentPlan_DeniedForCustomer()
+    {
+        EnsureUserScope();
+        RequestContext.CurrentUserRole = "customer";
+        var result = await _tools.CalculateFulfillmentPlan([], "east");
+        result.Error.Should().Contain("permission");
+    }
+
+    [Fact]
     public async Task CalculateFulfillmentPlan_RejectsEmptyList()
     {
+        EnsureUserScope();
         var result = await _tools.CalculateFulfillmentPlan([], "east");
         result.Error.Should().Contain("No product IDs");
     }
@@ -178,6 +197,7 @@ public sealed class InventoryToolsTests : IAsyncLifetime
     [Fact]
     public async Task CalculateFulfillmentPlan_ReportsUnavailableProducts()
     {
+        EnsureUserScope();
         var unknown = Guid.NewGuid().ToString();
         var result = await _tools.CalculateFulfillmentPlan(
             [_productId.ToString(), unknown, "not-a-uuid"],
@@ -192,6 +212,7 @@ public sealed class InventoryToolsTests : IAsyncLifetime
     [Fact]
     public async Task CalculateFulfillmentPlan_BuildsSingleShipmentPerWarehouse()
     {
+        EnsureUserScope();
         var result = await _tools.CalculateFulfillmentPlan([_productId.ToString()], "east");
         result.Error.Should().BeNull();
         result.TotalShipments.Should().Be(1);
@@ -200,6 +221,15 @@ public sealed class InventoryToolsTests : IAsyncLifetime
     }
 
     // ─────────────────────── place_backorder ─────────────────
+
+    [Fact]
+    public async Task PlaceBackorder_DeniedForCustomer()
+    {
+        EnsureUserScope();
+        RequestContext.CurrentUserRole = "customer";
+        var result = await _tools.PlaceBackorder(_productId.ToString(), 1);
+        result.Error.Should().Contain("permission");
+    }
 
     [Fact]
     public async Task PlaceBackorder_RequiresUserContext()

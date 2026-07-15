@@ -1,8 +1,9 @@
 """Inventory & Fulfillment agent — entry point."""
 
-from inventory_fulfillment.agent import AGENT_TOOLS, create_inventory_fulfillment_agent
+from inventory_fulfillment.agent import AGENT_TOOLS, create_inventory_fulfillment_agent, refresh_mcp_auth
 from shared.agent_host import create_agent_app
 from shared.auth import AgentAuthMiddleware
+from shared.config import settings
 from shared.db import close_db_pool, init_db_pool
 from shared.telemetry import instrument_fastapi, setup_telemetry
 
@@ -13,6 +14,8 @@ async def on_startup(app):
     setup_telemetry("ecommerce.inventory-fulfillment")
     instrument_fastapi(app)
     await init_db_pool()
+    if settings.MCP_ENABLED and settings.MCP_AUTH_ENABLED:
+        await refresh_mcp_auth()
 
 
 app = create_agent_app(

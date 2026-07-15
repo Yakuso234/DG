@@ -1,9 +1,12 @@
 using Dapper;
+using ECommerceAgents.Shared.Auth;
+using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 namespace ECommerceAgents.Mcp;
 
@@ -16,6 +19,17 @@ namespace ECommerceAgents.Mcp;
 /// <c>/mcp</c>; this implementation uses the equivalent REST surface for
 /// .NET compatibility.
 /// </summary>
+/// <remarks>
+/// OAuth 2.1 resource-server mode (optional — <see cref="AgentSettings.McpAuthEnabled"/>,
+/// off by default): when enabled, <c>POST /mcp/tools/{{toolName}}</c> requires
+/// a valid RS256 Bearer token (aud/scope from <see cref="AgentSettings"/>,
+/// validated the same way as the Phase B/C orchestrator/agent paths via
+/// <see cref="JwtTokenService.ValidateOAuth"/> + <see cref="JwksKeyProvider"/>
+/// — no <c>AddMicrosoftIdentityWebApi</c>). A missing/invalid token gets a
+/// spec-shaped 401 + <c>WWW-Authenticate</c> header; the manifest and health
+/// routes stay unauthenticated either way, matching the Python SDK's own
+/// behavior of leaving discovery/health surfaces public.
+/// </remarks>
 public static class McpEndpoints
 {
     public sealed record CheckStockParams(string? ProductId);
@@ -39,8 +53,61 @@ public static class McpEndpoints
         );
         routes.MapGet("/health", () => Results.Ok(new { healthy = true }));
         routes.MapGet("/.well-known/mcp.json", Manifest);
+        routes.MapGet("/.well-known/oauth-protected-resource", ProtectedResourceMetadata);
         routes.MapPost("/mcp/tools/{toolName}", ExecuteTool);
         return routes;
+    }
+
+    // ─────────────────────── OAuth 2.1 resource-server mode ─
+
+    private static IResult ProtectedResourceMetadata(AgentSettings settings) =>
+        Results.Ok(new
+        {
+            resource = settings.McpResourceUrl,
+            authorization_servers = new[] { settings.AuthServerIssuer },
+            scopes_supported = new[] { settings.McpRequiredScope },
+            bearer_methods_supported = new[] { "header" },
+        });
+
+    /// <summary>
+    /// Validates the request's Bearer token when <see cref="AgentSettings.McpAuthEnabled"/>
+    /// is on. Returns <c>null</c> to proceed, or a 401 <see cref="IResult"/>
+    /// (with <c>WWW-Authenticate</c> already set on the response) to reject.
+    /// </summary>
+    private static async Task<IResult?> ValidateBearerToken(
+        HttpContext http,
+        AgentSettings settings,
+        JwtTokenService jwt,
+        JwksKeyProvider jwks
+    )
+    {
+        var authHeader = http.Request.Headers.Authorization.ToString();
+        if (!authHeader.StartsWith("Bearer ", StringComparison.Ordinal))
+        {
+            return Unauthorized(http, settings, "invalid_token", "Authentication required");
+        }
+
+        var token = authHeader["Bearer ".Length..];
+        try
+        {
+            var signingKeys = await jwks.GetSigningKeysAsync(http.RequestAborted);
+            jwt.ValidateOAuth(token, signingKeys, settings.McpAudience, requiredScope: settings.McpRequiredScope);
+            return null;
+        }
+        catch (SecurityTokenException)
+        {
+            return Unauthorized(http, settings, "invalid_token", "Invalid or expired token");
+        }
+    }
+
+    private static IResult Unauthorized(HttpContext http, AgentSettings settings, string error, string description)
+    {
+        var resourceMetadataUrl = $"{http.Request.Scheme}://{http.Request.Host}/.well-known/oauth-protected-resource";
+        http.Response.Headers.Append(
+            "WWW-Authenticate",
+            $"Bearer error=\"{error}\", error_description=\"{description}\", resource_metadata=\"{resourceMetadataUrl}\""
+        );
+        return Results.Json(new { error, error_description = description }, statusCode: 401);
     }
 
     // ─────────────────────── manifest ───────────────────────
@@ -101,9 +168,21 @@ public static class McpEndpoints
     private static async Task<IResult> ExecuteTool(
         string toolName,
         HttpContext http,
-        DatabasePool pool
+        DatabasePool pool,
+        AgentSettings settings,
+        JwtTokenService jwt,
+        JwksKeyProvider jwks
     )
     {
+        if (settings.McpAuthEnabled)
+        {
+            var rejection = await ValidateBearerToken(http, settings, jwt, jwks);
+            if (rejection is not null)
+            {
+                return rejection;
+            }
+        }
+
         // Read body as raw JSON so the same handler shape accepts optional
         // params objects (get_warehouses has no body, check_stock has one).
         Dictionary<string, object?> body;

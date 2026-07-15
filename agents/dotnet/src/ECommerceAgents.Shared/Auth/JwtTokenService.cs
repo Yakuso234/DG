@@ -16,7 +16,17 @@ namespace ECommerceAgents.Shared.Auth;
 public sealed class JwtTokenService(AgentSettings settings)
 {
     private readonly AgentSettings _settings = settings;
-    private readonly JwtSecurityTokenHandler _handler = new();
+
+    /// <summary>
+    /// <c>MapInboundClaims = false</c> is required: the default handler
+    /// silently renames short claim types on validation (e.g. <c>sub</c> -&gt;
+    /// the XML-namespace nameidentifier URI, <c>email</c> -&gt; the
+    /// emailaddress URI, <c>role</c> -&gt; the MS role URI), so callers doing
+    /// <c>principal.FindFirst("email")</c>/<c>FindFirst("role")</c> after
+    /// <see cref="Validate"/>/<see cref="ValidateOAuth"/> would silently get
+    /// null back instead of the actual claim.
+    /// </summary>
+    private readonly JwtSecurityTokenHandler _handler = new() { MapInboundClaims = false };
     public TimeSpan AccessTokenLifetime { get; init; } = TimeSpan.FromHours(24);
     public TimeSpan RefreshTokenLifetime { get; init; } = TimeSpan.FromDays(7);
 
@@ -36,6 +46,47 @@ public sealed class JwtTokenService(AgentSettings settings)
             ClockSkew = TimeSpan.FromMinutes(1),
         };
         return _handler.ValidateToken(token, parameters, out _);
+    }
+
+    /// <summary>
+    /// Validate an RS256 access token issued by the self-hosted auth-server
+    /// (<c>AuthMode=oauth</c>) against its published JWKS. Throws a
+    /// <see cref="SecurityTokenException"/> subclass on any failure —
+    /// callers already handle that type for the local HS256 path.
+    /// </summary>
+    public ClaimsPrincipal ValidateOAuth(
+        string token,
+        IReadOnlyList<SecurityKey> signingKeys,
+        string audience,
+        string? requiredScope = null
+    )
+    {
+        var parameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = _settings.AuthServerIssuer,
+            ValidateAudience = true,
+            ValidAudience = audience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKeys = signingKeys,
+            ClockSkew = TimeSpan.FromMinutes(1),
+        };
+        var principal = _handler.ValidateToken(token, parameters, out _);
+
+        if (requiredScope is not null)
+        {
+            var granted = (principal.FindFirst("scope")?.Value ?? string.Empty).Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries
+            );
+            if (!granted.Contains(requiredScope))
+            {
+                throw new SecurityTokenException($"token missing required scope '{requiredScope}'");
+            }
+        }
+
+        return principal;
     }
 
     /// <summary>

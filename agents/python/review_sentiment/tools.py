@@ -8,6 +8,7 @@ from agent_framework import tool
 from pydantic import Field
 
 from shared.db import get_pool
+from shared.guardrails.roles import requires_role
 
 
 @tool(name="get_product_reviews", description="Get paginated reviews for a product with sorting options.")
@@ -448,6 +449,7 @@ async def search_reviews(
 
 
 @tool(name="draft_seller_response", description="Generate a professional response template for a negative review. Returns a template the seller can customize.")
+@requires_role("seller", "admin")
 async def draft_seller_response(
     review_id: Annotated[str, Field(description="UUID of the review to respond to")],
 ) -> dict:

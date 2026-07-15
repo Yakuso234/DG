@@ -30,6 +30,7 @@ _UNSAFE_SECRET_DEFAULTS = {
     "change-me-generate-a-random-256-bit-key",
     "agent-internal-secret",
     "agent-internal-shared-secret",
+    "dev-oauth-seed-change-me",
 }
 
 # Resolve .env once, relative to the repo root, so the eval/seed scripts pick
@@ -79,6 +80,52 @@ class Settings(BaseSettings):
     # ── Auth ────────────────────────────────────────────────────────
     JWT_SECRET: str = "change-me-in-production"
     AGENT_SHARED_SECRET: str = "agent-internal-secret"
+
+    # ── OAuth2 (self-hosted Authorization Server, optional) ──────────
+    # AUTH_MODE=local (default) keeps today's HS256 JWT + shared-secret
+    # behavior unchanged. AUTH_MODE=oauth routes user login and A2A/MCP
+    # auth through the self-hosted auth-server (agents/python/auth_server/),
+    # which issues RS256 tokens validated via its JWKS. No external IdP.
+    AUTH_MODE: str = "local"  # local | oauth
+
+    AUTH_SERVER_ISSUER: str = "http://localhost:8090"
+    AUTH_SERVER_JWKS_URL: str = "http://localhost:8090/.well-known/jwks.json"
+    AUTH_SERVER_TOKEN_URL: str = "http://localhost:8090/oauth/token"
+    AUTH_ACCESS_TOKEN_TTL: int = 3600  # seconds
+    AUTH_REFRESH_TOKEN_TTL: int = 604800  # 7 days
+    AUTH_JWKS_CACHE_TTL: int = 900  # resource-server JWKS cache
+    AUTH_RSA_KEY_SIZE: int = 2048  # auth-server only
+    AUTH_SIGNING_KEY_ENCRYPTION_KEY: str = ""  # optional KEK for the private key at rest
+
+    # Per-service OAuth client identity (client-credentials grant).
+    OAUTH_CLIENT_ID: str = ""  # defaults to the service name when empty
+    OAUTH_CLIENT_SECRET: str = ""  # prod override; dev derives from OAUTH_SEED_KEY
+    OAUTH_SEED_KEY: str = "dev-oauth-seed-change-me"  # dev shared knob; unsafe in prod
+
+    AUTH_ORCH_AUDIENCE: str = "ecommerce-orchestrator"
+    AUTH_AGENT_AUDIENCE: str = "ecommerce-agents"
+
+    # The AS's own resource identifier — used only by the (optional, gated)
+    # dynamic client registration endpoint below, where the AS itself is the
+    # protected resource being called (aud on a `client:register`-scoped
+    # token), distinct from the orchestrator/agent/MCP audiences above.
+    AUTH_SERVER_AUDIENCE: str = "ecommerce-auth-server"
+
+    # RFC 7591 dynamic client registration (`POST /oauth/register`), off by
+    # default — this app's client registry is otherwise fixed/seeded
+    # (scripts/seed.py). When enabled, registration itself still requires a
+    # bearer token scoped `client:register` (see auth_server/register.py);
+    # this flag only gates whether that route exists at all.
+    AUTH_ALLOW_DYNAMIC_REGISTRATION: bool = False
+
+    # ── MCP resource-server auth (independent of MCP_ENABLED) ────────
+    MCP_AUTH_ENABLED: bool = False
+    MCP_PRODUCT_AUDIENCE: str = "mcp-product"
+    MCP_INVENTORY_AUDIENCE: str = "mcp-inventory"
+    MCP_PRODUCT_REQUIRED_SCOPE: str = "mcp:product"
+    MCP_INVENTORY_REQUIRED_SCOPE: str = "mcp:inventory"
+    MCP_PRODUCT_RESOURCE_URL: str = "http://localhost:9000/mcp"
+    MCP_INVENTORY_RESOURCE_URL: str = "http://localhost:9001/mcp"
 
     # ── Agent Registry (A2A endpoint map) ───────────────────────────
     AGENT_REGISTRY: str = "{}"
@@ -223,6 +270,17 @@ class Settings(BaseSettings):
 
         _check("JWT_SECRET", self.JWT_SECRET)
         _check("AGENT_SHARED_SECRET", self.AGENT_SHARED_SECRET)
+
+        if self.AUTH_MODE == "oauth":
+            _check("OAUTH_SEED_KEY", self.OAUTH_SEED_KEY)
+            if is_prod and not self.AUTH_SIGNING_KEY_ENCRYPTION_KEY.strip():
+                msg = (
+                    "AUTH_SIGNING_KEY_ENCRYPTION_KEY is required when AUTH_MODE=oauth "
+                    "outside development — without it the auth-server stores its RSA "
+                    "private key unencrypted."
+                )
+                raise ValueError(msg)
+
         return self
 
 

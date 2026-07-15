@@ -21,6 +21,7 @@ from shared.agent_factory import create_chat_client
 from shared.config import settings
 from shared.context_providers import ECommerceContextProvider
 from shared.middleware import build_specialist_middleware
+from shared.oauth.service_client import acquire_service_token, build_mcp_http_client, set_mcp_auth_header
 from shared.tools.inventory_tools import check_stock, get_warehouse_availability
 from shared.tools.user_tools import get_user_profile
 
@@ -36,20 +37,30 @@ AGENT_TOOLS = [
     get_user_profile,
 ]
 
+# Set once by create_inventory_fulfillment_agent() when MCP_ENABLED+MCP_AUTH_ENABLED;
+# refresh_mcp_auth() (called from the async startup hook in main.py) sets its
+# Authorization header once a token is acquired — agent construction itself
+# is synchronous and can't await the client-credentials grant.
+_mcp_inventory_http_client = None
+
 
 def create_inventory_fulfillment_agent() -> Agent:
     """Create the Inventory & Fulfillment ChatAgent.
 
     Uses the MCP server when ``MCP_ENABLED=true``, direct asyncpg tools otherwise.
     """
+    global _mcp_inventory_http_client
     if settings.MCP_ENABLED:
         # MCP path: tools are discovered from the running MCP server at startup.
         # Non-MCP tools (tracking, fulfillment plan, backorder, user_profile) still
         # run locally since they are not yet exposed via the MCP server.
+        if settings.MCP_AUTH_ENABLED:
+            _mcp_inventory_http_client = build_mcp_http_client()
         mcp_inventory = MCPStreamableHTTPTool(
             name="inventory-mcp",
             url=settings.MCP_INVENTORY_SERVER_URL,
             description="Inventory and fulfillment data via MCP",
+            http_client=_mcp_inventory_http_client,
         )
         tools: list = [
             mcp_inventory,
@@ -70,3 +81,14 @@ def create_inventory_fulfillment_agent() -> Agent:
         context_providers=[ECommerceContextProvider()],
         middleware=build_specialist_middleware(),
     )
+
+
+async def refresh_mcp_auth() -> None:
+    """Acquire (or refresh) the ``mcp:inventory`` service token and set it as
+    the default Authorization header on the shared MCP http client. Called
+    once from the async startup hook in ``main.py`` — agent construction
+    itself is synchronous and can't await the client-credentials grant."""
+    if _mcp_inventory_http_client is None:
+        return
+    token = await acquire_service_token(settings.MCP_INVENTORY_REQUIRED_SCOPE, settings.MCP_INVENTORY_AUDIENCE)
+    set_mcp_auth_header(_mcp_inventory_http_client, token)

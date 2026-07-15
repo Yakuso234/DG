@@ -1,6 +1,8 @@
 using Dapper;
+using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
+using ECommerceAgents.Shared.Guardrails;
 using Microsoft.Extensions.AI;
 using System.ComponentModel;
 
@@ -10,11 +12,13 @@ namespace ECommerceAgents.InventoryFulfillment.Tools;
 /// MAF tools for the InventoryFulfillment specialist. Mirrors
 /// <c>agents/python/inventory_fulfillment/tools.py</c> for the four
 /// read-only inventory + shipping tools. The two state-mutating tools
-/// (calculate_fulfillment_plan, place_backorder) ship in a follow-up.
+/// (<see cref="CalculateFulfillmentPlan"/>, <see cref="PlaceBackorder"/>)
+/// are role-gated to seller/admin (see <see cref="RoleGuard"/>).
 /// </summary>
-public sealed class InventoryTools(DatabasePool pool)
+public sealed class InventoryTools(DatabasePool pool, AgentSettings settings)
 {
     private readonly DatabasePool _pool = pool;
+    private readonly AgentSettings _settings = settings;
 
     public IEnumerable<AITool> All() => new AITool[]
     {
@@ -291,6 +295,11 @@ public sealed class InventoryTools(DatabasePool pool)
         [Description("Destination region: 'east', 'central', or 'west'")] string destinationRegion
     )
     {
+        if (RoleGuard.Ensure(_settings, "seller", "admin") is { } denied)
+        {
+            return FulfillmentPlanResult.Failure(denied);
+        }
+
         if (productIds is null || productIds.Count == 0)
         {
             return FulfillmentPlanResult.Failure("No product IDs provided");
@@ -404,6 +413,11 @@ public sealed class InventoryTools(DatabasePool pool)
         [Description("Quantity to backorder (>=1)")] int quantity
     )
     {
+        if (RoleGuard.Ensure(_settings, "seller", "admin") is { } denied)
+        {
+            return PlaceBackorderResult.Failure(denied);
+        }
+
         var email = RequestContext.CurrentUserEmail;
         if (string.IsNullOrEmpty(email))
         {

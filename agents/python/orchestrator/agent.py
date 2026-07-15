@@ -14,14 +14,13 @@ from orchestrator.prompts import SYSTEM_PROMPT
 from shared.agent_factory import create_chat_client
 from shared.config import settings
 from shared.context import (
-    current_session_id,
     current_steps,
     current_stream_queue,
     current_user_email,
-    current_user_role,
 )
 from shared.context_providers import ECommerceContextProvider
 from shared.middleware import build_specialist_middleware
+from shared.oauth.service_client import build_a2a_headers
 from shared.telemetry import a2a_call_span
 
 logger = logging.getLogger(__name__)
@@ -47,11 +46,7 @@ async def call_specialist_agent(
         available = ", ".join(AGENT_REGISTRY.keys()) if AGENT_REGISTRY else "none configured"
         return f"Unknown agent: {agent_name}. Available agents: {available}"
 
-    user_email = current_user_email.get()
-    user_role = current_user_role.get()
-    session_id = current_session_id.get("")
-
-    logger.info("a2a.call source=orchestrator target=%s user=%s", agent_name, user_email)
+    logger.info("a2a.call source=orchestrator target=%s user=%s", agent_name, current_user_email.get())
 
     # Audit fix #14: stop forwarding a truncated copy of the conversation
     # history on every A2A call. The session id travels in the header; the
@@ -60,12 +55,7 @@ async def call_specialist_agent(
     # / 500-char window that was silently losing context on long chats.
 
     stream_queue = current_stream_queue.get()
-    headers = {
-        "x-agent-secret": settings.AGENT_SHARED_SECRET,
-        "x-user-email": user_email,
-        "x-user-role": user_role,
-        "x-session-id": session_id,
-    }
+    headers = await build_a2a_headers()
     request_body = {"message": message}
 
     with a2a_call_span("orchestrator", agent_name, url):
@@ -118,9 +108,7 @@ async def call_specialist_agent(
                             await stream_queue.put(("delta", agent_name, payload))
                 return "".join(chunks) or f"The {agent_name} agent returned an empty response."
             except (httpx.TimeoutException, httpx.HTTPStatusError, Exception) as exc:
-                logger.warning(
-                    "a2a.stream_fallback target=%s reason=%s", agent_name, type(exc).__name__
-                )
+                logger.warning("a2a.stream_fallback target=%s reason=%s", agent_name, type(exc).__name__)
                 # Fall through to blocking path
 
         # ── Blocking path (non-streaming or stream fallback) ───────────────

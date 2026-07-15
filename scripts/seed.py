@@ -28,12 +28,20 @@ from decimal import Decimal
 import asyncpg
 import bcrypt
 
+from shared.oauth.client_secrets import derive_client_secret
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://ecommerce:ecommerce_secret@localhost:5432/ecommerce_agents"
 )
+
+# Dev-only shared knob (AUTH_MODE=oauth): every service derives its own
+# OAUTH_CLIENT_SECRET from this same value, so the seeder never has to
+# hand out or store plaintext per-service secrets. Production overrides
+# OAUTH_CLIENT_SECRET per service instead (see docs/security-guide.md).
+OAUTH_SEED_KEY = os.environ.get("OAUTH_SEED_KEY", "dev-oauth-seed-change-me")
 
 # Deterministic seed for reproducible data
 random.seed(42)
@@ -185,6 +193,47 @@ AGENT_CATALOG = [
     ("review-sentiment", "Review & Sentiment", "Review analysis, sentiment breakdown, fake review detection, and seller response drafting.", "Analytics", "bar-chart", ["sentiment_analysis", "fake_detection", "review_search"], True),
     ("inventory-fulfillment", "Inventory & Fulfillment", "Stock checking, shipping estimation, carrier comparison, and fulfillment planning.", "Logistics", "truck", ["stock_check", "shipping_estimate", "carrier_comparison"], False),
     ("customer-support", "Customer Support", "Orchestrator agent that routes requests to specialist agents for comprehensive assistance.", "Support", "headphones", ["multi_agent_routing", "intent_classification", "conversation_management"], False),
+]
+
+# OAuth2 client registry (AUTH_MODE=oauth) — fixed, seeded first-party
+# clients. client_id values match each service's OAUTH_CLIENT_ID env var in
+# docker-compose.yml / docker-compose.dotnet.yml. Third-party clients (MCP
+# consumers) may additionally self-register at runtime via
+# POST /oauth/register when AUTH_ALLOW_DYNAMIC_REGISTRATION=true — see
+# auth_server/register.py; that path never touches this static list.
+# (client_id, allowed_grant_types, allowed_scopes, allowed_audiences)
+OAUTH_CLIENTS = [
+    (
+        "orchestrator",
+        ["password", "refresh_token", "client_credentials"],
+        ["api:chat", "agent:invoke", "mcp:product", "mcp:inventory"],
+        ["ecommerce-orchestrator", "ecommerce-agents", "mcp-product", "mcp-inventory"],
+    ),
+    (
+        "product-discovery",
+        ["client_credentials"],
+        ["agent:invoke", "mcp:product"],
+        ["ecommerce-agents", "mcp-product"],
+    ),
+    (
+        "inventory-fulfillment",
+        ["client_credentials"],
+        ["agent:invoke", "mcp:inventory"],
+        ["ecommerce-agents", "mcp-inventory"],
+    ),
+    ("order-management", ["client_credentials"], ["agent:invoke"], ["ecommerce-agents"]),
+    ("pricing-promotions", ["client_credentials"], ["agent:invoke"], ["ecommerce-agents"]),
+    ("review-sentiment", ["client_credentials"], ["agent:invoke"], ["ecommerce-agents"]),
+    (
+        # Admin-only credential for calling POST /oauth/register (RFC 7591)
+        # — kept separate from "orchestrator" so the broadly-scoped
+        # end-user-facing client isn't also the one trusted to mint new
+        # OAuth clients.
+        "auth-admin",
+        ["client_credentials"],
+        ["client:register"],
+        ["ecommerce-auth-server"],
+    ),
 ]
 
 REVIEW_TEMPLATES_POSITIVE = [
@@ -597,6 +646,26 @@ async def seed_agent_catalog(conn: asyncpg.Connection) -> None:
     logger.info("Seeded %d agent catalog entries", len(AGENT_CATALOG))
 
 
+async def seed_oauth_clients(conn: asyncpg.Connection) -> None:
+    """Seed the fixed OAuth2 client registry (AUTH_MODE=oauth)."""
+    for client_id, grant_types, scopes, audiences in OAUTH_CLIENTS:
+        secret = derive_client_secret(OAUTH_SEED_KEY, client_id)
+        secret_hash = hash_pw(secret)
+        await conn.execute(
+            """INSERT INTO oauth_clients
+                   (client_id, client_secret_hash, client_name, allowed_grant_types,
+                    allowed_scopes, allowed_audiences)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               ON CONFLICT (client_id) DO UPDATE SET
+                   client_secret_hash = EXCLUDED.client_secret_hash,
+                   allowed_grant_types = EXCLUDED.allowed_grant_types,
+                   allowed_scopes = EXCLUDED.allowed_scopes,
+                   allowed_audiences = EXCLUDED.allowed_audiences""",
+            client_id, secret_hash, client_id, grant_types, scopes, audiences,
+        )
+    logger.info("Seeded %d OAuth clients", len(OAUTH_CLIENTS))
+
+
 async def seed_agent_permissions(conn: asyncpg.Connection, user_ids: dict[str, uuid.UUID]) -> None:
     """Grant agent permissions to admin and power users."""
     admin_id = user_ids["admin.demo@gmail.com"]
@@ -824,6 +893,11 @@ async def main() -> None:
             # (workflow_checkpoints, hitl_requests) sit at the leaves so
             # CASCADE handles them, but we list them explicitly so a
             # future schema change doesn't silently leave demo rows.
+            # oauth_clients is included (its seed data is refreshed here);
+            # oauth_signing_keys and oauth_tokens are AS-managed runtime
+            # state, not seed data, and are deliberately left alone — a
+            # full `dev.sh --clean` volume wipe is the only thing that
+            # resets those (see docs/security-guide.md).
             await conn.execute("""
                 TRUNCATE workflow_checkpoints, hitl_requests,
                          agent_execution_steps, usage_logs, messages, conversations,
@@ -833,7 +907,8 @@ async def main() -> None:
                          order_status_history, order_items, returns, orders,
                          cart_items, carts,
                          promotions, coupons, loyalty_tiers,
-                         carriers, warehouses, products, users
+                         carriers, warehouses, products, users,
+                         oauth_clients
                 CASCADE
             """)
 
@@ -851,6 +926,7 @@ async def main() -> None:
         await seed_price_history(conn, products)
         await seed_restock_schedule(conn, warehouse_ids, products)
         await seed_agent_catalog(conn)
+        await seed_oauth_clients(conn)
         await seed_agent_permissions(conn, user_ids)
         await seed_carts(conn, user_ids, products)
         await seed_workflow_checkpoints(conn)

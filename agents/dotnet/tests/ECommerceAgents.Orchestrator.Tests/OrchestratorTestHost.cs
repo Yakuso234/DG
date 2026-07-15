@@ -1,4 +1,5 @@
 using ECommerceAgents.Orchestrator.Routes;
+using ECommerceAgents.Shared.Auth;
 using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
@@ -22,8 +23,18 @@ namespace ECommerceAgents.Orchestrator.Tests;
 /// </summary>
 public static class OrchestratorTestHost
 {
-    public static TestServer Create(DatabasePool pool, Action<IEndpointRouteBuilder> mapRoutes)
+    public static TestServer Create(
+        DatabasePool pool,
+        Action<IEndpointRouteBuilder> mapRoutes,
+        AgentSettings? settingsOverride = null,
+        HttpMessageHandler? authServerHandler = null
+    )
     {
+        var settings = (settingsOverride ?? new AgentSettings()) with
+        {
+            DatabaseUrl = pool.DataSource.ConnectionString,
+        };
+
         var hostBuilder = new HostBuilder()
             .ConfigureWebHost(web =>
             {
@@ -31,7 +42,12 @@ public static class OrchestratorTestHost
                 web.ConfigureServices(services =>
                 {
                     services.AddSingleton(pool);
-                    services.AddSingleton(new AgentSettings { DatabaseUrl = pool.DataSource.ConnectionString });
+                    services.AddSingleton(settings);
+                    services.AddSingleton(new JwtTokenService(settings));
+                    services.AddSingleton(new AuthServerClient(
+                        new HttpClient(authServerHandler ?? new HttpClientHandler()),
+                        settings
+                    ));
                     services.AddRouting();
                     services.ConfigureHttpJsonOptions(opts =>
                     {

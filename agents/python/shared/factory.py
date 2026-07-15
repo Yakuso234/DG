@@ -36,11 +36,11 @@ logger = logging.getLogger(__name__)
 
 # ─────────────────────── Validators ───────────────────────
 
+
 def _validate_openai() -> None:
     if not settings.OPENAI_API_KEY:
         raise ValueError(
-            "OPENAI_API_KEY is required when LLM_PROVIDER=openai. "
-            "Set it in .env or switch to LLM_PROVIDER=azure."
+            "OPENAI_API_KEY is required when LLM_PROVIDER=openai. Set it in .env or switch to LLM_PROVIDER=azure."
         )
 
 
@@ -54,12 +54,12 @@ def _validate_azure() -> None:
         missing.append("AZURE_OPENAI_DEPLOYMENT (or AZURE_OPENAI_DEPLOYMENT_NAME)")
     if missing:
         raise ValueError(
-            f"Azure OpenAI requires {', '.join(missing)}. "
-            "Set them in .env or switch to LLM_PROVIDER=openai."
+            f"Azure OpenAI requires {', '.join(missing)}. Set them in .env or switch to LLM_PROVIDER=openai."
         )
 
 
 # ─────────────────────── LLM clients ───────────────────────
+
 
 def get_chat_client() -> OpenAIChatClient | OpenAIChatCompletionClient:
     """Return a MAF chat client configured for the active LLM_PROVIDER.
@@ -87,8 +87,7 @@ def get_chat_client() -> OpenAIChatClient | OpenAIChatCompletionClient:
         _validate_azure()
         api_version = settings.AZURE_OPENAI_API_VERSION
         logger.info(
-            "Creating Azure OpenAI chat-completions client "
-            "(deployment=%s, endpoint=%s, api_version=%s)",
+            "Creating Azure OpenAI chat-completions client (deployment=%s, endpoint=%s, api_version=%s)",
             settings.AZURE_OPENAI_DEPLOYMENT,
             settings.AZURE_OPENAI_ENDPOINT,
             api_version,
@@ -100,9 +99,7 @@ def get_chat_client() -> OpenAIChatClient | OpenAIChatCompletionClient:
             api_version=api_version,
         )
 
-    raise ValueError(
-        f"Unknown LLM_PROVIDER: {settings.LLM_PROVIDER!r}. Must be 'openai' or 'azure'."
-    )
+    raise ValueError(f"Unknown LLM_PROVIDER: {settings.LLM_PROVIDER!r}. Must be 'openai' or 'azure'.")
 
 
 def get_embeddings_client() -> openai.AsyncOpenAI | openai.AsyncAzureOpenAI:
@@ -127,6 +124,7 @@ def get_embedding_model() -> str:
 
 # ─────────────────────── A2A registry ───────────────────────
 
+
 @lru_cache(maxsize=1)
 def get_agent_registry() -> dict[str, str]:
     """Parse the AGENT_REGISTRY JSON env var into a name→URL dict.
@@ -139,9 +137,7 @@ def get_agent_registry() -> dict[str, str]:
     try:
         registry = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"AGENT_REGISTRY is not valid JSON ({exc.msg} at pos {exc.pos}). Got: {raw!r}"
-        ) from exc
+        raise ValueError(f"AGENT_REGISTRY is not valid JSON ({exc.msg} at pos {exc.pos}). Got: {raw!r}") from exc
 
     if not isinstance(registry, dict):
         raise ValueError(
@@ -153,6 +149,7 @@ def get_agent_registry() -> dict[str, str]:
 
 # ─────────────────────── Session / checkpoint backends ─────
 
+
 def get_session_storage() -> Any:
     """Return a MAF AgentSession storage backend per MAF_SESSION_BACKEND.
 
@@ -163,9 +160,7 @@ def get_session_storage() -> Any:
     """
     backend = settings.MAF_SESSION_BACKEND.lower()
     if backend not in {"postgres", "file", "memory"}:
-        raise ValueError(
-            f"MAF_SESSION_BACKEND must be one of postgres|file|memory, got {backend!r}"
-        )
+        raise ValueError(f"MAF_SESSION_BACKEND must be one of postgres|file|memory, got {backend!r}")
     logger.debug("Session storage backend: %s (not yet wired — returning None)", backend)
     return None
 
@@ -186,27 +181,48 @@ def get_checkpoint_storage(*, pool: Any = None) -> Any:
 
     if backend == "file":
         from agent_framework._workflows._checkpoint import FileCheckpointStorage
+
         Path(settings.MAF_CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
         return FileCheckpointStorage(settings.MAF_CHECKPOINT_DIR)
 
     if backend == "memory":
         from agent_framework._workflows._checkpoint import InMemoryCheckpointStorage
+
         return InMemoryCheckpointStorage()
 
     if backend == "postgres":
         if pool is None:
             try:
                 from shared.db import get_pool
+
                 pool = get_pool()
             except Exception as exc:  # pool not initialised (tests, scripts)
                 logger.debug("Postgres pool unavailable for checkpoint storage: %s", exc)
                 return None
         from shared.checkpoint_storage import PostgresCheckpointStorage
+
         return PostgresCheckpointStorage(pool)
 
-    raise ValueError(
-        f"MAF_CHECKPOINT_BACKEND must be one of postgres|file|memory, got {backend!r}"
-    )
+    raise ValueError(f"MAF_CHECKPOINT_BACKEND must be one of postgres|file|memory, got {backend!r}")
+
+
+# ─────────────────────── OAuth2 token verification ─────────
+
+
+@lru_cache(maxsize=1)
+def get_token_verifier() -> Any:
+    """Return the RS256 verifier for AUTH_MODE=oauth, else None.
+
+    ``None`` signals callers to keep using the local HS256 path
+    (``shared.jwt_utils.decode_token``) unchanged — this only exists so the
+    RS256Verifier (which eagerly builds a PyJWKClient) is never constructed
+    at all in the default ``local`` mode.
+    """
+    if settings.AUTH_MODE != "oauth":
+        return None
+    from shared.oauth.verifier import RS256Verifier
+
+    return RS256Verifier()
 
 
 # ─────────────────────── Back-compat shims ─────────────────

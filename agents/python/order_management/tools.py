@@ -10,6 +10,7 @@ from pydantic import Field, ValidationError
 
 from shared.context import current_user_email
 from shared.db import get_pool
+from shared.guardrails.roles import requires_role
 from shared.tool_inputs import (
     CancelOrderInput,
     ModifyOrderInput,
@@ -226,6 +227,7 @@ async def get_order_tracking(
     description="Cancel an order. Only orders in 'placed' or 'confirmed' status can be cancelled.",
     approval_mode="always_require",
 )
+@requires_role("customer", "seller", "admin")
 async def cancel_order(
     order_id: Annotated[str, Field(description="UUID of the order to cancel")],
     reason: Annotated[str, Field(description="Reason for cancellation")],
@@ -291,6 +293,7 @@ async def cancel_order(
     description="Modify the shipping address of an order. Only orders that haven't shipped yet can be modified.",
     approval_mode="always_require",
 )
+@requires_role("customer", "seller", "admin")
 async def modify_order(
     order_id: Annotated[str, Field(description="UUID of the order to modify")],
     new_address: Annotated[dict, Field(description="New shipping address with keys: street, city, state, zip, country")],
