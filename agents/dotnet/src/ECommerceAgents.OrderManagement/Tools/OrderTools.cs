@@ -1,6 +1,8 @@
 using Dapper;
+using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
+using ECommerceAgents.Shared.Guardrails;
 using Microsoft.Extensions.AI;
 using Npgsql;
 using System.ComponentModel;
@@ -12,7 +14,9 @@ namespace ECommerceAgents.OrderManagement.Tools;
 /// MAF tools for the OrderManagement specialist. Mirrors
 /// <c>agents/python/order_management/tools.py</c> 1:1 — same SQL,
 /// same identity scoping (every query joins to <c>users.email</c>),
-/// same approval-required gating on the destructive tools.
+/// same approval-required gating on the destructive tools, same
+/// <c>customer</c>/<c>seller</c>/<c>admin</c> role gate on the two
+/// state-mutating tools (see <see cref="RoleGuard"/>).
 /// </summary>
 /// <remarks>
 /// Read-only tools: <see cref="GetUserOrders"/>, <see cref="GetOrderDetails"/>,
@@ -21,9 +25,10 @@ namespace ECommerceAgents.OrderManagement.Tools;
 /// in row-locked transactions to avoid double-cancel / double-modify):
 /// <see cref="CancelOrder"/>, <see cref="ModifyOrder"/>.
 /// </remarks>
-public sealed class OrderTools(DatabasePool pool)
+public sealed class OrderTools(DatabasePool pool, AgentSettings settings)
 {
     private readonly DatabasePool _pool = pool;
+    private readonly AgentSettings _settings = settings;
 
     /// <summary>Hard ceiling for the LLM-supplied <c>limit</c> parameter on list queries.</summary>
     private const int MaxLimit = 100;
@@ -258,6 +263,11 @@ public sealed class OrderTools(DatabasePool pool)
         [Description("Reason for cancellation")] string reason
     )
     {
+        if (RoleGuard.Ensure(_settings, "customer", "seller") is { } denied)
+        {
+            return CancelOrderResult.Failure(denied);
+        }
+
         var email = RequestContext.CurrentUserEmail;
         if (string.IsNullOrEmpty(email))
         {
@@ -342,6 +352,11 @@ public sealed class OrderTools(DatabasePool pool)
             ShippingAddressInput newAddress
     )
     {
+        if (RoleGuard.Ensure(_settings, "customer", "seller") is { } denied)
+        {
+            return ModifyOrderResult.Failure(denied);
+        }
+
         var email = RequestContext.CurrentUserEmail;
         if (string.IsNullOrEmpty(email))
         {

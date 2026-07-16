@@ -67,8 +67,40 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+      OAUTH_SEED_KEY: ${OAUTH_SEED_KEY:-dev-oauth-seed-change-me}
     restart: "no"
     profiles: ["seed"]
+
+  # ── Self-Hosted OAuth2 Authorization Server (optional — AUTH_MODE=oauth) ──
+  #
+  # Issues RS256 tokens for user login (orchestrator-brokered ROPC),
+  # inter-agent A2A (client credentials), and MCP resource access. No
+  # external identity provider — the JWKS/token endpoints below are the
+  # only auth authority for both this stack and docker-compose.dotnet.yml
+  # (which runs its own co-located instance; the two stacks don't share
+  # a network). Not required when AUTH_MODE=local (the default).
+
+  auth-server:
+    build:
+      context: ./agents/python
+      args:
+        AGENT_NAME: auth_server
+        AGENT_PORT: 8090
+    ports: ["8090:8090"]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_RSA_KEY_SIZE: ${AUTH_RSA_KEY_SIZE:-2048}
+      AUTH_SIGNING_KEY_ENCRYPTION_KEY: ${AUTH_SIGNING_KEY_ENCRYPTION_KEY:-}
+      AUTH_ACCESS_TOKEN_TTL: ${AUTH_ACCESS_TOKEN_TTL:-3600}
+      AUTH_REFRESH_TOKEN_TTL: ${AUTH_REFRESH_TOKEN_TTL:-604800}
+      OAUTH_SEED_KEY: ${OAUTH_SEED_KEY:-dev-oauth-seed-change-me}
+      AUTH_SERVER_AUDIENCE: ${AUTH_SERVER_AUDIENCE:-ecommerce-auth-server}
+      AUTH_ALLOW_DYNAMIC_REGISTRATION: ${AUTH_ALLOW_DYNAMIC_REGISTRATION:-false}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    profiles: ["agents"]
 
   # ── Orchestrator (Customer Support Agent) ───────────────────
 
@@ -97,6 +129,19 @@ services:
       AZURE_EMBEDDING_DEPLOYMENT: ${AZURE_EMBEDDING_DEPLOYMENT:-}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-random-256-bit-key}
       AGENT_SHARED_SECRET: ${AGENT_SHARED_SECRET:-agent-internal-shared-secret}
+      # OAuth2 (self-hosted auth-server, optional — AUTH_MODE=oauth). Every
+      # value here is additive; AUTH_MODE defaults to "local" so none of
+      # this changes behavior unless explicitly opted in.
+      AUTH_MODE: ${AUTH_MODE:-local}
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_SERVER_JWKS_URL: http://auth-server:8090/.well-known/jwks.json
+      AUTH_SERVER_TOKEN_URL: http://auth-server:8090/oauth/token
+      AUTH_JWKS_CACHE_TTL: ${AUTH_JWKS_CACHE_TTL:-900}
+      AUTH_ORCH_AUDIENCE: ${AUTH_ORCH_AUDIENCE:-ecommerce-orchestrator}
+      AUTH_AGENT_AUDIENCE: ${AUTH_AGENT_AUDIENCE:-ecommerce-agents}
+      OAUTH_CLIENT_ID: orchestrator
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
+      OAUTH_SEED_KEY: ${OAUTH_SEED_KEY:-dev-oauth-seed-change-me}
       OTEL_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire:18889
       OTEL_SERVICE_NAME: ecommerce.orchestrator
@@ -135,6 +180,14 @@ services:
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.product-discovery
+      OAUTH_CLIENT_ID: product-discovery
+      # MCP integration (optional — off by default; enable with the mcp
+      # profile's mcp-product service also running).
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-false}
+      MCP_PRODUCT_SERVER_URL: http://mcp-product:9000/mcp
+      MCP_PRODUCT_AUDIENCE: ${MCP_PRODUCT_AUDIENCE:-mcp-product}
+      MCP_PRODUCT_REQUIRED_SCOPE: ${MCP_PRODUCT_REQUIRED_SCOPE:-mcp:product}
     profiles: ["agents"]
 
   order-management:
@@ -148,6 +201,7 @@ services:
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.order-management
+      OAUTH_CLIENT_ID: order-management
     profiles: ["agents"]
 
   pricing-promotions:
@@ -161,6 +215,7 @@ services:
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.pricing-promotions
+      OAUTH_CLIENT_ID: pricing-promotions
     profiles: ["agents"]
 
   review-sentiment:
@@ -174,6 +229,7 @@ services:
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.review-sentiment
+      OAUTH_CLIENT_ID: review-sentiment
     profiles: ["agents"]
 
   inventory-fulfillment:
@@ -187,6 +243,14 @@ services:
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.inventory-fulfillment
+      OAUTH_CLIENT_ID: inventory-fulfillment
+      # MCP integration (optional — off by default; enable with the mcp
+      # profile's mcp-inventory service also running).
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-false}
+      MCP_INVENTORY_SERVER_URL: http://mcp-inventory:9001/mcp
+      MCP_INVENTORY_AUDIENCE: ${MCP_INVENTORY_AUDIENCE:-mcp-inventory}
+      MCP_INVENTORY_REQUIRED_SCOPE: ${MCP_INVENTORY_REQUIRED_SCOPE:-mcp:inventory}
     profiles: ["agents"]
 
   # ── MCP Servers (optional — enable with MCP_ENABLED=true) ──────
@@ -211,8 +275,22 @@ services:
       db: { condition: service_healthy }
     environment:
       DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+      # OAuth 2.1 resource-server mode (optional — off by default).
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-false}
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_SERVER_JWKS_URL: http://auth-server:8090/.well-known/jwks.json
+      MCP_PRODUCT_AUDIENCE: ${MCP_PRODUCT_AUDIENCE:-mcp-product}
+      MCP_PRODUCT_REQUIRED_SCOPE: ${MCP_PRODUCT_REQUIRED_SCOPE:-mcp:product}
+      MCP_PRODUCT_RESOURCE_URL: http://localhost:9000/mcp
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/mcp || exit 1"]
+      # When MCP_AUTH_ENABLED=true, /mcp is wrapped in RequireAuthMiddleware
+      # and always 401s — probe the SDK's auto-mounted, unauthenticated
+      # protected-resource metadata endpoint instead.
+      test:
+        [
+          "CMD-SHELL",
+          "if [ \"$$MCP_AUTH_ENABLED\" = \"true\" ]; then curl -sf http://localhost:9000/.well-known/oauth-protected-resource/mcp; else curl -sf http://localhost:9000/mcp; fi",
+        ]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -233,8 +311,19 @@ services:
       db: { condition: service_healthy }
     environment:
       DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+      # OAuth 2.1 resource-server mode (optional — off by default).
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-false}
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_SERVER_JWKS_URL: http://auth-server:8090/.well-known/jwks.json
+      MCP_INVENTORY_AUDIENCE: ${MCP_INVENTORY_AUDIENCE:-mcp-inventory}
+      MCP_INVENTORY_REQUIRED_SCOPE: ${MCP_INVENTORY_REQUIRED_SCOPE:-mcp:inventory}
+      MCP_INVENTORY_RESOURCE_URL: http://localhost:9001/mcp
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9001/mcp || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "if [ \"$$MCP_AUTH_ENABLED\" = \"true\" ]; then curl -sf http://localhost:9001/.well-known/oauth-protected-resource/mcp; else curl -sf http://localhost:9001/mcp; fi",
+        ]
       interval: 10s
       timeout: 3s
       retries: 5

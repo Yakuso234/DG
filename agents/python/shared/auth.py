@@ -1,8 +1,15 @@
 """Agent authentication middleware.
 
 Supports two modes:
-1. Inter-agent: AGENT_SHARED_SECRET in X-Agent-Secret header, X-User-Email for identity
-2. User: JWT Bearer token in Authorization header
+1. Inter-agent: ``local`` mode uses AGENT_SHARED_SECRET in the X-Agent-Secret
+   header; ``oauth`` mode uses an AS-issued RS256 service token instead
+   (``aud=ecommerce-agents``, ``scope=agent:invoke``) — the shared secret is
+   rejected outright. Either way, X-User-Email/X-User-Role/X-Session-Id
+   forward the actual end-user identity; missing headers (system/health
+   flows) default to ``role=system``.
+2. User: JWT Bearer token in Authorization header (``local`` mode only —
+   specialists never receive genuine end-user tokens directly in this
+   architecture; the orchestrator's own routes validate those separately).
 """
 
 from __future__ import annotations
@@ -15,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from shared.config import settings
-from shared.context import current_user_email, current_user_role, current_session_id
+from shared.context import current_session_id, current_user_email, current_user_role
 from shared.jwt_utils import decode_token
 
 logger = logging.getLogger(__name__)
@@ -31,16 +38,47 @@ _ALLOWED_ROLES = {"customer", "seller", "admin", "system"}
 def _identity_anomaly(email: str, role: str) -> str | None:
     """Return a reason string if the forwarded identity looks spoofed, else None.
 
-    The inter-agent secret authenticates the *caller* (another agent), but the
-    forwarded ``x-user-email`` / ``x-user-role`` headers are otherwise trusted
-    blindly. This flags obviously-bad values so they can be logged — and
-    rejected under ``GUARDRAILS_STRICT_IDENTITY`` — instead of silently granting
-    access if the shared secret ever leaks.
+    The inter-agent credential (shared secret or, in oauth mode, the service
+    token) authenticates the *caller* (another agent), but the forwarded
+    ``x-user-email`` / ``x-user-role`` headers are otherwise trusted blindly.
+    This flags obviously-bad values so they can be logged — and rejected
+    under ``GUARDRAILS_STRICT_IDENTITY`` — instead of silently granting
+    access if a credential ever leaks.
     """
     if role.lower() not in _ALLOWED_ROLES:
         return f"unknown_role:{role}"
     if email != "system" and "@" not in email:
         return "malformed_email"
+    return None
+
+
+def _apply_forwarded_identity(request: Request, agent_name: str) -> str | None:
+    """Read x-user-email/x-user-role/x-session-id, flag spoofing, stamp ContextVars.
+
+    Shared by both inter-agent credential paths (shared secret in ``local``
+    mode, service token in ``oauth`` mode) since forwarded-identity handling
+    is identical either way. Returns a rejection reason if
+    ``GUARDRAILS_STRICT_IDENTITY`` should reject the request, else ``None``.
+    """
+    email = request.headers.get("x-user-email", "system")
+    role = request.headers.get("x-user-role", "system")
+    session_id = request.headers.get("x-session-id", "")
+
+    anomaly = _identity_anomaly(email, role)
+    if anomaly:
+        logger.warning(
+            "security.identity_spoof_suspected agent=%s reason=%s email=%s role=%s",
+            agent_name,
+            anomaly,
+            email,
+            role,
+        )
+        if settings.GUARDRAILS_STRICT_IDENTITY:
+            return "Invalid forwarded identity"
+
+    current_user_email.set(email)
+    current_user_role.set(role)
+    current_session_id.set(session_id)
     return None
 
 
@@ -58,43 +96,69 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
         if path in PUBLIC_PATHS:
             return await call_next(request)
 
-        # Inter-agent authentication
         agent_secret = request.headers.get("x-agent-secret")
+
+        # oauth mode retires the shared secret entirely — a request bearing
+        # it is rejected outright rather than silently falling through to
+        # the service-token path below.
+        if settings.AUTH_MODE == "oauth" and agent_secret:
+            logger.warning("auth.denied agent=%s reason=agent_secret_disabled_in_oauth_mode", self.agent_name)
+            return JSONResponse({"error": "Inter-agent shared secret is disabled in oauth mode"}, status_code=401)
+
+        # Inter-agent authentication (local mode): static shared secret.
         if agent_secret:
             if agent_secret != settings.AGENT_SHARED_SECRET:
                 logger.warning("auth.denied agent=%s reason=invalid_agent_secret", self.agent_name)
                 return JSONResponse({"error": "Invalid agent secret"}, status_code=401)
 
-            email = request.headers.get("x-user-email", "system")
-            role = request.headers.get("x-user-role", "system")
-            session_id = request.headers.get("x-session-id", "")
+            rejection = _apply_forwarded_identity(request, self.agent_name)
+            if rejection:
+                return JSONResponse({"error": rejection}, status_code=401)
 
-            anomaly = _identity_anomaly(email, role)
-            if anomaly:
-                logger.warning(
-                    "security.identity_spoof_suspected agent=%s reason=%s email=%s role=%s",
-                    self.agent_name,
-                    anomaly,
-                    email,
-                    role,
-                )
-                if settings.GUARDRAILS_STRICT_IDENTITY:
-                    return JSONResponse({"error": "Invalid forwarded identity"}, status_code=401)
-
-            current_user_email.set(email)
-            current_user_role.set(role)
-            current_session_id.set(session_id)
-
-            logger.info("auth.agent agent=%s user=%s role=%s", self.agent_name, email, role)
+            logger.info(
+                "auth.agent agent=%s user=%s role=%s",
+                self.agent_name,
+                current_user_email.get(),
+                current_user_role.get(),
+            )
             return await call_next(request)
 
-        # User JWT authentication
         auth_header = request.headers.get("authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             logger.warning("auth.denied agent=%s reason=missing_token", self.agent_name)
             return JSONResponse({"error": "Missing or invalid Authorization header"}, status_code=401)
 
         token = auth_header.removeprefix("Bearer ")
+
+        if settings.AUTH_MODE == "oauth":
+            # Inter-agent authentication (oauth mode): AS-issued service
+            # token proves the caller is a legitimate first-party agent;
+            # the actual end-user identity still travels via the forwarded
+            # x-user-* headers, exactly as the shared-secret path above.
+            from shared.factory import get_token_verifier
+
+            try:
+                get_token_verifier().decode(token, audience=settings.AUTH_AGENT_AUDIENCE, required_scope="agent:invoke")
+            except jwt.ExpiredSignatureError:
+                logger.warning("auth.denied agent=%s reason=expired_service_token", self.agent_name)
+                return JSONResponse({"error": "Service token expired"}, status_code=401)
+            except jwt.PyJWTError:
+                logger.warning("auth.denied agent=%s reason=invalid_service_token", self.agent_name)
+                return JSONResponse({"error": "Invalid service token"}, status_code=401)
+
+            rejection = _apply_forwarded_identity(request, self.agent_name)
+            if rejection:
+                return JSONResponse({"error": rejection}, status_code=401)
+
+            logger.info(
+                "auth.agent agent=%s user=%s role=%s",
+                self.agent_name,
+                current_user_email.get(),
+                current_user_role.get(),
+            )
+            return await call_next(request)
+
+        # User JWT authentication (local mode only)
         try:
             payload = decode_token(token)
         except jwt.ExpiredSignatureError:
@@ -109,7 +173,6 @@ class AgentAuthMiddleware(BaseHTTPMiddleware):
 
         email = payload.get("sub", "")
         role = payload.get("role", "customer")
-        user_id = payload.get("user_id", "")
 
         current_user_email.set(email)
         current_user_role.set(role)

@@ -38,6 +38,7 @@ dependencies = [
     "opentelemetry-instrumentation-logging>=0.49b0",
     "opentelemetry-instrumentation-openai-v2>=0.1",
     "mcp[cli]>=1.27.0",
+    "authlib>=1.6",
 ]
 
 [project.optional-dependencies]
@@ -57,7 +58,7 @@ build-backend = "hatchling.build"
 members = ["packages/mcp-product", "packages/mcp-inventory"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment"]
+packages = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment", "auth_server"]
 
 [tool.ruff]
 target-version = "py312"
@@ -81,7 +82,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment"]
+source = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment", "auth_server"]
 omit = ["**/tests/*", "**/__init__.py"]
 
 [tool.coverage.report]

@@ -19,6 +19,7 @@ public static class AgentSettingsValidator
         "change-me-generate-a-random-256-bit-key",
         "agent-internal-secret",
         "agent-internal-shared-secret",
+        "dev-oauth-seed-change-me",
     };
 
     public static void Validate(AgentSettings settings, ILogger logger)
@@ -26,6 +27,11 @@ public static class AgentSettingsValidator
         var isProd = !IsDevelopmentEnv(settings.Environment);
         Check("JWT_SECRET", settings.JwtSecret, isProd, logger);
         Check("AGENT_SHARED_SECRET", settings.AgentSharedSecret, isProd, logger);
+
+        if (settings.AuthMode == "oauth")
+        {
+            Check("OAUTH_SEED_KEY", settings.OAuthSeedKey, isProd, logger);
+        }
     }
 
     private static void Check(string name, string value, bool failFast, ILogger logger)

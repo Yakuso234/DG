@@ -9,14 +9,17 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
+import httpx
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
-from shared.context import current_user_email, current_user_role, current_session_id, current_conversation_history
+from shared.agent_observability import get_steps, reset_steps
+from shared.config import settings
+from shared.context import current_conversation_history, current_session_id, current_user_email, current_user_role
 from shared.db import get_pool
-from shared.tool_inputs import clamp_limit
+from shared.factory import get_token_verifier
 from shared.jwt_utils import (
     create_access_token,
     create_refresh_token,
@@ -24,8 +27,9 @@ from shared.jwt_utils import (
     hash_password,
     verify_password,
 )
+from shared.oauth.service_client import request_token
+from shared.tool_inputs import clamp_limit
 from shared.usage_db import UsageTimer, log_agent_usage, log_execution_step
-from shared.agent_observability import reset_steps, get_steps
 
 logger = logging.getLogger(__name__)
 
@@ -122,15 +126,26 @@ async def require_auth(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     token = auth_header.removeprefix("Bearer ")
-    try:
-        payload = decode_token(token)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
+    if settings.AUTH_MODE == "oauth":
+        try:
+            payload = get_token_verifier().decode(
+                token, audience=settings.AUTH_ORCH_AUDIENCE, required_scope="api:chat"
+            )
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
+        try:
+            payload = decode_token(token)
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
 
     current_user_email.set(payload.get("sub", ""))
     current_user_role.set(payload.get("role", "customer"))
@@ -217,28 +232,53 @@ async def signup(body: SignupRequest) -> AuthResponse:
 
 @router.post("/api/auth/login", response_model=AuthResponse)
 async def login(body: LoginRequest) -> AuthResponse:
-    """Authenticate user and return tokens."""
+    """Authenticate user and return tokens.
+
+    In ``AUTH_MODE=oauth`` the orchestrator is a confidential first-party
+    client brokering a Resource Owner Password Credentials grant against the
+    self-hosted auth-server — the AS is the sole authority on the
+    credentials (it re-verifies the same bcrypt hash), so this path does not
+    duplicate the password check. In ``local`` mode nothing changes.
+    """
     pool = get_pool()
 
-    row = await pool.fetchrow(
-        """SELECT id, email, password_hash, name, role, loyalty_tier, total_spend, is_active
-           FROM users WHERE email = $1""",
-        body.email,
-    )
+    if settings.AUTH_MODE == "oauth":
+        try:
+            token_data = await request_token("password", username=body.email, password=body.password, scope="api:chat")
+        except httpx.HTTPStatusError:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    if not row:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        access_token = token_data["access_token"]
+        refresh_token = token_data["refresh_token"]
 
-    if not row["is_active"]:
-        raise HTTPException(status_code=403, detail="Account is deactivated")
+        row = await pool.fetchrow(
+            "SELECT id, email, name, role, loyalty_tier, total_spend FROM users WHERE email = $1",
+            body.email,
+        )
+        if not row:
+            # The AS validated these credentials against the same `users`
+            # table; this would mean the row vanished between the two reads.
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    else:
+        row = await pool.fetchrow(
+            """SELECT id, email, password_hash, name, role, loyalty_tier, total_spend, is_active
+               FROM users WHERE email = $1""",
+            body.email,
+        )
 
-    if not verify_password(body.password, row["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        if not row["is_active"]:
+            raise HTTPException(status_code=403, detail="Account is deactivated")
+
+        if not verify_password(body.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        access_token = create_access_token(row["email"], row["role"], str(row["id"]))
+        refresh_token = create_refresh_token(row["email"])
 
     user_id = str(row["id"])
-    access_token = create_access_token(row["email"], row["role"], user_id)
-    refresh_token = create_refresh_token(row["email"])
-
     logger.info("auth.login email=%s user_id=%s", body.email, user_id)
 
     return AuthResponse(
@@ -257,7 +297,21 @@ async def login(body: LoginRequest) -> AuthResponse:
 
 @router.post("/api/auth/refresh")
 async def refresh_token(body: RefreshRequest) -> dict[str, str]:
-    """Exchange a refresh token for a new access token."""
+    """Exchange a refresh token for a new access token.
+
+    In ``AUTH_MODE=oauth`` this relays a ``refresh_token`` grant to the
+    auth-server, which does not rotate refresh tokens (see the design doc's
+    correction #6) — the browser's single stored refresh token stays valid
+    for the whole session, matching this endpoint's existing contract of
+    returning only a new access token.
+    """
+    if settings.AUTH_MODE == "oauth":
+        try:
+            token_data = await request_token("refresh_token", refresh_token=body.refresh_token)
+        except httpx.HTTPStatusError:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+        return {"access_token": token_data["access_token"]}
+
     try:
         payload = decode_token(body.refresh_token)
     except jwt.ExpiredSignatureError:
@@ -349,7 +403,8 @@ async def chat(body: ChatRequest, user: dict[str, Any] = Depends(optional_auth))
         # Fetch user context (profile + recent orders) for the agent — injected
         # via the ECommerceContextProvider chain (shared/context_providers.py).
         user_row = await pool.fetchrow(
-            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
+            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1",
+            user_email,
         )
         if user_row:
             recent_orders = await pool.fetch(
@@ -414,6 +469,7 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
     persisted and no user context is loaded.
     """
     import asyncio as _asyncio
+
     from orchestrator.agent import create_orchestrator_agent
     from shared.agent_host import _run_agent_native_stream
     from shared.context import current_stream_queue
@@ -468,7 +524,8 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
 
         # Fetch user context — injected via the ECommerceContextProvider chain.
         user_row = await pool.fetchrow(
-            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1", user_email,
+            "SELECT name, role, loyalty_tier, total_spend FROM users WHERE email = $1",
+            user_email,
         )
         if user_row:
             recent_orders = await pool.fetch(
@@ -495,8 +552,8 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
           ("delta", agent_name, chunk)   — specialist streamed token
           None                           — sentinel: agent run finished
         """
-        from shared.telemetry import agent_run_span
         from shared.config import settings
+        from shared.telemetry import agent_run_span
 
         full_response: list[str] = []
         full_bytes = 0
@@ -513,9 +570,7 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
             reset_steps()
             with agent_run_span("orchestrator"):
                 try:
-                    async for chunk in _run_agent_native_stream(
-                        agent, body.message, history=history
-                    ):
+                    async for chunk in _run_agent_native_stream(agent, body.message, history=history):
                         await queue.put(("text", chunk))
                 except Exception:
                     logger.exception(
@@ -597,13 +652,11 @@ async def chat_stream(body: ChatRequest, request: Request, user: dict[str, Any] 
         steps = get_steps()
         for s in steps:
             s.setdefault("agent", "orchestrator")
-        agents_involved[:] = list(
-            dict.fromkeys(["orchestrator", *[s.get("agent", "orchestrator") for s in steps]])
-        )
+        agents_involved[:] = list(dict.fromkeys(["orchestrator", *[s.get("agent", "orchestrator") for s in steps]]))
         for s in steps:
             yield f"event: step\ndata: {json.dumps(s, default=str)}\n\n"
 
-        yield f"event: metadata\ndata: {json.dumps({"conversation_id": conversation_id, "agents_involved": agents_involved})}\n\n"
+        yield f"event: metadata\ndata: {json.dumps({'conversation_id': conversation_id, 'agents_involved': agents_involved})}\n\n"
         yield "data: [DONE]\n\n"
 
         # Persist assistant message + timeline — authed only (anonymous
@@ -992,7 +1045,9 @@ async def approve_request(
 
     logger.info(
         "admin.approve request=%s agent=%s admin=%s",
-        request_id, req["agent_name"], admin.get("sub"),
+        request_id,
+        req["agent_name"],
+        admin.get("sub"),
     )
 
     return {"status": "approved", "request_id": request_id}
@@ -1029,7 +1084,9 @@ async def deny_request(
 
     logger.info(
         "admin.deny request=%s agent=%s admin=%s",
-        request_id, req["agent_name"], admin.get("sub"),
+        request_id,
+        req["agent_name"],
+        admin.get("sub"),
     )
 
     return {"status": "denied", "request_id": request_id}
@@ -1152,6 +1209,7 @@ async def list_hitl_requests(
         limit: max rows (capped at 200).
     """
     from shared.hitl import list_hitl_requests as _list
+
     rows = await _list(status=status or None, limit=min(limit, 200))
     return {"requests": rows, "total": len(rows)}
 
@@ -1167,7 +1225,7 @@ async def approve_hitl_request(
     admin: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
     """Approve a pending HITL request and execute the underlying action."""
-    from shared.hitl import get_hitl_request, resolve_hitl_request, execute_approved_action
+    from shared.hitl import execute_approved_action, get_hitl_request, resolve_hitl_request
 
     req = await get_hitl_request(request_id)
     if not req:
@@ -1301,32 +1359,34 @@ async def get_audit_log(
             r["id"],
         )
 
-        entries.append({
-            "id": str(r["id"]),
-            "agent_name": r["agent_name"],
-            "user_email": r["user_email"],
-            "user_name": r["user_name"],
-            "input_summary": r["input_summary"],
-            "tokens_in": r["tokens_in"],
-            "tokens_out": r["tokens_out"],
-            "tool_calls_count": r["tool_calls_count"],
-            "duration_ms": r["duration_ms"],
-            "status": r["status"],
-            "error_message": r["error_message"],
-            "trace_id": r["trace_id"],
-            "created_at": r["created_at"].isoformat(),
-            "steps": [
-                {
-                    "step_index": s["step_index"],
-                    "tool_name": s["tool_name"],
-                    "tool_input": s["tool_input"],
-                    "tool_output": s["tool_output"],
-                    "status": s["status"],
-                    "duration_ms": s["duration_ms"],
-                }
-                for s in steps
-            ],
-        })
+        entries.append(
+            {
+                "id": str(r["id"]),
+                "agent_name": r["agent_name"],
+                "user_email": r["user_email"],
+                "user_name": r["user_name"],
+                "input_summary": r["input_summary"],
+                "tokens_in": r["tokens_in"],
+                "tokens_out": r["tokens_out"],
+                "tool_calls_count": r["tool_calls_count"],
+                "duration_ms": r["duration_ms"],
+                "status": r["status"],
+                "error_message": r["error_message"],
+                "trace_id": r["trace_id"],
+                "created_at": r["created_at"].isoformat(),
+                "steps": [
+                    {
+                        "step_index": s["step_index"],
+                        "tool_name": s["tool_name"],
+                        "tool_input": s["tool_input"],
+                        "tool_output": s["tool_output"],
+                        "status": s["status"],
+                        "duration_ms": s["duration_ms"],
+                    }
+                    for s in steps
+                ],
+            }
+        )
 
     total = await pool.fetchval(
         f"""SELECT COUNT(*) FROM usage_logs ul
@@ -1394,31 +1454,33 @@ async def list_runs(
                ORDER BY step_index""",
             r["id"],
         )
-        entries.append({
-            "id": str(r["id"]),
-            "agent_name": r["agent_name"],
-            "user_email": r["user_email"],
-            "user_name": r["user_name"],
-            "input_summary": r["input_summary"],
-            "tokens_in": r["tokens_in"],
-            "tokens_out": r["tokens_out"],
-            "tool_calls_count": r["tool_calls_count"],
-            "duration_ms": r["duration_ms"],
-            "status": r["status"],
-            "trace_id": r["trace_id"],
-            "created_at": r["created_at"].isoformat(),
-            "steps": [
-                {
-                    "step_index": s["step_index"],
-                    "tool_name": s["tool_name"],
-                    "tool_input": s["tool_input"],
-                    "tool_output": s["tool_output"],
-                    "status": s["status"],
-                    "duration_ms": s["duration_ms"],
-                }
-                for s in steps
-            ],
-        })
+        entries.append(
+            {
+                "id": str(r["id"]),
+                "agent_name": r["agent_name"],
+                "user_email": r["user_email"],
+                "user_name": r["user_name"],
+                "input_summary": r["input_summary"],
+                "tokens_in": r["tokens_in"],
+                "tokens_out": r["tokens_out"],
+                "tool_calls_count": r["tool_calls_count"],
+                "duration_ms": r["duration_ms"],
+                "status": r["status"],
+                "trace_id": r["trace_id"],
+                "created_at": r["created_at"].isoformat(),
+                "steps": [
+                    {
+                        "step_index": s["step_index"],
+                        "tool_name": s["tool_name"],
+                        "tool_input": s["tool_input"],
+                        "tool_output": s["tool_output"],
+                        "status": s["status"],
+                        "duration_ms": s["duration_ms"],
+                    }
+                    for s in steps
+                ],
+            }
+        )
 
     total_args = count_args if role != "admin" else []
     total = await pool.fetchval(
@@ -1558,7 +1620,11 @@ async def get_product(product_id: str, _user: dict = Depends(optional_auth)):
         "image_url": row["image_url"],
         "rating": float(row["rating"]),
         "review_count": row["review_count"],
-        "specs": json.loads(row["specs"]) if isinstance(row["specs"], str) else dict(row["specs"]) if row["specs"] else {},
+        "specs": json.loads(row["specs"])
+        if isinstance(row["specs"], str)
+        else dict(row["specs"])
+        if row["specs"]
+        else {},
         "in_stock": total_stock > 0,
         "total_stock": total_stock,
         "warehouses": [{"name": r["name"], "region": r["region"], "quantity": r["quantity"]} for r in stock],
@@ -1615,7 +1681,8 @@ async def list_orders(
         *args,
     )
     total = await pool.fetchval(
-        f"SELECT COUNT(*) FROM orders o JOIN users u ON o.user_id = u.id WHERE {where}", *args,
+        f"SELECT COUNT(*) FROM orders o JOIN users u ON o.user_id = u.id WHERE {where}",
+        *args,
     )
 
     return {
@@ -1647,7 +1714,8 @@ async def get_order(order_id: str, user: dict = Depends(require_auth)):
            FROM orders o
            JOIN users u ON o.user_id = u.id
            WHERE o.id = $1 AND u.email = $2""",
-        order_id, email,
+        order_id,
+        email,
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -1675,8 +1743,16 @@ async def get_order(order_id: str, user: dict = Depends(require_auth)):
         "id": str(order["id"]),
         "status": order["status"],
         "total": float(order["total"]),
-        "shipping_address": json.loads(order["shipping_address"]) if isinstance(order["shipping_address"], str) else dict(order["shipping_address"]) if order["shipping_address"] else {},
-        "billing_address": json.loads(order["billing_address"]) if isinstance(order["billing_address"], str) else dict(order["billing_address"]) if order["billing_address"] else {},
+        "shipping_address": json.loads(order["shipping_address"])
+        if isinstance(order["shipping_address"], str)
+        else dict(order["shipping_address"])
+        if order["shipping_address"]
+        else {},
+        "billing_address": json.loads(order["billing_address"])
+        if isinstance(order["billing_address"], str)
+        else dict(order["billing_address"])
+        if order["billing_address"]
+        else {},
         "carrier": order["shipping_carrier"],
         "tracking": order["tracking_number"],
         "coupon": order["coupon_code"],
@@ -1712,7 +1788,9 @@ async def get_order(order_id: str, user: dict = Depends(require_auth)):
             "return_label_url": ret["return_label_url"],
             "created_at": ret["created_at"].isoformat(),
             "resolved_at": ret["resolved_at"].isoformat() if ret["resolved_at"] else None,
-        } if ret else None,
+        }
+        if ret
+        else None,
     }
 
 
@@ -1727,7 +1805,8 @@ async def cancel_order(order_id: str, body: CancelOrderRequest, user: dict = Dep
            FROM orders o
            JOIN users u ON o.user_id = u.id
            WHERE o.id = $1 AND u.email = $2""",
-        order_id, email,
+        order_id,
+        email,
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -1769,7 +1848,8 @@ async def return_order(order_id: str, body: ReturnOrderRequest, user: dict = Dep
            FROM orders o
            JOIN users u ON o.user_id = u.id
            WHERE o.id = $1 AND u.email = $2""",
-        order_id, email,
+        order_id,
+        email,
     )
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -1781,7 +1861,8 @@ async def return_order(order_id: str, body: ReturnOrderRequest, user: dict = Dep
         )
 
     existing_return = await pool.fetchrow(
-        "SELECT id FROM returns WHERE order_id = $1", order_id,
+        "SELECT id FROM returns WHERE order_id = $1",
+        order_id,
     )
     if existing_return:
         raise HTTPException(status_code=409, detail="A return has already been requested for this order")
@@ -1881,6 +1962,7 @@ async def get_return_label(label_token: str):
     )
 
     from starlette.responses import Response
+
     return Response(
         content=pdf_content,
         media_type="application/pdf",
@@ -1942,22 +2024,20 @@ def _build_return_label_pdf(
         "0 742 612 50 re f",
         "1 1 1 rg",  # White text
         "BT /F2 20 Tf 30 760 Td (RETURN SHIPPING LABEL) Tj ET",
-
         # --- Barcode area ---
         "0.95 0.95 0.95 rg",
         "30 680 552 50 re f",
         "0 0 0 rg",
         f"BT /F2 16 Tf 180 700 Td ({pdf_str(barcode)}) Tj ET",
         f"BT /F1 9 Tf 30 685 Td (Scan or enter this code at drop-off) Tj ET",
-
         # --- Carrier ---
         "0 0 0 rg",
         f"BT /F2 12 Tf 30 655 Td (Carrier: {pdf_str(carrier)}) Tj ET",
         f"BT /F1 10 Tf 400 655 Td (Date: {pdf_str(created)}) Tj ET",
-
         # --- Divider ---
-        "0.8 0.8 0.8 RG", "0.5 w", "30 640 m 582 640 l S",
-
+        "0.8 0.8 0.8 RG",
+        "0.5 w",
+        "30 640 m 582 640 l S",
         # --- FROM Section ---
         "0 0 0 rg",
         "BT /F2 11 Tf 30 620 Td (FROM:) Tj ET",
@@ -1965,16 +2045,13 @@ def _build_return_label_pdf(
         f"BT /F1 10 Tf 30 591 Td ({pdf_str(addr_street)}) Tj ET",
         f"BT /F1 10 Tf 30 577 Td ({pdf_str(addr_city)}, {pdf_str(addr_state)} {pdf_str(addr_zip)}) Tj ET",
         f"BT /F1 9 Tf 30 562 Td ({pdf_str(user_email)}) Tj ET",
-
         # --- TO Section ---
         "BT /F2 11 Tf 320 620 Td (TO:) Tj ET",
         "BT /F1 11 Tf 320 605 Td (E-Commerce Agents Returns Center) Tj ET",
         "BT /F1 10 Tf 320 591 Td (1200 Returns Blvd, Suite 400) Tj ET",
         "BT /F1 10 Tf 320 577 Td (Memphis, TN 38118) Tj ET",
-
         # --- Divider ---
         "30 545 m 582 545 l S",
-
         # --- Return Details Box ---
         "0.97 0.97 0.97 rg",
         "30 460 552 75 re f",
@@ -1987,7 +2064,6 @@ def _build_return_label_pdf(
         f"BT /F1 10 Tf 140 488 Td ({pdf_str(reason[:60])}) Tj ET",
         f"BT /F2 10 Tf 40 472 Td (Status:) Tj ET",
         f"BT /F1 10 Tf 140 472 Td (Return Requested) Tj ET",
-
         # --- Instructions Box ---
         "0.05 0.58 0.55 rg",  # Teal
         "30 380 552 60 re f",
@@ -1995,13 +2071,11 @@ def _build_return_label_pdf(
         "BT /F2 12 Tf 40 420 Td (INSTRUCTIONS) Tj ET",
         "BT /F1 10 Tf 40 404 Td (1. Print this label and cut along the border.) Tj ET",
         "BT /F1 10 Tf 40 390 Td (2. Pack all items securely in the original packaging.) Tj ET",
-
         # Continue instructions below the box
         "0 0 0 rg",
         "BT /F1 10 Tf 40 360 Td (3. Attach this label to the outside of the package.) Tj ET",
         "BT /F1 10 Tf 40 346 Td (4. Drop off at any carrier location or schedule a pickup.) Tj ET",
         "BT /F1 10 Tf 40 332 Td (5. Your refund will be processed after we receive and inspect the items.) Tj ET",
-
         # --- Footer ---
         "0.6 0.6 0.6 rg",
         "BT /F1 8 Tf 30 50 Td (Generated by E-Commerce Agents | This label is valid for 30 days from the return request date.) Tj ET",
@@ -2103,9 +2177,19 @@ async def get_cart(user: dict = Depends(require_auth)):
         "discount_amount": discount_amount,
         "coupon_code": cart["coupon_code"],
         "total": round(total, 2),
-        "shipping_address": json.loads(cart["shipping_address"]) if isinstance(cart["shipping_address"], str) else dict(cart["shipping_address"]) if cart["shipping_address"] else None,
-        "billing_address": json.loads(cart["billing_address"]) if isinstance(cart["billing_address"], str) else dict(cart["billing_address"]) if cart["billing_address"] else None,
-        "billing_same_as_shipping": cart["billing_same_as_shipping"] if cart["billing_same_as_shipping"] is not None else True,
+        "shipping_address": json.loads(cart["shipping_address"])
+        if isinstance(cart["shipping_address"], str)
+        else dict(cart["shipping_address"])
+        if cart["shipping_address"]
+        else None,
+        "billing_address": json.loads(cart["billing_address"])
+        if isinstance(cart["billing_address"], str)
+        else dict(cart["billing_address"])
+        if cart["billing_address"]
+        else None,
+        "billing_same_as_shipping": cart["billing_same_as_shipping"]
+        if cart["billing_same_as_shipping"] is not None
+        else True,
     }
 
 
@@ -2117,7 +2201,8 @@ async def add_cart_item(body: AddToCartRequest, user: dict = Depends(require_aut
 
     # Validate product exists and is active
     product = await pool.fetchrow(
-        "SELECT id, is_active FROM products WHERE id = $1", body.product_id,
+        "SELECT id, is_active FROM products WHERE id = $1",
+        body.product_id,
     )
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -2128,7 +2213,8 @@ async def add_cart_item(body: AddToCartRequest, user: dict = Depends(require_aut
     cart = await pool.fetchrow("SELECT id FROM carts WHERE user_id = $1", user_id)
     if not cart:
         cart = await pool.fetchrow(
-            "INSERT INTO carts (user_id) VALUES ($1) RETURNING id", user_id,
+            "INSERT INTO carts (user_id) VALUES ($1) RETURNING id",
+            user_id,
         )
     cart_id = str(cart["id"])
 
@@ -2161,7 +2247,8 @@ async def update_cart_item(item_id: str, body: UpdateCartItemRequest, user: dict
            FROM cart_items ci
            JOIN carts c ON ci.cart_id = c.id
            WHERE ci.id = $1 AND c.user_id = $2""",
-        item_id, user_id,
+        item_id,
+        user_id,
     )
     if not item:
         raise HTTPException(status_code=404, detail="Cart item not found")
@@ -2171,7 +2258,8 @@ async def update_cart_item(item_id: str, body: UpdateCartItemRequest, user: dict
     else:
         await pool.execute(
             "UPDATE cart_items SET quantity = $1 WHERE id = $2",
-            body.quantity, item_id,
+            body.quantity,
+            item_id,
         )
 
     await pool.execute("UPDATE carts SET updated_at = NOW() WHERE id = $1", str(item["cart_id"]))
@@ -2190,7 +2278,8 @@ async def remove_cart_item(item_id: str, user: dict = Depends(require_auth)):
            FROM cart_items ci
            JOIN carts c ON ci.cart_id = c.id
            WHERE ci.id = $1 AND c.user_id = $2""",
-        item_id, user_id,
+        item_id,
+        user_id,
     )
     if not item:
         raise HTTPException(status_code=404, detail="Cart item not found")
@@ -2264,7 +2353,9 @@ async def apply_coupon(body: ApplyCouponRequest, user: dict = Depends(require_au
     # Apply to cart
     await pool.execute(
         "UPDATE carts SET coupon_code = $1, discount_amount = $2, updated_at = NOW() WHERE id = $3",
-        coupon["code"], discount, cart_id,
+        coupon["code"],
+        discount,
+        cart_id,
     )
 
     return {
@@ -2299,7 +2390,8 @@ async def update_cart_address(body: CartAddressRequest, user: dict = Depends(req
     cart = await pool.fetchrow("SELECT id FROM carts WHERE user_id = $1", user_id)
     if not cart:
         cart = await pool.fetchrow(
-            "INSERT INTO carts (user_id) VALUES ($1) RETURNING id", user_id,
+            "INSERT INTO carts (user_id) VALUES ($1) RETURNING id",
+            user_id,
         )
     cart_id = str(cart["id"])
 
@@ -2316,7 +2408,10 @@ async def update_cart_address(body: CartAddressRequest, user: dict = Depends(req
                billing_same_as_shipping = $3,
                updated_at = NOW()
            WHERE id = $4""",
-        shipping, billing, body.billing_same_as_shipping, cart_id,
+        shipping,
+        billing,
+        body.billing_same_as_shipping,
+        cart_id,
     )
 
     return {"status": "updated"}
@@ -2453,8 +2548,14 @@ async def checkout(body: CheckoutRequest, user: dict = Depends(require_auth)):
                                        shipping_carrier, tracking_number, coupon_code, discount_amount)
                    VALUES ($1, 'placed', $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8)
                    RETURNING id""",
-                user_id, total, shipping_address, billing_address,
-                carrier_name, tracking, coupon_code, total_discount,
+                user_id,
+                total,
+                shipping_address,
+                billing_address,
+                carrier_name,
+                tracking,
+                coupon_code,
+                total_discount,
             )
             order_id = str(order["id"])
 
@@ -2464,8 +2565,11 @@ async def checkout(body: CheckoutRequest, user: dict = Depends(require_auth)):
                 await conn.execute(
                     """INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
                        VALUES ($1, $2, $3, $4, $5)""",
-                    order_id, str(item["product_id"]), item["quantity"],
-                    float(item["price"]), item_subtotal,
+                    order_id,
+                    str(item["product_id"]),
+                    item["quantity"],
+                    float(item["price"]),
+                    item_subtotal,
                 )
 
             # 14. Insert order status history
@@ -2490,14 +2594,17 @@ async def checkout(body: CheckoutRequest, user: dict = Depends(require_auth)):
                     deduct = min(remaining, wh["quantity"])
                     await conn.execute(
                         "UPDATE warehouse_inventory SET quantity = quantity - $1 WHERE warehouse_id = $2 AND product_id = $3",
-                        deduct, wh["warehouse_id"], wh["product_id"],
+                        deduct,
+                        wh["warehouse_id"],
+                        wh["product_id"],
                     )
                     remaining -= deduct
 
             # 16. Update user total_spend
             await conn.execute(
                 "UPDATE users SET total_spend = total_spend + $1 WHERE id = $2",
-                total, user_id,
+                total,
+                user_id,
             )
 
             # 17. Clear cart
@@ -2558,7 +2665,9 @@ async def get_profile(user: dict = Depends(require_auth)):
         "review_count": review_count,
         "tier_benefits": {
             "discount_pct": float(row["discount_pct"]) if row["discount_pct"] else 0,
-            "free_shipping_threshold": float(row["free_shipping_threshold"]) if row["free_shipping_threshold"] else None,
+            "free_shipping_threshold": float(row["free_shipping_threshold"])
+            if row["free_shipping_threshold"]
+            else None,
             "priority_support": row["priority_support"] if row["priority_support"] is not None else False,
         },
     }
@@ -2753,7 +2862,8 @@ async def get_seller_stats(user: dict[str, Any] = Depends(require_seller)) -> di
     user_id = user.get("user_id", "")
 
     product_count = await pool.fetchval(
-        "SELECT COUNT(*) FROM products WHERE seller_id = $1", user_id,
+        "SELECT COUNT(*) FROM products WHERE seller_id = $1",
+        user_id,
     )
     total_revenue = await pool.fetchval(
         """SELECT COALESCE(SUM(oi.subtotal), 0)

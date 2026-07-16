@@ -52,6 +52,9 @@ Execution order (revised 2026-05-29 after building 1–2 and a Playwright UI aud
 | 6 | 5 | [05-chat-uplift.md](05-chat-uplift.md) | Prompt-box modes/suggestions, per-agent thinking states, message actions | ⏳ queued |
 | 7 | 6 | [06-docs-refresh.md](06-docs-refresh.md) | Frontend doc, troubleshooting, CONTRIBUTING, dedup, screenshot tour, badges | ⏳ queued |
 | — | 7 | [07-new-features.md](07-new-features.md) | Feature backlog, each sequenced after its unblocking phase | backlog |
+| 8 | 2.6 | [09-public-storefront.md](09-public-storefront.md) | Public storefront front door (`/shop`), guest cart, gated account actions | ✅ done |
+| 9 | 2.7 | [10-oauth-authorization.md](10-oauth-authorization.md) | Self-hosted OAuth2 authorization server (authlib, RS256/JWKS, offline — no external IdP) issuing tokens for user login (orchestrator-brokered ROPC), A2A (client credentials), and both MCP servers; opt-in `AUTH_MODE=oauth` / `MCP_AUTH_ENABLED`, Python + .NET parity | ✅ Shipped — Phases A-E done (Python + .NET), verified live: full browser-driven OAuth+MCP chain, role/scope isolation, and .NET host validated against the real live auth-server |
+| 10 | 2.8 | [11-hardening-gaps.md](11-hardening-gaps.md) | Close out remaining post-OAuth hardening gaps: containerize the .NET specialists + MCP host (Dockerfiles + compose), RFC 7591 dynamic OAuth client registration (scoped, gated), and RBAC guards on 6 previously-unguarded tools (Python + .NET parity) | ✅ Shipped — all 3 parts done and live-verified, both stacks (463 Python + 268 .NET tests green) |
 
 Each phase is independently demo-able. Phase 1 is the substrate; **Phase 4 (agentic timeline) is
 the highest-leverage credibility feature and now runs before Phase 3** so the agent pages are

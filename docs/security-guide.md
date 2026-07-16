@@ -11,15 +11,22 @@ See [`docs/agent-audit-matrix.md`](agent-audit-matrix.md) for the per-agent stat
 ### Attack surface
 
 ```
-Browser  ──JWT──►  Orchestrator (:8080)  ──X-Agent-Secret──►  Specialists (:8081–8085)
-                         │                                           │
-                    PostgreSQL / pgvector                        Redis (cache)
+AUTH_MODE=local (default):
+Browser  ──JWT (HS256)──►  Orchestrator (:8080)  ──X-Agent-Secret──►  Specialists (:8081–8085)  ──►  MCP servers (:9000–9001, unauthenticated)
+                                  │                                           │
+                            PostgreSQL / pgvector                        Redis (cache)
+
+AUTH_MODE=oauth (optional — self-hosted AS, no external IdP):
+Browser  ──JWT (RS256)──►  Orchestrator  ──Bearer <agent:invoke>──►  Specialists  ──Bearer <mcp:product|mcp:inventory>──►  MCP servers
+                                  │                                           │                                                │
+                                  └──────────────────── all three validate against the AS's JWKS (:8090) ─────────────────────┘
 ```
 
-The platform has two principal trust boundaries:
+The platform has three principal trust boundaries:
 
-1. **Browser → Orchestrator** — unauthenticated HTTP. Attacker is any internet client.
-2. **Orchestrator → Specialists** — internal network, shared secret. Attacker is a compromised container that knows the secret but may supply arbitrary headers.
+1. **Browser → Orchestrator** — unauthenticated HTTP. Attacker is any internet client. `local` mode: self-issued HS256 JWT. `oauth` mode: the orchestrator brokers a Resource Owner Password Credentials grant against the self-hosted Authorization Server (AS) and relays its RS256 access/refresh tokens — the AS is the sole authority on credentials.
+2. **Orchestrator → Specialists** — internal network. `local` mode: static shared secret. `oauth` mode: a short-lived AS-issued client-credentials service token (`aud=ecommerce-agents`, `scope=agent:invoke`) per call — the shared secret is rejected outright, not just unused. Attacker is a compromised container that knows the secret/can mint or steal a token, but may still supply arbitrary forwarded identity headers.
+3. **Specialists → MCP servers** — internal network, only reachable when `MCP_ENABLED=true`. `local`/default: unauthenticated. `oauth` mode with `MCP_AUTH_ENABLED=true`: each MCP server is an OAuth 2.1 resource server — a separate client-credentials token per resource (`scope=mcp:product` / `mcp:inventory`), independently acquired and cached, rejected if presented at the wrong server.
 
 ### Threat categories
 
@@ -28,8 +35,9 @@ The platform has two principal trust boundaries:
 | **Direct prompt injection** | Attacker crafts a user message containing `ignore previous instructions` or a fake turn prefix | `InjectionDetectionChatMiddleware` (observe) + `grounding-rules.yaml` (prompt layer) |
 | **Stored / indirect injection** | Adversarial text embedded in product descriptions, review bodies, or order notes that re-enters the model as a tool result | `OutputSanitizationMiddleware` neutralizes before re-injection |
 | **Role escalation** | Attacker claims to be admin/seller in the message body | `grounding-rules.yaml` role-confinement rules + `@requires_role` decorator on privileged tools + SQL ownership filters |
-| **Identity spoofing (inter-agent)** | Compromised caller forwards arbitrary `x-user-email` / `x-user-role` headers alongside a valid secret | `_identity_anomaly()` validation + `GUARDRAILS_STRICT_IDENTITY` flag |
-| **JWT forgery / replay** | Attacker supplies an expired or tampered Bearer token | `decode_token()` with HS256 + `jwt.ExpiredSignatureError` / `jwt.InvalidTokenError` handling |
+| **Identity spoofing (inter-agent)** | Compromised caller forwards arbitrary `x-user-email` / `x-user-role` headers alongside a valid secret or service token | `_identity_anomaly()` validation + `GUARDRAILS_STRICT_IDENTITY` flag (checked in both `local` and `oauth` modes) |
+| **JWT forgery / replay** | Attacker supplies an expired, tampered, or wrong-audience Bearer token | `local`: `decode_token()` HS256 + `jwt.ExpiredSignatureError`/`jwt.InvalidTokenError`. `oauth`: RS256 signature + issuer + audience + expiry validated against the AS's JWKS (`RS256Verifier`); a token minted for one audience/scope (e.g. `api:chat`) is rejected everywhere else (e.g. `agent:invoke`, `mcp:product`) |
+| **Cross-resource token reuse (MCP)** | A token scoped for one MCP server (e.g. `mcp:product`) is replayed against another (`mcp:inventory`) or against the inter-agent path | Each resource server validates its own `aud` + `required_scope`; mismatches are rejected `401` regardless of an otherwise-valid signature |
 | **Unauthorized tool access** | Unauthenticated or low-privilege caller invokes destructive tools (cancel order, place backorder) | `@requires_role` + SQL `WHERE user_id = $N` ownership filters |
 | **Secret exfiltration** | Injection payload attempts to extract `AGENT_SHARED_SECRET` or `JWT_SECRET` | Prompt-layer refusal rules; sanitization strips control chars used for hidden payloads |
 | **SQL injection** | Attacker embeds SQL in search queries or filter values | Parameterized `asyncpg` queries (`$1, $2, …`) throughout; no string-concatenated SQL |
@@ -132,6 +140,8 @@ All four tools in `shared/tools/seller_tools.py` (`get_seller_products`, `update
 
 ### External requests (Browser → Orchestrator)
 
+**`AUTH_MODE=local` (default):**
+
 ```
 Authorization: Bearer <JWT>
 ```
@@ -147,7 +157,16 @@ Paths `/health` and `/.well-known/agent-card.json` bypass auth.
 
 JWT signing uses `bcrypt` for passwords and `PyJWT` for token generation. Default `JWT_SECRET` is `change-me-in-production` — the config validator warns if this is not overridden at startup.
 
+**`AUTH_MODE=oauth`:** the orchestrator's `/api/auth/login` and `/api/auth/refresh` routes broker the request to the self-hosted Authorization Server (AS, `agents/python/auth_server/`) instead of issuing tokens locally:
+
+- **Login** relays a `password` (ROPC) grant to the AS as a confidential first-party client — the AS re-verifies the bcrypt hash from the same `users` table, so this does not duplicate the password check. The AS returns an RS256 access token (`aud=ecommerce-orchestrator`, `scope=api:chat`, `role`/`user_id` custom claims) plus an opaque refresh token.
+- **Refresh** relays a `refresh_token` grant. The AS does not rotate refresh tokens (`INCLUDE_NEW_REFRESH_TOKEN=False`) — a deliberate choice, since the frontend never re-persists a rotated refresh token.
+- `AgentAuthMiddleware`'s Bearer branch validates the RS256 token against the AS's published JWKS (`RS256Verifier` / `.NET`'s `JwtTokenService.ValidateOAuth` + `JwksKeyProvider`): signature, issuer, audience, expiry, and required scope.
+- See [`10-oauth-authorization.md`](../.claude/plans/enhancements/10-oauth-authorization.md) for the full design and phase-by-phase implementation notes.
+
 ### Inter-agent requests (Orchestrator → Specialists)
+
+**`AUTH_MODE=local` (default):**
 
 ```
 X-Agent-Secret: <AGENT_SHARED_SECRET>
@@ -158,12 +177,33 @@ X-Session-ID:   <session>
 
 The shared secret authenticates the caller (proves it is a platform agent, not an external client). The forwarded `X-User-Email` and `X-User-Role` headers carry the end-user's identity through the agent chain.
 
-`_identity_anomaly()` validates the forwarded headers:
+**`AUTH_MODE=oauth`:** the shared secret is not merely unused but actively **rejected** — a request bearing `X-Agent-Secret` gets a 401 instead of silently falling through. Instead:
+
+```
+Authorization: Bearer <AS-issued service token, aud=ecommerce-agents, scope=agent:invoke>
+X-User-Email:  alice@example.com
+X-User-Role:   customer
+X-Session-ID:  <session>
+```
+
+The caller acquires this service token via a `client_credentials` grant (`shared/oauth/service_client.py::acquire_service_token`, cached per `(scope, audience)` with a 30s refresh skew — `.NET`'s `AuthServerClient.AcquireServiceTokenAsync`). The token proves the caller is a legitimate first-party agent; the end-user's actual identity still travels via the same forwarded `X-User-*` headers as `local` mode. System/health-originated calls carry a service token with no forwarded headers at all, mapping to `role=system`.
+
+Either mode, `_identity_anomaly()` validates the forwarded headers the same way:
 
 - `role` must be one of `customer`, `seller`, `admin`, `system`
 - `email` must contain `@` (unless it is the sentinel value `system`)
 
 If `GUARDRAILS_STRICT_IDENTITY=true`, anomalies result in a 401 instead of a logged warning.
+
+### MCP resource-server auth (Specialists → MCP servers, optional)
+
+Only relevant when `MCP_ENABLED=true` (specialists fetch product/inventory data via MCP instead of direct DB access). With `MCP_AUTH_ENABLED=true`, each MCP server becomes an OAuth 2.1 resource server per [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728):
+
+- **Python** (`packages/mcp-product`, `packages/mcp-inventory`): a vendored `JwksTokenVerifier` (`mcp.server.auth.provider.TokenVerifier`) validates the bearer JWT via `PyJWKClient` — audience `mcp-product`/`mcp-inventory`, required scope `mcp:product`/`mcp:inventory`. Wired into `FastMCP(token_verifier=..., auth=AuthSettings(...))`; the SDK auto-mounts `GET /.well-known/oauth-protected-resource/mcp` and wraps `POST /mcp` in `RequireAuthMiddleware`, returning `401` + a spec-shaped `WWW-Authenticate: Bearer error="invalid_token", ..., resource_metadata="..."` header on failure.
+- **.NET** (`ECommerceAgents.Mcp`): `McpEndpoints.cs` hand-rolls the equivalent — `GET /.well-known/oauth-protected-resource` and a `WWW-Authenticate` 401 on `POST /mcp/tools/{toolName}`, reusing the same `JwtTokenService.ValidateOAuth` + `JwksKeyProvider` used for Phase B/C. No `AddMicrosoftIdentityWebApi`.
+- The MCP-calling specialist acquires its own resource token the same way as the inter-agent case, cached separately per `(scope, audience)` — a `mcp:product` token cannot authenticate to the `mcp-inventory` server or vice versa, nor can an `agent:invoke` inter-agent token be reused against either MCP server.
+- `MCPStreamableHTTPTool`'s `header_provider` callback (MAF's documented mechanism for attaching per-request auth headers) is invoked **synchronously** from inside an already-running event loop, so it cannot itself perform the token acquisition. Each specialist's async startup hook pre-warms the token cache once (`await acquire_service_token(...)`); the header provider then does a synchronous cache-only read.
+- Flag off (`MCP_AUTH_ENABLED=false`, the default) → both MCP servers behave exactly as before this feature — no auth surface at all.
 
 ### Identity propagation via ContextVars
 
@@ -245,8 +285,17 @@ else:
 | Enable HTTPS everywhere | TLS termination at the AKS ingress; no plain HTTP between pods |
 | Network policy | Restrict specialist ports (8081–8085) to orchestrator pod only |
 | Complete role enforcement | Add `@requires_role` on open items in the [audit matrix](agent-audit-matrix.md) |
+| Enable the self-hosted OAuth server | `AUTH_MODE=oauth` — user login via ROPC brokered by the orchestrator, client-credentials service tokens for A2A and MCP, RS256 signing via a JWKS (single active key per `kid`, no automatic rotation yet — see Known Issues); retires `JWT_SECRET` and `AGENT_SHARED_SECRET` (rejected outright, not just unused). Set `AUTH_SIGNING_KEY_ENCRYPTION_KEY` and per-service `OAUTH_CLIENT_SECRET` from your secret store; never ship the `OAUTH_SEED_KEY` dev default. See [`10-oauth-authorization.md`](../.claude/plans/enhancements/10-oauth-authorization.md) |
+| Protect MCP servers | `MCP_AUTH_ENABLED=true` (requires `MCP_ENABLED=true`) — both Python MCP servers and the .NET MCP host validate the auth-server's RS256 bearer tokens (audience + scope, one resource-specific scope per server) against its JWKS, expose `.well-known/oauth-protected-resource`, and reject unauthenticated or wrong-scope calls with `401` + `WWW-Authenticate` |
 
 ---
+
+## Known Issues (self-hosted OAuth server, optional feature)
+
+- **No signing-key rotation.** `auth_server/keys.py::ensure_active_key` bootstraps one RSA keypair idempotently and reuses it for the process lifetime — there is no scheduled rotation or multi-key overlap window. A `kid` header is stamped on every token so a future rotation mechanism can add keys to the JWKS without immediately invalidating outstanding tokens, but nothing generates a second key today.
+- **.NET specialists and the .NET MCP host are now containerized.** Each of the 5 specialists and `ECommerceAgents.Mcp` has its own `Dockerfile` (mirroring the orchestrator's), and `docker-compose.dotnet.yml` composes all of them (`mcp-inventory` under the `mcp` profile). Live-verified: `docker compose -f docker-compose.dotnet.yml --profile agents --profile mcp --profile seed up --build` brings up all 8 services healthy, and a real chat turn (real Azure OpenAI, real login) correctly routes through `AGENT_REGISTRY` to a real specialist and back. One asymmetry remains: there is still no .NET equivalent of Python's `mcp-product` server — only `mcp-inventory` has a .NET port, matching the single `ECommerceAgents.Mcp` project that exists today.
+- **Dynamic client registration (RFC 7591) is opt-in and scope-limited.** `POST /oauth/register` exists (`auth_server/register.py` + `auth_server/main.py`), gated behind `AUTH_ALLOW_DYNAMIC_REGISTRATION` (default `false`). Even when enabled, registering requires a bearer token scoped `client:register` (obtained via `client_credentials` by the seeded `auth-admin` client — a credential kept separate from `orchestrator`'s broader trust). Registered clients are capped to `client_credentials` only and to the two MCP read scopes (`mcp:product`, `mcp:inventory`) — the endpoint cannot mint a client that could ever request `agent:invoke`, `api:chat`, or `client:register` itself. First-party services still come from `scripts/seed.py`'s static list; this only covers third-party MCP consumers.
+  - **A real bug found only by live-testing this against the actual running server, not by unit tests alone**: the first implementation verified the registration bearer token by reusing `shared/oauth/verifier.py::RS256Verifier` — the same JWKS-over-HTTP verifier every *other* resource server uses. That deadlocked in practice: the AS is a single-worker asyncio process, and its own request handler synchronously fetching its own JWKS over HTTP blocks the same event loop that would need to service that very inbound connection, timing out every time. No other resource server hits this because none of them is handling a request *from itself* while fetching JWKS. Fixed by verifying entirely in-process instead — the AS already holds its own signing key in memory (`auth_server/main.py::_verify_registration_token`), so there's no network round trip at all, just local signature verification plus manual `iss`/`aud`/`scope`/`exp` claim checks (`joserfc`'s `decode` only verifies the signature, unlike PyJWT's `jwt.decode`).
 
 ## Related documents
 

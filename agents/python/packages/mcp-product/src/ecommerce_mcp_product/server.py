@@ -32,6 +32,9 @@ DATABASE_URL = os.environ.get(
 # Embedding model dimension — must match the vectors stored in product_embeddings.
 EMBEDDING_DIM = 1536
 
+# OAuth 2.1 resource-server mode (optional — off by default, unchanged quick-start).
+MCP_AUTH_ENABLED = os.environ.get("MCP_AUTH_ENABLED", "false").lower() == "true"
+
 _pool: asyncpg.Pool | None = None
 
 
@@ -47,15 +50,42 @@ async def _lifespan(server: FastMCP):
             await _pool.close()
 
 
-mcp = FastMCP(
-    "product-discovery-mcp",
-    instructions=(
+_mcp_kwargs: dict = {
+    "instructions": (
         "Product catalog data for the E-Commerce Agents platform. "
         "Search products by keyword or semantic similarity, retrieve full product "
         "details, compare products side by side, and check price history."
     ),
-    lifespan=_lifespan,
-)
+    "lifespan": _lifespan,
+    # FastMCP auto-enables DNS-rebinding Host-header protection whenever
+    # `host` is left at its default "127.0.0.1", allowlisting only
+    # localhost/127.0.0.1/::1 — which silently 421s every real call over
+    # the Docker network (e.g. a specialist calling http://mcp-product:9000).
+    # This app is actually served via `uvicorn ... --host 0.0.0.0`
+    # (see main()/the Dockerfile CMD), so declare that explicitly here too —
+    # `host="127.0.0.1"` was never accurate for how this process really runs.
+    "host": "0.0.0.0",
+}
+
+if MCP_AUTH_ENABLED:
+    from mcp.server.auth.settings import AuthSettings
+
+    from ecommerce_mcp_product.auth import (
+        AUTH_SERVER_ISSUER,
+        MCP_PRODUCT_REQUIRED_SCOPE,
+        JwksTokenVerifier,
+    )
+
+    _resource_url = os.environ.get("MCP_PRODUCT_RESOURCE_URL", "http://localhost:9000/mcp")
+    _mcp_kwargs["token_verifier"] = JwksTokenVerifier()
+    _mcp_kwargs["auth"] = AuthSettings(
+        issuer_url=AUTH_SERVER_ISSUER,
+        resource_server_url=_resource_url,
+        required_scopes=[MCP_PRODUCT_REQUIRED_SCOPE],
+    )
+    logger.info("product-mcp: OAuth 2.1 resource-server mode enabled issuer=%s", AUTH_SERVER_ISSUER)
+
+mcp = FastMCP("product-discovery-mcp", **_mcp_kwargs)
 
 
 def _get_pool() -> asyncpg.Pool:
@@ -84,9 +114,7 @@ async def search_products(
     idx = 1
 
     if query:
-        conditions.append(
-            f"(p.name ILIKE ${idx} OR p.description ILIKE ${idx} OR p.brand ILIKE ${idx})"
-        )
+        conditions.append(f"(p.name ILIKE ${idx} OR p.description ILIKE ${idx} OR p.brand ILIKE ${idx})")
         args.append(f"%{query}%")
         idx += 1
     if category:
@@ -164,6 +192,7 @@ async def get_product_details(
         specs = p["specs"]
         if isinstance(specs, str):
             import json
+
             specs = json.loads(specs)
 
         return {
@@ -206,20 +235,23 @@ async def compare_products(
             )
             if row:
                 import json
+
                 specs = row["specs"]
                 if isinstance(specs, str):
                     specs = json.loads(specs)
-                results.append({
-                    "id": str(row["id"]),
-                    "name": row["name"],
-                    "category": row["category"],
-                    "brand": row["brand"],
-                    "price": float(row["price"]),
-                    "rating": float(row["rating"]),
-                    "review_count": row["review_count"],
-                    "specs": specs or {},
-                    "in_stock": row["total_stock"] > 0,
-                })
+                results.append(
+                    {
+                        "id": str(row["id"]),
+                        "name": row["name"],
+                        "category": row["category"],
+                        "brand": row["brand"],
+                        "price": float(row["price"]),
+                        "rating": float(row["rating"]),
+                        "review_count": row["review_count"],
+                        "specs": specs or {},
+                        "in_stock": row["total_stock"] > 0,
+                    }
+                )
     return results
 
 
@@ -276,9 +308,7 @@ async def get_price_history(
 ) -> dict:
     """Get price trend data with average, min, max, and a deal-quality signal."""
     async with _get_pool().acquire() as conn:
-        product = await conn.fetchrow(
-            "SELECT name, price FROM products WHERE id = $1", product_id
-        )
+        product = await conn.fetchrow("SELECT name, price FROM products WHERE id = $1", product_id)
         if not product:
             return {"error": f"Product not found: {product_id}"}
 

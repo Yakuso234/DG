@@ -59,6 +59,7 @@ public static class AgentHost
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton(new DatabasePool(settings));
         builder.Services.AddSingleton(new JwtTokenService(settings));
+        builder.Services.AddHttpClient<JwksKeyProvider>();
         builder.Services.AddAgentTelemetry(settings);
 
         configureServices?.Invoke(builder, settings);

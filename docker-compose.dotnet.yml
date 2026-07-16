@@ -7,9 +7,11 @@
 # environment contract are identical so the Next.js frontend works against
 # either stack by toggling NEXT_PUBLIC_BACKEND_STACK.
 #
-# Dockerfiles for each .NET project are added as each plans/dotnet-port/
-# sub-plan lands. Phase 0 scaffolds only the compose structure; attempting
-# to build it today will fail on missing Dockerfiles — this is expected.
+# Dockerfiles now exist for the orchestrator, all 5 specialists, and the
+# MCP host (agents/dotnet/src/ECommerceAgents.*/Dockerfile) — the .NET stack
+# builds and runs standalone via `--profile agents --profile mcp --profile
+# seed`. Note: only one MCP host exists on the .NET side (mirrors Python's
+# mcp-inventory; there's no .NET equivalent of mcp-product yet).
 # ============================================================
 
 services:
@@ -71,8 +73,38 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+      OAUTH_SEED_KEY: ${OAUTH_SEED_KEY:-dev-oauth-seed-change-me}
     restart: "no"
     profiles: ["seed"]
+
+  # ── Self-Hosted OAuth2 Authorization Server (optional — AUTH_MODE=oauth) ──
+  #
+  # Same Python auth_server image used by docker-compose.yml — this stack
+  # doesn't share a network with the Python compose project, so it gets its
+  # own co-located instance (own Postgres, own signing key). Seeded
+  # client_ids/secrets are identical across both stacks since both derive
+  # from the same OAUTH_SEED_KEY. Not required when AUTH_MODE=local (the
+  # default).
+
+  auth-server:
+    build:
+      context: ./agents/python
+      args:
+        AGENT_NAME: auth_server
+        AGENT_PORT: 8090
+    ports: ["8090:8090"]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://ecommerce:ecommerce_secret@db:5432/ecommerce_agents
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_RSA_KEY_SIZE: ${AUTH_RSA_KEY_SIZE:-2048}
+      AUTH_SIGNING_KEY_ENCRYPTION_KEY: ${AUTH_SIGNING_KEY_ENCRYPTION_KEY:-}
+      AUTH_ACCESS_TOKEN_TTL: ${AUTH_ACCESS_TOKEN_TTL:-3600}
+      AUTH_REFRESH_TOKEN_TTL: ${AUTH_REFRESH_TOKEN_TTL:-604800}
+      OAUTH_SEED_KEY: ${OAUTH_SEED_KEY:-dev-oauth-seed-change-me}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    profiles: ["agents"]
 
   # ── Orchestrator (.NET) ────────────────────────────────────
 
@@ -84,7 +116,7 @@ services:
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
-      aspire: { condition: service_healthy }
+      aspire: { condition: service_started }
     environment: &agent-env
       ConnectionStrings__Postgres: Host=db;Port=5432;Database=ecommerce_agents;Username=ecommerce;Password=ecommerce_secret
       ConnectionStrings__Redis: redis:6379
@@ -99,6 +131,19 @@ services:
       AZURE_EMBEDDING_DEPLOYMENT: ${AZURE_EMBEDDING_DEPLOYMENT:-}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-random-256-bit-key}
       AGENT_SHARED_SECRET: ${AGENT_SHARED_SECRET:-agent-internal-shared-secret}
+      # OAuth2 (self-hosted auth-server, optional — AUTH_MODE=oauth). Every
+      # value here is additive; AUTH_MODE defaults to "local" so none of
+      # this changes behavior unless explicitly opted in.
+      AUTH_MODE: ${AUTH_MODE:-local}
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_SERVER_JWKS_URL: http://auth-server:8090/.well-known/jwks.json
+      AUTH_SERVER_TOKEN_URL: http://auth-server:8090/oauth/token
+      AUTH_JWKS_CACHE_TTL: ${AUTH_JWKS_CACHE_TTL:-900}
+      AUTH_ORCH_AUDIENCE: ${AUTH_ORCH_AUDIENCE:-ecommerce-orchestrator}
+      AUTH_AGENT_AUDIENCE: ${AUTH_AGENT_AUDIENCE:-ecommerce-agents}
+      OAUTH_CLIENT_ID: orchestrator
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
+      OAUTH_SEED_KEY: ${OAUTH_SEED_KEY:-dev-oauth-seed-change-me}
       OTEL_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire:18889
       OTEL_SERVICE_NAME: ecommerce.orchestrator.dotnet
@@ -127,10 +172,11 @@ services:
     ports: ["8081:8081"]
     depends_on:
       db: { condition: service_healthy }
-      aspire: { condition: service_healthy }
+      aspire: { condition: service_started }
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.product-discovery.dotnet
+      OAUTH_CLIENT_ID: product-discovery
     profiles: ["agents"]
 
   order-management:
@@ -140,10 +186,11 @@ services:
     ports: ["8082:8082"]
     depends_on:
       db: { condition: service_healthy }
-      aspire: { condition: service_healthy }
+      aspire: { condition: service_started }
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.order-management.dotnet
+      OAUTH_CLIENT_ID: order-management
     profiles: ["agents"]
 
   pricing-promotions:
@@ -153,10 +200,11 @@ services:
     ports: ["8083:8083"]
     depends_on:
       db: { condition: service_healthy }
-      aspire: { condition: service_healthy }
+      aspire: { condition: service_started }
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.pricing-promotions.dotnet
+      OAUTH_CLIENT_ID: pricing-promotions
     profiles: ["agents"]
 
   review-sentiment:
@@ -166,10 +214,11 @@ services:
     ports: ["8084:8084"]
     depends_on:
       db: { condition: service_healthy }
-      aspire: { condition: service_healthy }
+      aspire: { condition: service_started }
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.review-sentiment.dotnet
+      OAUTH_CLIENT_ID: review-sentiment
     profiles: ["agents"]
 
   inventory-fulfillment:
@@ -179,11 +228,34 @@ services:
     ports: ["8085:8085"]
     depends_on:
       db: { condition: service_healthy }
-      aspire: { condition: service_healthy }
+      aspire: { condition: service_started }
     environment:
       <<: *agent-env
       OTEL_SERVICE_NAME: ecommerce.inventory-fulfillment.dotnet
+      OAUTH_CLIENT_ID: inventory-fulfillment
     profiles: ["agents"]
+
+  # ── MCP server (.NET) ──────────────────────────────────────
+  # Mirrors Python's mcp-inventory (stock levels, warehouses, shipping,
+  # carriers) — there is no .NET equivalent of mcp-product yet.
+
+  mcp-inventory:
+    build:
+      context: .
+      dockerfile: agents/dotnet/src/ECommerceAgents.Mcp/Dockerfile
+    ports: ["9001:9001"]
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      ConnectionStrings__Postgres: Host=db;Port=5432;Database=ecommerce_agents;Username=ecommerce;Password=ecommerce_secret
+      # OAuth 2.1 resource-server mode (optional — off by default).
+      MCP_AUTH_ENABLED: ${MCP_AUTH_ENABLED:-false}
+      AUTH_SERVER_ISSUER: http://auth-server:8090
+      AUTH_SERVER_JWKS_URL: http://auth-server:8090/.well-known/jwks.json
+      MCP_INVENTORY_AUDIENCE: ${MCP_INVENTORY_AUDIENCE:-mcp-inventory}
+      MCP_INVENTORY_REQUIRED_SCOPE: ${MCP_INVENTORY_REQUIRED_SCOPE:-mcp:inventory}
+      MCP_INVENTORY_RESOURCE_URL: http://localhost:9001/mcp
+    profiles: ["mcp"]
 
   # ── Frontend (same Next.js; points at .NET backend on :8080) ──
 

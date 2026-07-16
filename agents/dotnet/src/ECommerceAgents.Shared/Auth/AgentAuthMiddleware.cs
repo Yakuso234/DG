@@ -14,8 +14,8 @@ namespace ECommerceAgents.Shared.Auth;
 /// <summary>
 /// Mirrors Python's <c>shared/auth.py</c>. Accepts two call patterns:
 /// <list type="number">
-/// <item>External: <c>Authorization: Bearer &lt;JWT&gt;</c> — validates signature and extracts the <c>email</c> + <c>role</c> claims.</item>
-/// <item>Inter-agent (A2A): <c>X-Agent-Secret</c> header equals <see cref="AgentSettings.AgentSharedSecret"/>; the caller provides the user via <c>X-User-Email</c> / <c>X-User-Role</c> / <c>X-Session-Id</c> headers.</item>
+/// <item>External: <c>Authorization: Bearer &lt;JWT&gt;</c> — validates signature and extracts the <c>email</c> + <c>role</c> claims. In <c>oauth</c> mode this is only meaningful on the orchestrator (<paramref name="isOrchestrator"/>=true) — specialists never receive genuine end-user tokens directly.</item>
+/// <item>Inter-agent (A2A): <c>local</c> mode uses <c>X-Agent-Secret</c> equal to <see cref="AgentSettings.AgentSharedSecret"/>; <c>oauth</c> mode uses an AS-issued RS256 service token instead (<c>aud=ecommerce-agents</c>, <c>scope=agent:invoke</c>) — the shared secret is rejected outright. Either way the caller provides the user via <c>X-User-Email</c> / <c>X-User-Role</c> / <c>X-Session-Id</c> headers; missing headers (system/health flows) default to <c>role=system</c>.</item>
 /// </list>
 /// Before the downstream handler runs the middleware stamps the
 /// <see cref="RequestContext"/> AsyncLocal slots so tools can read the
@@ -33,16 +33,58 @@ public sealed class AgentAuthMiddleware
         "/api/auth/refresh",
     };
 
+    /// <summary>Roles the platform recognizes. 'system' is the inter-agent sentinel used when a call originates without an end user (internal / health flows).</summary>
+    private static readonly HashSet<string> _allowedRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "customer",
+        "seller",
+        "admin",
+        "system",
+    };
+
     private readonly RequestDelegate _next;
     private readonly AgentSettings _settings;
     private readonly ILogger<AgentAuthMiddleware> _logger;
-    private readonly JwtSecurityTokenHandler _handler = new();
 
-    public AgentAuthMiddleware(RequestDelegate next, AgentSettings settings, ILogger<AgentAuthMiddleware> logger)
+    /// <summary>
+    /// <c>MapInboundClaims = false</c> — see the identical note on
+    /// <see cref="JwtTokenService"/>'s own handler field. Without it,
+    /// <c>FindFirst("email")</c>/<c>FindFirst("role")</c> below always
+    /// return null and every request silently falls back to the
+    /// empty-email/"customer" defaults.
+    /// </summary>
+    private readonly JwtSecurityTokenHandler _handler = new() { MapInboundClaims = false };
+    private readonly JwtTokenService _jwtTokenService;
+    private readonly JwksKeyProvider _jwksKeyProvider;
+
+    /// <summary>
+    /// True for the orchestrator (validates genuine end-user Bearer tokens
+    /// against <see cref="AgentSettings.AuthOrchAudience"/>), false for a
+    /// specialist (validates inter-agent service tokens against
+    /// <see cref="AgentSettings.AuthAgentAudience"/>). Set at startup via
+    /// <see cref="AgentAuthMiddlewareExtensions.UseAgentAuth"/> — unlike
+    /// Python, where these are two entirely separate code paths
+    /// (<c>orchestrator/routes.py::require_auth</c> vs
+    /// <c>shared/auth.py::AgentAuthMiddleware</c>), .NET's orchestrator and
+    /// specialists share this one middleware class.
+    /// </summary>
+    private readonly bool _isOrchestrator;
+
+    public AgentAuthMiddleware(
+        RequestDelegate next,
+        AgentSettings settings,
+        ILogger<AgentAuthMiddleware> logger,
+        JwtTokenService jwtTokenService,
+        JwksKeyProvider jwksKeyProvider,
+        bool isOrchestrator
+    )
     {
         _next = next;
         _settings = settings;
         _logger = logger;
+        _jwtTokenService = jwtTokenService;
+        _jwksKeyProvider = jwksKeyProvider;
+        _isOrchestrator = isOrchestrator;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -54,6 +96,18 @@ public sealed class AgentAuthMiddleware
         }
 
         var agentSecret = context.Request.Headers["X-Agent-Secret"].ToString();
+
+        // oauth mode retires the shared secret entirely — a request bearing
+        // it is rejected outright rather than silently falling through to
+        // the service-token path below.
+        if (_settings.AuthMode == "oauth" && !string.IsNullOrEmpty(agentSecret))
+        {
+            _logger.LogWarning("auth.denied reason=agent_secret_disabled_in_oauth_mode");
+            await Reject(context, 401, "Inter-agent shared secret is disabled in oauth mode");
+            return;
+        }
+
+        // Inter-agent authentication (local mode): static shared secret.
         if (!string.IsNullOrEmpty(agentSecret))
         {
             if (!string.Equals(agentSecret, _settings.AgentSharedSecret, StringComparison.Ordinal))
@@ -62,10 +116,13 @@ public sealed class AgentAuthMiddleware
                 return;
             }
 
-            var email = context.Request.Headers["X-User-Email"].ToString();
-            var role = context.Request.Headers["X-User-Role"].ToString();
-            var sessionId = context.Request.Headers["X-Session-Id"].ToString();
-            using var scope = RequestContext.Scope(email, role, sessionId);
+            var identity = ResolveForwardedIdentity(context, out var rejection);
+            if (identity is null)
+            {
+                await Reject(context, 401, rejection!);
+                return;
+            }
+            using var scope = RequestContext.Scope(identity.Value.Email, identity.Value.Role, identity.Value.SessionId);
             await _next(context);
             return;
         }
@@ -78,19 +135,64 @@ public sealed class AgentAuthMiddleware
         }
 
         var token = authHeader["Bearer ".Length..];
-        var validation = new TokenValidationParameters
-        {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(DeriveKeyBytes(_settings.JwtSecret)),
-            ClockSkew = TimeSpan.FromMinutes(1),
-        };
 
         try
         {
-            var principal = _handler.ValidateToken(token, validation, out _);
+            if (_settings.AuthMode == "oauth" && !_isOrchestrator)
+            {
+                // Inter-agent authentication (oauth mode): AS-issued service
+                // token proves the caller is a legitimate first-party agent;
+                // the actual end-user identity still travels via the
+                // forwarded X-User-* headers, exactly as the shared-secret
+                // path above.
+                var signingKeys = await _jwksKeyProvider.GetSigningKeysAsync(context.RequestAborted);
+                _jwtTokenService.ValidateOAuth(
+                    token,
+                    signingKeys,
+                    _settings.AuthAgentAudience,
+                    requiredScope: "agent:invoke"
+                );
+
+                var identity = ResolveForwardedIdentity(context, out var rejection);
+                if (identity is null)
+                {
+                    await Reject(context, 401, rejection!);
+                    return;
+                }
+                using var interAgentScope = RequestContext.Scope(
+                    identity.Value.Email,
+                    identity.Value.Role,
+                    identity.Value.SessionId
+                );
+                await _next(context);
+                return;
+            }
+
+            System.Security.Claims.ClaimsPrincipal principal;
+            if (_settings.AuthMode == "oauth")
+            {
+                var signingKeys = await _jwksKeyProvider.GetSigningKeysAsync(context.RequestAborted);
+                principal = _jwtTokenService.ValidateOAuth(
+                    token,
+                    signingKeys,
+                    _settings.AuthOrchAudience,
+                    requiredScope: "api:chat"
+                );
+            }
+            else
+            {
+                var validation = new TokenValidationParameters
+                {
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(DeriveKeyBytes(_settings.JwtSecret)),
+                    ClockSkew = TimeSpan.FromMinutes(1),
+                };
+                principal = _handler.ValidateToken(token, validation, out _);
+            }
+
             var email = principal.FindFirst("email")?.Value ?? principal.FindFirst("sub")?.Value ?? "";
             var role = principal.FindFirst("role")?.Value ?? "customer";
             var sessionId = context.Request.Headers["X-Session-Id"].ToString();
@@ -102,6 +204,73 @@ public sealed class AgentAuthMiddleware
             _logger.LogWarning("jwt.invalid message={Message}", ex.Message);
             await Reject(context, 401, "Invalid token");
         }
+    }
+
+    /// <summary>
+    /// Read X-User-Email/X-User-Role/X-Session-Id, flag spoofing, and
+    /// return the resolved identity — or <c>null</c> (with a rejection
+    /// reason) if <see cref="AgentSettings.GuardrailsStrictIdentity"/>
+    /// should reject the request. Shared by both inter-agent credential
+    /// paths (shared secret in local mode, service token in oauth mode)
+    /// since forwarded-identity handling is identical either way. Missing
+    /// headers default to "system" (system/health flows).
+    /// </summary>
+    private (string Email, string Role, string SessionId)? ResolveForwardedIdentity(
+        HttpContext context,
+        out string? rejectionReason
+    )
+    {
+        var email = context.Request.Headers["X-User-Email"].ToString();
+        if (string.IsNullOrEmpty(email))
+        {
+            email = "system";
+        }
+        var role = context.Request.Headers["X-User-Role"].ToString();
+        if (string.IsNullOrEmpty(role))
+        {
+            role = "system";
+        }
+        var sessionId = context.Request.Headers["X-Session-Id"].ToString();
+
+        var anomaly = IdentityAnomaly(email, role);
+        if (anomaly is not null)
+        {
+            _logger.LogWarning(
+                "security.identity_spoof_suspected reason={Reason} email={Email} role={Role}",
+                anomaly,
+                email,
+                role
+            );
+            if (_settings.GuardrailsStrictIdentity)
+            {
+                rejectionReason = "Invalid forwarded identity";
+                return null;
+            }
+        }
+
+        rejectionReason = null;
+        return (email, role, sessionId);
+    }
+
+    /// <summary>
+    /// The inter-agent credential (shared secret or, in oauth mode, the
+    /// service token) authenticates the *caller* (another agent), but the
+    /// forwarded X-User-Email/X-User-Role headers are otherwise trusted
+    /// blindly. This flags obviously-bad values so they can be logged — and
+    /// rejected under <see cref="AgentSettings.GuardrailsStrictIdentity"/> —
+    /// instead of silently granting access if a credential ever leaks.
+    /// </summary>
+    private static string? IdentityAnomaly(string email, string role)
+    {
+        if (!_allowedRoles.Contains(role))
+        {
+            return $"unknown_role:{role}";
+        }
+        if (email != "system" && !email.Contains('@'))
+        {
+            return "malformed_email";
+        }
+        return null;
     }
 
     private static async Task Reject(HttpContext context, int status, string detail)
@@ -121,6 +290,13 @@ public sealed class AgentAuthMiddleware
 
 public static class AgentAuthMiddlewareExtensions
 {
-    public static IApplicationBuilder UseAgentAuth(this IApplicationBuilder app) =>
-        app.UseMiddleware<AgentAuthMiddleware>();
+    /// <summary>
+    /// <paramref name="isOrchestrator"/>: true for the orchestrator (its own
+    /// user-facing Bearer JWTs validate against
+    /// <see cref="AgentSettings.AuthOrchAudience"/>), false — the default —
+    /// for a specialist (inter-agent Bearer service tokens validate against
+    /// <see cref="AgentSettings.AuthAgentAudience"/> in oauth mode).
+    /// </summary>
+    public static IApplicationBuilder UseAgentAuth(this IApplicationBuilder app, bool isOrchestrator = false) =>
+        app.UseMiddleware<AgentAuthMiddleware>(isOrchestrator);
 }

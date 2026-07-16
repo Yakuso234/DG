@@ -1,3 +1,4 @@
+using ECommerceAgents.Shared.Auth;
 using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Telemetry;
@@ -28,13 +29,15 @@ public sealed class A2AClient
 {
     private readonly HttpClient _http;
     private readonly AgentSettings _settings;
+    private readonly AuthServerClient _authServerClient;
     private readonly ILogger<A2AClient> _logger;
     private readonly ResiliencePipeline<HttpResponseMessage> _pipeline;
 
-    public A2AClient(HttpClient http, AgentSettings settings, ILogger<A2AClient> logger)
+    public A2AClient(HttpClient http, AgentSettings settings, AuthServerClient authServerClient, ILogger<A2AClient> logger)
     {
         _http = http;
         _settings = settings;
+        _authServerClient = authServerClient;
         _logger = logger;
         _pipeline = BuildPipeline(logger);
     }
@@ -126,7 +129,15 @@ public sealed class A2AClient
                     {
                         Content = JsonContent.Create(new A2ARequest(message, historyList)),
                     };
-                    request.Headers.Add("X-Agent-Secret", _settings.AgentSharedSecret);
+                    if (_settings.AuthMode == "oauth")
+                    {
+                        var serviceToken = await _authServerClient.AcquireServiceTokenAsync("agent:invoke", token);
+                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceToken);
+                    }
+                    else
+                    {
+                        request.Headers.Add("X-Agent-Secret", _settings.AgentSharedSecret);
+                    }
                     request.Headers.Add("X-User-Email", RequestContext.CurrentUserEmail);
                     request.Headers.Add("X-User-Role", RequestContext.CurrentUserRole);
                     request.Headers.Add("X-Session-Id", RequestContext.CurrentSessionId);

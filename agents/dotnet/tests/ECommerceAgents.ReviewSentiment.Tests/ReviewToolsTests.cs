@@ -1,6 +1,7 @@
 using Dapper;
 using ECommerceAgents.ReviewSentiment.Tools;
 using ECommerceAgents.Shared.Configuration;
+using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
 using ECommerceAgents.TestFixtures;
 using FluentAssertions;
@@ -26,7 +27,9 @@ public sealed class ReviewToolsTests : IAsyncLifetime
     {
         var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString };
         _pool = new DatabasePool(settings);
-        _tools = new ReviewTools(_pool);
+        _tools = new ReviewTools(_pool, settings);
+        // DraftSellerResponse is role-gated (seller/admin).
+        RequestContext.CurrentUserRole = "seller";
         await SeedAsync();
     }
 
@@ -36,8 +39,11 @@ public sealed class ReviewToolsTests : IAsyncLifetime
         await conn.ExecuteAsync(
             "TRUNCATE reviews, products, users RESTART IDENTITY CASCADE"
         );
+        RequestContext.CurrentUserRole = "";
         await _pool.DisposeAsync();
     }
+
+    private void EnsureSellerScope() => RequestContext.CurrentUserRole = "seller";
 
     // ─────────────────────── get_product_reviews ─────────────
 
@@ -211,8 +217,17 @@ public sealed class ReviewToolsTests : IAsyncLifetime
     // ─────────────────────── draft_seller_response ───────────
 
     [Fact]
+    public async Task DraftSellerResponse_DeniedForCustomer()
+    {
+        RequestContext.CurrentUserRole = "customer";
+        var result = await _tools.DraftSellerResponse(Guid.NewGuid().ToString());
+        result.Error.Should().Contain("permission");
+    }
+
+    [Fact]
     public async Task DraftSellerResponse_PicksApologeticTemplateForOneStar()
     {
+        EnsureSellerScope();
         await using var conn = await _pool.OpenAsync();
         var reviewId = await conn.ExecuteScalarAsync<Guid>(
             "SELECT id FROM reviews WHERE product_id = @pid AND rating = 1 LIMIT 1",
@@ -226,6 +241,7 @@ public sealed class ReviewToolsTests : IAsyncLifetime
     [Fact]
     public async Task DraftSellerResponse_PicksWarmTemplateForFiveStar()
     {
+        EnsureSellerScope();
         await using var conn = await _pool.OpenAsync();
         var reviewId = await conn.ExecuteScalarAsync<Guid>(
             "SELECT id FROM reviews WHERE product_id = @pid AND rating = 5 LIMIT 1",
@@ -239,6 +255,7 @@ public sealed class ReviewToolsTests : IAsyncLifetime
     [Fact]
     public async Task DraftSellerResponse_RejectsBadGuid()
     {
+        EnsureSellerScope();
         var result = await _tools.DraftSellerResponse("not-a-uuid");
         result.Error.Should().Contain("not found");
     }

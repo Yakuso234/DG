@@ -41,6 +41,54 @@ public sealed record AgentSettings
     public string JwtSecret { get; init; } = "change-me-in-production";
     public string AgentSharedSecret { get; init; } = "agent-internal-secret";
 
+    // ── OAuth2 (self-hosted Authorization Server, optional) ──────
+    // AuthMode "local" (default) keeps the HS256 JWT + shared-secret
+    // behavior above unchanged. "oauth" routes user login and A2A/MCP auth
+    // through the self-hosted auth-server (agents/python/auth_server/,
+    // shared by both stacks), which issues RS256 tokens validated via its
+    // JWKS. No external IdP.
+    public string AuthMode { get; init; } = "local"; // "local" | "oauth"
+
+    public string AuthServerIssuer { get; init; } = "http://localhost:8090";
+    public string AuthServerJwksUrl { get; init; } = "http://localhost:8090/.well-known/jwks.json";
+    public string AuthServerTokenUrl { get; init; } = "http://localhost:8090/oauth/token";
+    public int AuthJwksCacheTtl { get; init; } = 900; // seconds
+
+    /// <summary>Defaults to the service name (see AgentAuthMiddleware) when empty.</summary>
+    public string OAuthClientId { get; init; } = "";
+
+    /// <summary>Prod override; dev derives from <see cref="OAuthSeedKey"/>.</summary>
+    public string OAuthClientSecret { get; init; } = "";
+
+    public string OAuthSeedKey { get; init; } = "dev-oauth-seed-change-me";
+
+    public string AuthOrchAudience { get; init; } = "ecommerce-orchestrator";
+    public string AuthAgentAudience { get; init; } = "ecommerce-agents";
+
+    // ── MCP resource-server auth (independent of MCP_ENABLED; consumed by
+    // ECommerceAgents.Mcp only — its actual tool surface is inventory data,
+    // matching Python's mcp-inventory server) ────────────────────────────
+    public bool McpAuthEnabled { get; init; }
+    public string McpAudience { get; init; } = "mcp-inventory";
+    public string McpRequiredScope { get; init; } = "mcp:inventory";
+    public string McpResourceUrl { get; init; } = "http://localhost:9001/mcp";
+
+    // ── Guardrails ────────────────────────────────────────────────
+    /// <summary>
+    /// Master switch for tool-level role enforcement (see
+    /// <c>ECommerceAgents.Shared.Guardrails.RoleGuard</c>). Mirrors Python's
+    /// <c>GUARDRAILS_ENABLED</c> — on by default.
+    /// </summary>
+    public bool GuardrailsEnabled { get; init; } = true;
+
+    /// <summary>
+    /// When true, reject (not just log) an inter-agent request whose
+    /// forwarded X-User-Email/X-User-Role headers look spoofed (unknown
+    /// role, malformed email). Mirrors Python's
+    /// <c>GUARDRAILS_STRICT_IDENTITY</c> — observe-only by default.
+    /// </summary>
+    public bool GuardrailsStrictIdentity { get; init; }
+
     // ── Agent Registry (A2A endpoint map) ───────────────────────
     public string AgentRegistry { get; init; } = "{}";
 

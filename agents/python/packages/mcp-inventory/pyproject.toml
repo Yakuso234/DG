@@ -17,6 +17,7 @@ dependencies = [
     "mcp[cli]>=1.27.0",
     "asyncpg>=0.30",
     "uvicorn>=0.34",
+    "pyjwt[crypto]>=2.10.1",
 ]
 
 [project.scripts]

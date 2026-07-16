@@ -35,14 +35,16 @@ public sealed class OrderToolsTests : IAsyncLifetime
         // inside InitializeAsync sometimes flowed away once the
         // initialise task completed.
         RequestContext.CurrentUserEmail = Email;
+        RequestContext.CurrentUserRole = "customer";
     }
 
     public async Task InitializeAsync()
     {
         var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString };
         _pool = new DatabasePool(settings);
-        _tools = new OrderTools(_pool);
+        _tools = new OrderTools(_pool, settings);
         RequestContext.CurrentUserEmail = Email;
+        RequestContext.CurrentUserRole = "customer";
         await SeedAsync();
     }
 
@@ -53,6 +55,7 @@ public sealed class OrderToolsTests : IAsyncLifetime
             "TRUNCATE order_status_history, order_items, orders, products, users RESTART IDENTITY CASCADE"
         );
         RequestContext.CurrentUserEmail = "";
+        RequestContext.CurrentUserRole = "";
         await _pool.DisposeAsync();
     }
 
@@ -61,6 +64,10 @@ public sealed class OrderToolsTests : IAsyncLifetime
         // Defensive: each test re-asserts the AsyncLocal in case xUnit
         // hopped contexts between InitializeAsync and the test body.
         RequestContext.CurrentUserEmail = Email;
+        // CancelOrder/ModifyOrder are role-gated (customer/seller/admin) —
+        // "customer" matches this fixture's identity (a customer placing
+        // their own orders).
+        RequestContext.CurrentUserRole = "customer";
     }
 
     // ─────────────────────── Read-only ───────────────────────
@@ -157,6 +164,25 @@ public sealed class OrderToolsTests : IAsyncLifetime
     }
 
     // ─────────────────────── State-mutating ──────────────────
+
+    [Fact]
+    public async Task CancelOrder_DeniedForUnknownRole()
+    {
+        EnsureUserScope();
+        RequestContext.CurrentUserRole = "guest";
+        var result = await _tools.CancelOrder(Guid.NewGuid().ToString(), "no longer needed");
+        result.Error.Should().Contain("permission");
+    }
+
+    [Fact]
+    public async Task ModifyOrder_DeniedForUnknownRole()
+    {
+        EnsureUserScope();
+        RequestContext.CurrentUserRole = "guest";
+        var addr = new ShippingAddressInput("1 Main St", "Springfield", "IL", "62701", "US");
+        var result = await _tools.ModifyOrder(Guid.NewGuid().ToString(), addr);
+        result.Error.Should().Contain("permission");
+    }
 
     [Fact]
     public async Task CancelOrder_RejectsBadOrderId()

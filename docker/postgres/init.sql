@@ -431,3 +431,53 @@ CREATE INDEX IF NOT EXISTS idx_hitl_user_status
     ON hitl_requests(user_email, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hitl_run
     ON hitl_requests(workflow_run_id);
+
+-- ============================================================
+-- OAUTH2 AUTHORIZATION SERVER (self-hosted, offline — AUTH_MODE=oauth)
+-- ============================================================
+-- Fixed, seeded client registry — no dynamic client registration.
+-- One row per first-party service (orchestrator + each specialist).
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id                  VARCHAR(100) PRIMARY KEY,
+    client_secret_hash         VARCHAR(255) NOT NULL,
+    client_name                VARCHAR(255) NOT NULL,
+    is_confidential            BOOLEAN NOT NULL DEFAULT TRUE,
+    allowed_grant_types        TEXT[] NOT NULL,
+    allowed_scopes             TEXT[] NOT NULL,
+    allowed_audiences          TEXT[] NOT NULL,
+    token_endpoint_auth_method VARCHAR(50) NOT NULL DEFAULT 'client_secret_basic',
+    created_at                 TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RSA signing keypairs for RS256 access tokens. The active key signs new
+-- tokens; retired keys stay listed in the JWKS until the longest-lived
+-- token that could reference them expires (see docs/security-guide.md).
+CREATE TABLE IF NOT EXISTS oauth_signing_keys (
+    kid             VARCHAR(64) PRIMARY KEY,
+    alg             VARCHAR(20) NOT NULL DEFAULT 'RS256',
+    public_jwk      JSONB NOT NULL,
+    private_pem_enc BYTEA NOT NULL,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    retired_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_signing_keys_active ON oauth_signing_keys(is_active);
+
+-- Refresh tokens only — access tokens are stateless RS256 JWTs, validated
+-- via JWKS, never stored here. Refresh grants are non-rotating (see
+-- docs/security-guide.md) to keep the browser's single stored refresh
+-- token valid across the session's lifetime.
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id    VARCHAR(100) NOT NULL REFERENCES oauth_clients(client_id),
+    subject      VARCHAR(255),              -- user email for ROPC-issued tokens, NULL for client-credentials
+    token_type   VARCHAR(20) NOT NULL,       -- currently only 'refresh_token'
+    token_hash   VARCHAR(255) NOT NULL,      -- sha256 hex digest, never the raw token
+    scope        TEXT,
+    audience     TEXT,
+    issued_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    revoked      BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_hash ON oauth_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client ON oauth_tokens(client_id, revoked);

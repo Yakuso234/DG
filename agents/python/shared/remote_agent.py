@@ -31,8 +31,7 @@ from agent_framework import (
     ResponseStream,
 )
 
-from shared.config import settings
-from shared.context import current_session_id, current_user_email, current_user_role
+from shared.oauth.service_client import build_a2a_headers
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +57,7 @@ class RemoteSpecialistChatClient(BaseChatClient):
         self._timeout = timeout
 
     async def _post(self, prompt: str) -> str:
-        headers = {
-            "x-agent-secret": settings.AGENT_SHARED_SECRET,
-            "x-user-email": current_user_email.get(""),
-            "x-user-role": current_user_role.get(""),
-            "x-session-id": current_session_id.get(""),
-        }
+        headers = await build_a2a_headers()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._url}/message:send",
@@ -112,6 +106,7 @@ class RemoteSpecialistChatClient(BaseChatClient):
                     contents=[Content.from_text(text=reply)],
                     author_name=agent_name,
                 )
+
             return ResponseStream(_gen())
 
         async def _respond() -> ChatResponse:

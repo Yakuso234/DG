@@ -35,6 +35,9 @@ DATABASE_URL = os.environ.get(
     "postgresql://ecommerce:ecommerce_secret@localhost:5432/ecommerce_agents",
 )
 
+# OAuth 2.1 resource-server mode (optional — off by default, unchanged quick-start).
+MCP_AUTH_ENABLED = os.environ.get("MCP_AUTH_ENABLED", "false").lower() == "true"
+
 _pool: asyncpg.Pool | None = None
 
 
@@ -50,15 +53,42 @@ async def _lifespan(server: FastMCP):
             await _pool.close()
 
 
-mcp = FastMCP(
-    "inventory-fulfillment-mcp",
-    instructions=(
+_mcp_kwargs: dict = {
+    "instructions": (
         "Inventory and fulfillment data for the E-Commerce Agents platform. "
         "Check stock levels, warehouse availability, restock schedules, and "
         "shipping estimates across the East, Central, and West regional warehouses."
     ),
-    lifespan=_lifespan,
-)
+    "lifespan": _lifespan,
+    # FastMCP auto-enables DNS-rebinding Host-header protection whenever
+    # `host` is left at its default "127.0.0.1", allowlisting only
+    # localhost/127.0.0.1/::1 — which silently 421s every real call over
+    # the Docker network (e.g. a specialist calling http://mcp-inventory:9001).
+    # This app is actually served via `uvicorn ... --host 0.0.0.0`
+    # (see main()/the Dockerfile CMD), so declare that explicitly here too —
+    # `host="127.0.0.1"` was never accurate for how this process really runs.
+    "host": "0.0.0.0",
+}
+
+if MCP_AUTH_ENABLED:
+    from mcp.server.auth.settings import AuthSettings
+
+    from ecommerce_mcp_inventory.auth import (
+        AUTH_SERVER_ISSUER,
+        MCP_INVENTORY_REQUIRED_SCOPE,
+        JwksTokenVerifier,
+    )
+
+    _resource_url = os.environ.get("MCP_INVENTORY_RESOURCE_URL", "http://localhost:9001/mcp")
+    _mcp_kwargs["token_verifier"] = JwksTokenVerifier()
+    _mcp_kwargs["auth"] = AuthSettings(
+        issuer_url=AUTH_SERVER_ISSUER,
+        resource_server_url=_resource_url,
+        required_scopes=[MCP_INVENTORY_REQUIRED_SCOPE],
+    )
+    logger.info("inventory-mcp: OAuth 2.1 resource-server mode enabled issuer=%s", AUTH_SERVER_ISSUER)
+
+mcp = FastMCP("inventory-fulfillment-mcp", **_mcp_kwargs)
 
 
 def _get_pool() -> asyncpg.Pool:

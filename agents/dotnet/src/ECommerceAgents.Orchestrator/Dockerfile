@@ -11,8 +11,10 @@ RUN dotnet publish src/ECommerceAgents.Orchestrator/ECommerceAgents.Orchestrator
 # Runtime — ship the shared YAML prompts alongside the binary so
 # PromptLoader finds them without any volume mount.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN groupadd --system --gid 1000 dotnet \
- && useradd --system --uid 1000 --gid dotnet --create-home dotnet
+# No explicit --gid/--uid: recent Ubuntu-based base images pre-bake a
+# uid/gid 1000 "ubuntu" user, which collided here.
+RUN groupadd --system dotnet \
+ && useradd --system --gid dotnet --create-home dotnet
 WORKDIR /app
 COPY --from=build --chown=dotnet:dotnet /app/out ./
 COPY --chown=dotnet:dotnet agents/python/config ./agents/python/config

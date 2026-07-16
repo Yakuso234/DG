@@ -10,6 +10,7 @@ from pydantic import Field, ValidationError
 
 from shared.context import current_user_email
 from shared.db import get_pool
+from shared.guardrails.roles import requires_role
 from shared.tool_inputs import (
     InitiateReturnInput,
     ProcessRefundInput,
@@ -181,6 +182,7 @@ async def initiate_return(
     description="Process the refund for an approved return. Updates return status to refunded.",
     approval_mode="always_require",
 )
+@requires_role("customer", "seller", "admin")
 async def process_refund(
     return_id: Annotated[str, Field(description="UUID of the return to process refund for")],
 ) -> dict:

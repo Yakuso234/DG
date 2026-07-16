@@ -1,5 +1,7 @@
 using Dapper;
+using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Data;
+using ECommerceAgents.Shared.Guardrails;
 using Microsoft.Extensions.AI;
 using System.ComponentModel;
 
@@ -17,9 +19,10 @@ namespace ECommerceAgents.ReviewSentiment.Tools;
 /// sentiment_trend, detect_fake_reviews, draft_seller_response) ship
 /// in a follow-up commit.
 /// </remarks>
-public sealed class ReviewTools(DatabasePool pool)
+public sealed class ReviewTools(DatabasePool pool, AgentSettings settings)
 {
     private readonly DatabasePool _pool = pool;
+    private readonly AgentSettings _settings = settings;
 
     private const int MaxLimit = 100;
 
@@ -671,6 +674,11 @@ public sealed class ReviewTools(DatabasePool pool)
         [Description("UUID of the review to respond to")] string reviewId
     )
     {
+        if (RoleGuard.Ensure(_settings, "seller", "admin") is { } denied)
+        {
+            return SellerResponseResult.Failure(denied);
+        }
+
         if (!Guid.TryParse(reviewId, out var rid))
         {
             return SellerResponseResult.Failure($"Review not found: {reviewId}");

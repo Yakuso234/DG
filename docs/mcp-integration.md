@@ -73,6 +73,110 @@ MCP_INVENTORY_SERVER_URL=http://localhost:9001/mcp  # or http://mcp-inventory:90
 The `product-discovery` and `inventory-fulfillment` agents read `MCP_ENABLED` at startup and
 select the appropriate tool set. No code changes are needed.
 
+## OAuth 2.1 resource-server mode (optional)
+
+By default the MCP servers are unauthenticated — anyone who can reach `:9000`/`:9001` can call
+tools. Setting `MCP_AUTH_ENABLED=true` (requires `AUTH_MODE=oauth` and `MCP_ENABLED=true`) turns
+each server into an OAuth 2.1 resource server per [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728),
+validated against the same self-hosted Authorization Server (AS) used for user login and
+inter-agent calls — no external identity provider.
+
+### Running it locally
+
+```bash
+# Full stack, oauth mode, MCP enabled + protected
+AUTH_MODE=oauth MCP_ENABLED=true MCP_AUTH_ENABLED=true \
+  docker compose --profile agents --profile mcp up --build
+
+# Seed the database, then restart auth-server so its in-memory client
+# registry picks up the seeded oauth_clients rows (it loads once at startup)
+docker compose --profile seed run --rm seeder
+docker compose restart auth-server
+```
+
+### What each server does differently
+
+- A vendored `JwksTokenVerifier` (`packages/mcp-product/src/ecommerce_mcp_product/auth.py`,
+  `packages/mcp-inventory/.../auth.py` — deliberately **not** shared between the two packages or
+  with the main app's `shared/oauth/verifier.py`, since these are independently publishable uv
+  workspace members) validates the bearer JWT via `PyJWKClient` against `AUTH_SERVER_JWKS_URL`:
+  signature, issuer (`AUTH_SERVER_ISSUER`), audience (`mcp-product` / `mcp-inventory`), and required
+  scope (`mcp:product` / `mcp:inventory`).
+- `FastMCP(token_verifier=..., auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...]))`
+  — the MCP Python SDK auto-mounts `GET /.well-known/oauth-protected-resource/mcp` and wraps
+  `POST /mcp` in `RequireAuthMiddleware`. An unauthenticated or wrong-scope call gets `401` plus a
+  spec-shaped header: `WWW-Authenticate: Bearer error="invalid_token", error_description="...", resource_metadata="http://.../.well-known/oauth-protected-resource/mcp"`.
+- Each server is served with `host="0.0.0.0"` explicitly. **Gotcha**: FastMCP auto-enables
+  DNS-rebinding Host-header protection whenever `host` is left at its default `"127.0.0.1"`,
+  allowlisting only `localhost`/`127.0.0.1`/`::1` — which would silently `421` every real call over
+  the Docker network (e.g. `http://mcp-product:9000/mcp`), auth or no auth. This is fixed in both
+  `server.py` files; don't remove the explicit `host` argument.
+- The Dockerfile/compose healthchecks curl `/mcp` when `MCP_AUTH_ENABLED=false`, but the
+  auto-mounted, unauthenticated `/.well-known/oauth-protected-resource/mcp` when it's `true` — `/mcp`
+  always `401`s once auth is on, so the healthcheck target has to switch too.
+
+### How a specialist agent acquires its resource token
+
+`product_discovery/agent.py` / `inventory_fulfillment/agent.py` pass a `header_provider` to
+`MCPStreamableHTTPTool` (MAF's own documented mechanism for attaching per-request headers) when
+`MCP_AUTH_ENABLED=true`:
+
+```python
+mcp_product = MCPStreamableHTTPTool(
+    name="product-mcp",
+    url=settings.MCP_PRODUCT_SERVER_URL,
+    header_provider=mcp_header_provider(settings.MCP_PRODUCT_REQUIRED_SCOPE, settings.MCP_PRODUCT_AUDIENCE),
+)
+```
+
+`header_provider` is invoked **synchronously**, from inside an already-running event loop — it
+cannot itself perform the `client_credentials` grant. Each specialist's async startup hook
+pre-warms the token cache once (`await acquire_service_token(scope, audience)`); the header
+provider then does a synchronous, cache-only read (`get_cached_service_token`) and attaches
+`Authorization: Bearer <token>`. A token scoped for `mcp:product` cannot authenticate to
+`mcp-inventory`, or vice versa — each server validates its own audience independently.
+
+### Connecting an external MCP client (e.g. MCP Inspector) in oauth mode
+
+A generic OAuth 2.1 client completes the standard protected-resource discovery flow:
+
+1. `GET http://localhost:9000/.well-known/oauth-protected-resource/mcp` → `{"resource": "...", "authorization_servers": ["http://localhost:8090/"], "scopes_supported": ["mcp:product"], ...}`
+2. Discover the AS's own metadata: `GET http://localhost:8090/.well-known/oauth-authorization-server`
+3. Obtain a token from `token_endpoint` (`client_credentials` grant, scope `mcp:product`) using a
+   seeded client's credentials (`scripts/seed.py::OAUTH_CLIENTS` — e.g. `product-discovery`; derive
+   the dev secret with `derive_client_secret(OAUTH_SEED_KEY, client_id)`, or set an explicit
+   `OAUTH_CLIENT_SECRET` in production)
+4. Call `POST /mcp` with `Authorization: Bearer <token>`
+
+The .NET MCP host (`ECommerceAgents.Mcp`) implements the equivalent surface by hand
+(`GET /.well-known/oauth-protected-resource`, the same `WWW-Authenticate` shape on 401) rather than
+via an SDK, since it's a hand-rolled REST surface rather than FastMCP's streamable-HTTP transport.
+
+### Getting credentials as a third-party MCP client (dynamic registration)
+
+Step 3 above assumes a first-party, pre-seeded client. A genuinely external MCP client can instead
+self-register (RFC 7591) when the AS operator has opted in:
+
+1. Operator sets `AUTH_ALLOW_DYNAMIC_REGISTRATION=true` on the auth-server (off by default).
+2. Operator obtains a `client:register`-scoped token via `client_credentials` using the seeded
+   `auth-admin` client, and hands the resulting **registration token** to the third party
+   out-of-band (it is not something a client discovers on its own).
+3. The client calls `POST /oauth/register` with that bearer token and a body like
+   `{"client_name": "...", "scope": "mcp:product"}`, and gets back a `client_id`/`client_secret`
+   pair (shown once) — usable immediately with step 3 above.
+
+Registration is deliberately narrow: only `client_credentials` grant, and only the two MCP read
+scopes (`mcp:product`, `mcp:inventory`) can be requested — never `agent:invoke`, `api:chat`, or
+`client:register` itself. See `docs/security-guide.md`'s Known Issues for the one non-obvious
+implementation detail (the registration endpoint verifies its bearer token entirely in-process,
+not via the JWKS-over-HTTP path every other resource server uses — that path deadlocks when a
+single-worker server tries to fetch its own JWKS from within its own request handler).
+
+### Flag off (`MCP_AUTH_ENABLED=false`, the default)
+
+Both MCP servers behave exactly as before this feature — no auth surface at all, byte-for-byte
+regression-guarded by `tests/test_mcp_oauth_integration.py::test_mcp_auth_disabled_is_unchanged_regression_guard`.
+
 ## Inspect with MCP Inspector
 
 The [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector) is an interactive tool
