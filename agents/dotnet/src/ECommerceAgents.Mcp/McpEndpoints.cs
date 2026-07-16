@@ -60,14 +60,17 @@ public static class McpEndpoints
 
     // ─────────────────────── OAuth 2.1 resource-server mode ─
 
-    private static IResult ProtectedResourceMetadata(AgentSettings settings) =>
-        Results.Ok(new
-        {
-            resource = settings.McpResourceUrl,
-            authorization_servers = new[] { settings.AuthServerIssuer },
-            scopes_supported = new[] { settings.McpRequiredScope },
-            bearer_methods_supported = new[] { "header" },
-        });
+private static IResult ProtectedResourceMetadata(AgentSettings settings)
+{
+    var issuer = settings.AuthServerIssuer.TrimEnd('/') + "/";
+    return Results.Ok(new
+    {
+        resource = settings.McpResourceUrl,
+        authorization_servers = new[] { issuer },
+        scopes_supported = new[] { settings.McpRequiredScope },
+        bearer_methods_supported = new[] { "header" },
+    });
+}
 
     /// <summary>
     /// Validates the request's Bearer token when <see cref="AgentSettings.McpAuthEnabled"/>
