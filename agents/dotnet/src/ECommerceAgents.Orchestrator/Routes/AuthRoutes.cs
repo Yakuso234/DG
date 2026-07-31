@@ -28,7 +28,12 @@ public static class AuthRoutes
     public sealed record LoginRequest(string Email, string Password);
     public sealed record RefreshRequest(string RefreshToken);
 
-    public sealed record TokenResponse(string AccessToken, string RefreshToken, string Email, string Role);
+    // Mirrors Python's AuthResponse: access_token/refresh_token + a nested `user` object
+    // (id, email, name, role, loyalty_tier, total_spend). web/src/lib/auth-context.tsx reads
+    // result.user directly — a flat response leaves `user` undefined and login silently
+    // never completes (no redirect), even though the tokens themselves are valid.
+    public sealed record UserInfo(string Id, string Email, string Name, string Role, string? LoyaltyTier, decimal TotalSpend);
+    public sealed record TokenResponse(string AccessToken, string RefreshToken, UserInfo User);
 
     public static IEndpointRouteBuilder MapAuthRoutes(this IEndpointRouteBuilder routes)
     {
@@ -63,17 +68,25 @@ public static class AuthRoutes
             return Results.Conflict(new { detail = "email already registered" });
         }
 
-        await conn.ExecuteAsync(
+        var name = request.FullName ?? email;
+        var inserted = await conn.QuerySingleAsync(
             @"INSERT INTO users (email, password_hash, name, role)
-              VALUES (@email, @passwordHash, @name, @role)",
-            new { email, passwordHash, name = request.FullName ?? email, role }
+              VALUES (@email, @passwordHash, @name, @role)
+              RETURNING id, loyalty_tier, total_spend",
+            new { email, passwordHash, name, role }
         );
 
         return Results.Ok(new TokenResponse(
             AccessToken: jwt.IssueAccessToken(email, role),
             RefreshToken: jwt.IssueRefreshToken(email, role),
-            Email: email,
-            Role: role
+            User: new UserInfo(
+                Id: inserted.id.ToString(),
+                Email: email,
+                Name: name,
+                Role: role,
+                LoyaltyTier: inserted.loyalty_tier,
+                TotalSpend: inserted.total_spend
+            )
         ));
     }
 
@@ -114,7 +127,7 @@ public static class AuthRoutes
 
             await using var oauthConn = await pool.OpenAsync();
             var oauthUser = await oauthConn.QueryFirstOrDefaultAsync(
-                "SELECT email, role FROM users WHERE email = @email",
+                "SELECT id, email, name, role, loyalty_tier, total_spend FROM users WHERE email = @email",
                 new { email }
             );
             // The AS validated these credentials against the same `users`
@@ -127,14 +140,21 @@ public static class AuthRoutes
             return Results.Ok(new TokenResponse(
                 AccessToken: token.AccessToken,
                 RefreshToken: token.RefreshToken ?? "",
-                Email: email,
-                Role: (string)oauthUser.role
+                User: new UserInfo(
+                    Id: oauthUser.id.ToString(),
+                    Email: (string)oauthUser.email,
+                    Name: (string)oauthUser.name,
+                    Role: (string)oauthUser.role,
+                    LoyaltyTier: oauthUser.loyalty_tier,
+                    TotalSpend: oauthUser.total_spend
+                )
             ));
         }
 
         await using var conn = await pool.OpenAsync();
         var user = await conn.QueryFirstOrDefaultAsync(
-            "SELECT email, password_hash, role FROM users WHERE email = @email",
+            @"SELECT id, email, password_hash, name, role, loyalty_tier, total_spend, is_active
+              FROM users WHERE email = @email",
             new { email }
         );
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, (string)user.password_hash))
@@ -142,17 +162,29 @@ public static class AuthRoutes
             return Results.Unauthorized();
         }
 
+        if (!(bool)user.is_active)
+        {
+            return Results.Json(new { detail = "Account is deactivated" }, statusCode: 403);
+        }
+
         var role = (string)user.role;
         return Results.Ok(new TokenResponse(
             AccessToken: jwt.IssueAccessToken(email, role),
             RefreshToken: jwt.IssueRefreshToken(email, role),
-            Email: email,
-            Role: role
+            User: new UserInfo(
+                Id: user.id.ToString(),
+                Email: (string)user.email,
+                Name: (string)user.name,
+                Role: role,
+                LoyaltyTier: user.loyalty_tier,
+                TotalSpend: user.total_spend
+            )
         ));
     }
 
     private static async Task<IResult> Refresh(
         [FromBody] RefreshRequest request,
+        DatabasePool pool,
         JwtTokenService jwt,
         AgentSettings settings,
         AuthServerClient authServer
@@ -183,13 +215,27 @@ public static class AuthRoutes
         {
             var principal = jwt.Validate(request.RefreshToken);
             var email = principal.FindFirst("email")?.Value ?? "";
-            var role = principal.FindFirst("role")?.Value ?? "customer";
-            return Results.Ok(new TokenResponse(
-                AccessToken: jwt.IssueAccessToken(email, role),
-                RefreshToken: jwt.IssueRefreshToken(email, role),
-                Email: email,
-                Role: role
-            ));
+
+            // Mirrors Python: re-check the DB (not just the token's claims) so a
+            // deactivated or deleted account can't refresh a still-valid token,
+            // and issue only a new access_token — the refresh token itself isn't
+            // rotated (matches the existing single-refresh-token contract).
+            await using var conn = await pool.OpenAsync();
+            var user = await conn.QueryFirstOrDefaultAsync(
+                "SELECT role, is_active FROM users WHERE email = @email",
+                new { email }
+            );
+            if (user is null)
+            {
+                return Results.Unauthorized();
+            }
+            if (!(bool)user.is_active)
+            {
+                return Results.Json(new { detail = "Account is deactivated" }, statusCode: 403);
+            }
+
+            var accessToken = jwt.IssueAccessToken(email, (string)user.role);
+            return Results.Ok(new { access_token = accessToken });
         }
         catch
         {

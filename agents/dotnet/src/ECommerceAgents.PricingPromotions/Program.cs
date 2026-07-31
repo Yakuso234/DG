@@ -9,12 +9,7 @@ var app = AgentHost.Build(
     name: "pricing-promotions",
     description: "Handles pricing, discounts, coupons, and loyalty tier lookups.",
     port: 8083,
-    onMessage: async (message, services) =>
-    {
-        var agent = services.GetRequiredService<AIAgent>();
-        var response = await agent.RunAsync(message);
-        return response.Text;
-    },
+    onMessage: (message, services) => AgentHost.RunAgentWithHistoryAsync(services, message),
     configureServices: (builder, settings) =>
     {
         builder.Services.AddSingleton(new PromptLoader(PromptsRoot()));

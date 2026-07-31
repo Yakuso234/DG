@@ -2,10 +2,13 @@ using ECommerceAgents.Shared.Auth;
 using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
+using ECommerceAgents.Shared.Middleware;
 using ECommerceAgents.Shared.Telemetry;
+using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -61,6 +64,7 @@ public static class AgentHost
         builder.Services.AddSingleton(new JwtTokenService(settings));
         builder.Services.AddHttpClient<JwksKeyProvider>();
         builder.Services.AddAgentTelemetry(settings);
+        builder.Services.AddSingleton<HitlApprovalMiddleware>();
 
         configureServices?.Invoke(builder, settings);
 
@@ -118,6 +122,34 @@ public static class AgentHost
         });
 
         return app;
+    }
+
+    /// <summary>
+    /// Shared <c>onMessage</c> implementation for every specialist: prefer the
+    /// history forwarded on the A2A payload (already stamped into
+    /// <see cref="RequestContext.CurrentHistory"/> by the <c>/message:send</c>
+    /// handler above); if the caller didn't forward one, rehydrate it straight
+    /// from Postgres via the session id header. Mirrors Python's
+    /// <c>body.get("history", None)</c> → <c>_rehydrate_history_from_session</c>
+    /// fallback (audit fix #14) exactly.
+    /// </summary>
+    public static async Task<string> RunAgentWithHistoryAsync(IServiceProvider services, string message)
+    {
+        var agent = services.GetRequiredService<AIAgent>();
+        var pool = services.GetRequiredService<DatabasePool>();
+
+        var history = RequestContext.CurrentHistory.Count > 0
+            ? RequestContext.CurrentHistory.ToList()
+            : await HistoryRehydrator.RehydrateAsync(pool, RequestContext.CurrentSessionId) ?? new List<HistoryEntry>();
+
+        var messages = history
+            .Where(h => h.Role is "user" or "assistant")
+            .Select(h => new ChatMessage(h.Role == "assistant" ? ChatRole.Assistant : ChatRole.User, h.Content))
+            .ToList();
+        messages.Add(new ChatMessage(ChatRole.User, message));
+
+        var response = await agent.RunAsync(messages);
+        return response.Text;
     }
 }
 

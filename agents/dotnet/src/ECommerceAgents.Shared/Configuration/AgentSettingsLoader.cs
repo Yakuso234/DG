@@ -61,6 +61,7 @@ public static class AgentSettingsLoader
             LlmModel = Get("LLM_MODEL", "gpt-4.1"),
             EmbeddingModel = Get("EMBEDDING_MODEL", "text-embedding-3-small"),
             OpenAiApiKey = Get("OPENAI_API_KEY"),
+            Temperature = GetDouble("LLM_TEMPERATURE", 0.2),
 
             AzureOpenAiEndpoint = Get("AZURE_OPENAI_ENDPOINT"),
             AzureOpenAiKey = GetWithAlias("AZURE_OPENAI_KEY", "AZURE_OPENAI_API_KEY"),
@@ -107,6 +108,7 @@ public static class AgentSettingsLoader
             HandoffAutonomousMode = GetBool("HANDOFF_AUTONOMOUS_MODE", true),
             WorkflowVisualizationOnBuild = GetBool("WORKFLOW_VISUALIZATION_ON_BUILD", false),
             MafHandoffMode = Get("MAF_HANDOFF_MODE", "tool").ToLowerInvariant(),
+            HitlEnabled = GetBool("HITL_ENABLED", true),
         };
     }
 

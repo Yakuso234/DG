@@ -79,6 +79,33 @@ public sealed class OrchestratorRouteTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetConversation_MetadataDeserializesAsObjectNotString()
+    {
+        // Regression: previously `(m.metadata as string) ?? "{}"` returned the
+        // raw JSONB text unparsed, so the response's `metadata` field
+        // serialized as a quoted JSON *string* instead of a nested object —
+        // unlike Python's `m["metadata"] or {}`.
+        await using (var conn = await _pool.OpenAsync())
+        {
+            await conn.ExecuteAsync(
+                @"INSERT INTO messages (conversation_id, role, content, metadata)
+                  VALUES (@cid, 'assistant', 'with metadata', @meta::jsonb)",
+                new { cid = _conversationId, meta = "{\"agents_involved\":[\"orchestrator\"]}" }
+            );
+        }
+
+        using var client = ClientFor(r => r.MapConversationRoutes());
+        var response = await client.GetAsync($"/api/conversations/{_conversationId}");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        var lastMessage = payload.GetProperty("messages").EnumerateArray().Last();
+        var metadata = lastMessage.GetProperty("metadata");
+        metadata.ValueKind.Should().Be(JsonValueKind.Object);
+        metadata.GetProperty("agents_involved")[0].GetString().Should().Be("orchestrator");
+    }
+
+    [Fact]
     public async Task GetConversation_NotFoundForBadId()
     {
         using var client = ClientFor(r => r.MapConversationRoutes());
@@ -119,6 +146,29 @@ public sealed class OrchestratorRouteTests : IAsyncLifetime
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         payload.GetProperty("total").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ListProducts_FiltersByPriceRange()
+    {
+        // Regression: min_price/max_price are Python's snake_case query keys;
+        // the C# parameters were camelCase (minPrice/maxPrice) with no
+        // [FromQuery(Name=...)] override, so ASP.NET Core's exact-name query
+        // binding never matched them — the filter was silently a no-op. Seeded
+        // product ("Headphones") is priced at 200.
+        using var client = ClientFor(r => r.MapProductRoutes());
+
+        var tooExpensive = await client.GetAsync("/api/products?min_price=250");
+        tooExpensive.EnsureSuccessStatusCode();
+        (await tooExpensive.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("total").GetInt32().Should().Be(0);
+
+        var inRange = await client.GetAsync("/api/products?min_price=100&max_price=250");
+        inRange.EnsureSuccessStatusCode();
+        (await inRange.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("total").GetInt32().Should().BeGreaterThan(0);
+
+        var tooCheap = await client.GetAsync("/api/products?max_price=50");
+        tooCheap.EnsureSuccessStatusCode();
+        (await tooCheap.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("total").GetInt32().Should().Be(0);
     }
 
     [Fact]
@@ -209,6 +259,28 @@ public sealed class OrchestratorRouteTests : IAsyncLifetime
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         payload.GetProperty("return_label_url").GetString().Should().StartWith("/api/returns/");
         payload.GetProperty("refund_method").GetString().Should().Be("store_credit");
+    }
+
+    [Fact]
+    public async Task GetOrder_AfterReturn_NestsReturnLabelUrlUnderMatchingKey()
+    {
+        // Regression: the nested `return` object previously used `label_url`
+        // instead of Python's `return_label_url` — web/src/app/(app)/orders/[id]/page.tsx
+        // and components/chat/return-card.tsx both read `return_label_url`, so the
+        // wrong key silently hid the download-label button/link on .NET.
+        using var client = ClientFor(r => r.MapOrderRoutes());
+        var created = await client.PostAsJsonAsync(
+            $"/api/orders/{_orderDeliveredId}/return",
+            new { reason = "arrived broken" }
+        );
+        created.EnsureSuccessStatusCode();
+
+        var response = await client.GetAsync($"/api/orders/{_orderDeliveredId}");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var ret = payload.GetProperty("return");
+        ret.GetProperty("return_label_url").GetString().Should().StartWith("/api/returns/");
+        ret.TryGetProperty("label_url", out _).Should().BeFalse();
     }
 
     [Fact]

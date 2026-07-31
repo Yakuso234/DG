@@ -241,6 +241,82 @@ public sealed class MarketplaceAdminSellerTests : IAsyncLifetime
         payload.GetProperty("limit").GetInt32().Should().Be(3);
     }
 
+    // Mirrors Python's get_audit_log filters (agent_name, status, search) —
+    // previously .NET only accepted limit/offset and always scanned the
+    // whole table, ignoring these query params entirely.
+    private async Task SeedMixedAuditRowsAsync()
+    {
+        await using var conn = await _pool.OpenAsync();
+        await conn.ExecuteAsync(
+            @"INSERT INTO usage_logs (user_id, agent_name, input_summary, tokens_in, tokens_out, tool_calls_count, duration_ms, status)
+              VALUES
+                (@u, 'orchestrator', 'find wireless headphones', 10, 20, 1, 100, 'success'),
+                (@u, 'product-discovery', 'search for laptops', 10, 20, 1, 100, 'success'),
+                (@u, 'order-management', 'cancel my order', 10, 20, 1, 100, 'error')",
+            new { u = _buyerId }
+        );
+    }
+
+    [Fact]
+    public async Task AdminAudit_FiltersByAgentName()
+    {
+        await SeedMixedAuditRowsAsync();
+        using var adminClient = ClientFor(r => r.MapAdminRoutes(), AdminEmail, role: "admin");
+
+        var response = await adminClient.GetAsync("/api/admin/audit?agent_name=product-discovery");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        payload.GetProperty("total").GetInt64().Should().Be(1);
+        payload.GetProperty("entries").EnumerateArray().Should()
+            .OnlyContain(e => e.GetProperty("agent_name").GetString() == "product-discovery");
+    }
+
+    [Fact]
+    public async Task AdminAudit_FiltersByStatus()
+    {
+        await SeedMixedAuditRowsAsync();
+        using var adminClient = ClientFor(r => r.MapAdminRoutes(), AdminEmail, role: "admin");
+
+        var response = await adminClient.GetAsync("/api/admin/audit?status=error");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        payload.GetProperty("total").GetInt64().Should().Be(1);
+        payload.GetProperty("entries")[0].GetProperty("agent_name").GetString().Should().Be("order-management");
+    }
+
+    [Fact]
+    public async Task AdminAudit_FiltersBySearch()
+    {
+        await SeedMixedAuditRowsAsync();
+        using var adminClient = ClientFor(r => r.MapAdminRoutes(), AdminEmail, role: "admin");
+
+        var response = await adminClient.GetAsync("/api/admin/audit?search=headphones");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        payload.GetProperty("total").GetInt64().Should().Be(1);
+        payload.GetProperty("entries")[0].GetProperty("input_summary").GetString()
+            .Should().Contain("headphones");
+    }
+
+    [Fact]
+    public async Task AdminAudit_InvalidStatusValueIsIgnored()
+    {
+        // Mirrors Python: `if status in ("success", "error")` — anything else
+        // is silently not applied as a filter, matching the existing
+        // unfiltered behavior rather than 400ing or matching nothing.
+        await SeedMixedAuditRowsAsync();
+        using var adminClient = ClientFor(r => r.MapAdminRoutes(), AdminEmail, role: "admin");
+
+        var response = await adminClient.GetAsync("/api/admin/audit?status=bogus");
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        payload.GetProperty("total").GetInt64().Should().Be(3);
+    }
+
     // ─────────────────────── seller ──────────────────────────
 
     [Fact]

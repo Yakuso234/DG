@@ -28,6 +28,7 @@ builder.Services.AddSingleton(new DatabasePool(settings));
 builder.Services.AddSingleton(new JwtTokenService(settings));
 builder.Services.AddSingleton(new PromptLoader(PromptsRoot()));
 builder.Services.AddAgentTelemetry(settings);
+builder.Services.AddSingleton<UsageRecorder>();
 
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<JwksKeyProvider>();
@@ -51,8 +52,23 @@ builder.Services.AddSingleton<AIAgent>(sp =>
     return OrchestratorAgentFactory.Create(settings, prompts, tools);
 });
 
+// Mirrors the Python orchestrator's CORSMiddleware(allow_origins=["*"], allow_credentials=True,
+// allow_methods=["*"], allow_headers=["*"]) — the browser frontend calls this API cross-origin
+// (localhost:3000 -> localhost:8080). SetIsOriginAllowed(_ => true) is the ASP.NET Core
+// equivalent of a wildcard origin that's still compatible with AllowCredentials(); plain
+// AllowAnyOrigin() throws when combined with AllowCredentials().
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy => policy
+        .SetIsOriginAllowed(_ => true)
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .AllowCredentials());
+});
+
 var app = builder.Build();
 
+app.UseCors();
 app.UseAgentAuth(isOrchestrator: true);
 
 app.MapGet("/", () => Results.Ok(new { status = "ok", service = "orchestrator", port = 8080 }));
@@ -70,6 +86,9 @@ app.MapReturnLabelRoutes();
 app.MapMarketplaceRoutes();
 app.MapAdminRoutes();
 app.MapSellerRoutes();
+app.MapAgentStatsRoutes();
+app.MapRunsRoutes();
+app.MapHitlRoutes();
 
 var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
 app.Run(string.IsNullOrWhiteSpace(urls) ? "http://0.0.0.0:8080" : urls);

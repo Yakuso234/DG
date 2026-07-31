@@ -38,6 +38,11 @@ public sealed class OrchestratorTools(A2AClient client, AgentSettings settings, 
             return $"Unknown agent: {agentName}. Available agents: {available}";
         }
 
+        // Backs the streaming chat endpoint's dynamic agents_involved (mirrors
+        // Python's current_steps capture) — a no-op for callers that never set up
+        // a RequestContext.Scope, so this is safe outside a chat request too.
+        RequestContext.RecordInvokedAgent(agentName);
+
         return await _client.SendAsync(agentName, url, message, RequestContext.CurrentHistory);
     }
 }

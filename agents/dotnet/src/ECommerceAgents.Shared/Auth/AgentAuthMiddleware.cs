@@ -33,6 +33,24 @@ public sealed class AgentAuthMiddleware
         "/api/auth/refresh",
     };
 
+    /// <summary>
+    /// Exact-match paths that mirror Python's <c>optional_auth</c> dependency
+    /// (<c>orchestrator/routes.py::optional_auth</c>) — the public storefront
+    /// surface. Unlike <see cref="_publicPaths"/> (never authenticated), these
+    /// still authenticate a *present* Bearer token normally; only a *missing*
+    /// header is treated as anonymous instead of a 401.
+    /// </summary>
+    private static readonly HashSet<string> _optionalAuthPaths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/api/chat",
+        "/api/chat/stream",
+    };
+
+    /// <summary>Prefix-matched alongside <see cref="_optionalAuthPaths"/> — covers both
+    /// <c>/api/products</c> and <c>/api/products/{id}</c> without needing route-template
+    /// matching.</summary>
+    private const string OptionalAuthPathPrefix = "/api/products";
+
     /// <summary>Roles the platform recognizes. 'system' is the inter-agent sentinel used when a call originates without an end user (internal / health flows).</summary>
     private static readonly HashSet<string> _allowedRoles = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -130,6 +148,18 @@ public sealed class AgentAuthMiddleware
         var authHeader = context.Request.Headers.Authorization.ToString();
         if (!authHeader.StartsWith("Bearer ", StringComparison.Ordinal))
         {
+            // Mirrors Python's optional_auth: a *missing* Authorization header on the
+            // public storefront surface (product browse + chat) is anonymous, not a 401.
+            // A present-but-invalid token still falls through to the normal validation
+            // below and gets rejected — only absence is treated as anonymous.
+            if (IsOptionalAuthPath(context.Request.Path))
+            {
+                var sessionId = context.Request.Headers["X-Session-Id"].ToString();
+                using var anonScope = RequestContext.Scope("", "anonymous", sessionId);
+                await _next(context);
+                return;
+            }
+
             await Reject(context, 401, "Missing bearer token");
             return;
         }
@@ -199,12 +229,30 @@ public sealed class AgentAuthMiddleware
             using var scope = RequestContext.Scope(email, role, sessionId);
             await _next(context);
         }
-        catch (SecurityTokenException ex)
+        catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
         {
+            // SecurityTokenMalformedException (thrown for a garbage/non-JWT-shaped
+            // token, e.g. one missing the 3-segment structure) does NOT derive from
+            // SecurityTokenException in this package version — confirmed via
+            // reflection — so a plain `catch (SecurityTokenException)` let malformed
+            // tokens crash the request instead of cleanly rejecting it. Widened to
+            // catch that + the ArgumentException family so any invalid token input
+            // 401s rather than 500s.
             _logger.LogWarning("jwt.invalid message={Message}", ex.Message);
             await Reject(context, 401, "Invalid token");
         }
     }
+
+    /// <summary>
+    /// True for the public storefront surface — product browse and chat —
+    /// where Python's <c>optional_auth</c> allows anonymous access.
+    /// <see cref="OptionalAuthPathPrefix"/> is prefix-matched to cover both
+    /// <c>/api/products</c> and <c>/api/products/{id}</c> without needing
+    /// route-template resolution inside the middleware.
+    /// </summary>
+    private static bool IsOptionalAuthPath(PathString path) =>
+        _optionalAuthPaths.Contains(path.ToString())
+        || path.StartsWithSegments(OptionalAuthPathPrefix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Read X-User-Email/X-User-Role/X-Session-Id, flag spoofing, and

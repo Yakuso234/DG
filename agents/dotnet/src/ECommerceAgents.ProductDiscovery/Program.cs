@@ -9,12 +9,7 @@ var app = AgentHost.Build(
     name: "product-discovery",
     description: "Finds products via catalog search, filtering, comparison, and trending.",
     port: 8081,
-    onMessage: async (message, services) =>
-    {
-        var agent = services.GetRequiredService<AIAgent>();
-        var response = await agent.RunAsync(message);
-        return response.Text;
-    },
+    onMessage: (message, services) => AgentHost.RunAgentWithHistoryAsync(services, message),
     configureServices: (builder, settings) =>
     {
         builder.Services.AddSingleton(new PromptLoader(PromptsRoot()));

@@ -37,4 +37,26 @@ public sealed class AgentSettingsLoaderTests
 
         settings.RedisUrl.Should().Be("redis://localhost:6379");
     }
+
+    [Fact]
+    public void Load_TemperatureDefaultsTo0_2_MirroringPython()
+    {
+        var config = new ConfigurationBuilder().Build();
+
+        var settings = AgentSettingsLoader.Load(config);
+
+        settings.Temperature.Should().Be(0.2);
+    }
+
+    [Fact]
+    public void Load_ReadsTemperatureFromLlmTemperatureEnvVar()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["LLM_TEMPERATURE"] = "0.7" })
+            .Build();
+
+        var settings = AgentSettingsLoader.Load(config);
+
+        settings.Temperature.Should().Be(0.7);
+    }
 }

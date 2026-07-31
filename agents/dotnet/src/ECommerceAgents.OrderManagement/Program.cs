@@ -9,12 +9,7 @@ var app = AgentHost.Build(
     name: "order-management",
     description: "Handles order lookup, status, cancellation, and returns.",
     port: 8082,
-    onMessage: async (message, services) =>
-    {
-        var agent = services.GetRequiredService<AIAgent>();
-        var response = await agent.RunAsync(message);
-        return response.Text;
-    },
+    onMessage: (message, services) => AgentHost.RunAgentWithHistoryAsync(services, message),
     configureServices: (builder, settings) =>
     {
         builder.Services.AddSingleton(new PromptLoader(PromptsRoot()));
