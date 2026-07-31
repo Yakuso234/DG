@@ -37,6 +37,19 @@ interface ChatProductCardProps {
   onAction?: (message: string) => void;
 }
 
+/**
+ * Product/order ids are Postgres UUIDs. The LLM composing a card block is
+ * instructed to copy the real id from the tool result, but it occasionally
+ * fabricates a name-derived slug ("sony-wh1000xm5-001") instead. Those ids
+ * 404 against /api/cart/items and /products/[id], which surfaced as an
+ * "Add to Cart" button that only ever flipped to "Retry". Treat anything
+ * that isn't a UUID as no id at all: the card still renders (with Compare /
+ * Reviews, which work off the name), it just doesn't offer actions that are
+ * guaranteed to fail.
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
   const { cart, addItem } = useCart();
   const { isAuthenticated } = useAuth();
@@ -46,10 +59,12 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
 
   if (!data.name) return null;
 
+  const productId = data.id && UUID_RE.test(data.id) ? data.id : undefined;
+
   // "Added" derives from cart state so it persists across re-renders and
   // reflects reality (e.g. after navigating back to the conversation).
   const inCart =
-    !!data.id && !!cart?.items?.some((i) => i.product_id === data.id);
+    !!productId && !!cart?.items?.some((i) => i.product_id === productId);
   const showAdded = inCart || optimisticAdded;
 
   const hasDiscount =
@@ -67,9 +82,9 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
       <div className="flex gap-3 p-3 pb-2">
         {/* Image */}
         <div className="size-20 shrink-0 rounded-lg overflow-hidden bg-muted flex items-center justify-center">
-          {data.id ? (
+          {productId ? (
             <img
-              src={productImageUrl(data.id, 100, 100, data.image_url, data.category)}
+              src={productImageUrl(productId, 100, 100, data.image_url, data.category)}
               alt={data.name}
               className="size-full object-cover"
               loading="lazy"
@@ -149,9 +164,9 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
       </div>
 
       {/* Action buttons */}
-      {(data.id || onAction) && (
+      {(productId || onAction) && (
         <div className="flex items-center gap-2 border-t border-border px-3 py-2">
-          {data.id && !isAuthenticated && (
+          {productId && !isAuthenticated && (
             <Button
               size="sm"
               variant="outline"
@@ -165,7 +180,7 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
               Sign in to buy
             </Button>
           )}
-          {data.id && isAuthenticated && (
+          {productId && isAuthenticated && (
             <Button
               size="sm"
               className={`h-7 text-xs ${
@@ -178,12 +193,12 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
               disabled={showAdded && !error}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!data.id) return;
+                if (!productId) return;
                 // Optimistic — flip UI immediately, fire the network call
                 // in the background so the chat stays responsive.
                 setError(false);
                 setOptimisticAdded(true);
-                addItem(data.id)
+                addItem(productId)
                   .then(() => {
                     // Mirror the typed-message flow: ask the chat to show
                     // the updated cart so a checkout card renders.
@@ -208,9 +223,9 @@ export function ChatProductCard({ data, onAction }: ChatProductCardProps) {
               {error ? "Retry" : showAdded ? "Added" : "Add to Cart"}
             </Button>
           )}
-          {data.id && (
+          {productId && (
             <Link
-              href={isAuthenticated ? `/products/${data.id}` : `/shop/products/${data.id}`}
+              href={isAuthenticated ? `/products/${productId}` : `/shop/products/${productId}`}
               target="_blank"
               rel="noopener noreferrer"
             >
