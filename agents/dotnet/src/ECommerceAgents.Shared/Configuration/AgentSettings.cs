@@ -26,6 +26,14 @@ public sealed record AgentSettings
     public string EmbeddingModel { get; init; } = "text-embedding-3-small";
     public string OpenAiApiKey { get; init; } = "";
 
+    /// <summary>
+    /// Sampling temperature pinned on every agent run so identical prompts
+    /// yield consistent answers (the provider default of ~1.0 makes them
+    /// diverge). Mirrors Python's <c>LLM_TEMPERATURE</c>
+    /// (<c>shared/config.py</c>), same env var name and default.
+    /// </summary>
+    public double Temperature { get; init; } = 0.2;
+
     public string AzureOpenAiEndpoint { get; init; } = "";
 
     /// <summary>Accepts either <c>AZURE_OPENAI_KEY</c> or the MAF-doc alias <c>AZURE_OPENAI_API_KEY</c>.</summary>
@@ -111,4 +119,11 @@ public sealed record AgentSettings
     public bool HandoffAutonomousMode { get; init; } = true;
     public bool WorkflowVisualizationOnBuild { get; init; }
     public string MafHandoffMode { get; init; } = "tool"; // "tool" | "handoff"
+
+    // ── Tool-level HITL approval queue ──────────────────────────
+    // Mirrors Python's settings.HITL_ENABLED (shared/config.py). Distinct
+    // from ReturnHitlThreshold above, which gates the WorkflowBuilder-style
+    // return/replace workflow specifically — this flag gates the generic
+    // cross-agent tool-interception queue (HitlApprovalMiddleware).
+    public bool HitlEnabled { get; init; } = true;
 }
