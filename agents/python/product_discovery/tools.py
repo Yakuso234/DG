@@ -68,7 +68,7 @@ async def search_products(
     where = " AND ".join(conditions)
     sql = f"""
         SELECT p.id, p.name, p.description, p.category, p.brand, p.price,
-               p.original_price, p.rating, p.review_count, p.specs
+               p.original_price, p.rating, p.review_count, p.specs, p.image_url
         FROM products p
         WHERE {where}
         ORDER BY {order}
@@ -89,6 +89,7 @@ async def search_products(
                 "on_sale": r["original_price"] is not None and r["price"] < r["original_price"],
                 "rating": float(r["rating"]),
                 "review_count": r["review_count"],
+                "image_url": r["image_url"],
             }
             for r in rows
         ]
@@ -169,7 +170,7 @@ async def semantic_search(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT p.id, p.name, p.description, p.category, p.brand, p.price, p.rating,
+            """SELECT p.id, p.name, p.description, p.category, p.brand, p.price, p.rating, p.image_url,
                       1 - (pe.embedding <=> $1::vector) as similarity
                FROM product_embeddings pe
                JOIN products p ON pe.product_id = p.id
@@ -188,6 +189,7 @@ async def semantic_search(
                 "price": float(r["price"]),
                 "rating": float(r["rating"]),
                 "similarity": round(float(r["similarity"]), 3),
+                "image_url": r["image_url"],
             }
             for r in rows
         ]

@@ -108,7 +108,7 @@ public sealed class ProductTools(DatabasePool pool, EmbeddingClient embeddingCli
 
         var sql = $@"
             SELECT p.id, p.name, p.description, p.category, p.brand, p.price,
-                   p.original_price, p.rating, p.review_count
+                   p.original_price, p.rating, p.review_count, p.image_url
             FROM products p
             WHERE {string.Join(" AND ", conditions)}
             ORDER BY {order}
@@ -126,7 +126,8 @@ public sealed class ProductTools(DatabasePool pool, EmbeddingClient embeddingCli
             OriginalPrice: r.original_price is null ? null : (decimal)r.original_price,
             OnSale: r.original_price is not null && (decimal)r.price < (decimal)r.original_price,
             Rating: (decimal)r.rating,
-            ReviewCount: (int)r.review_count
+            ReviewCount: (int)r.review_count,
+            ImageUrl: (string?)r.image_url
         )).ToList();
     }
 
@@ -247,7 +248,7 @@ public sealed class ProductTools(DatabasePool pool, EmbeddingClient embeddingCli
 
         await using var conn = await _pool.OpenAsync();
         var rows = await conn.QueryAsync(
-            @"SELECT p.id, p.name, p.description, p.category, p.brand, p.price, p.rating,
+            @"SELECT p.id, p.name, p.description, p.category, p.brand, p.price, p.rating, p.image_url,
                      1 - (pe.embedding <=> @vector::vector) AS similarity
               FROM product_embeddings pe
               JOIN products p ON pe.product_id = p.id
@@ -264,7 +265,8 @@ public sealed class ProductTools(DatabasePool pool, EmbeddingClient embeddingCli
             Brand: (string?)r.brand ?? "",
             Price: (decimal)r.price,
             Rating: (decimal)r.rating,
-            Similarity: Math.Round((double)r.similarity, 3)
+            Similarity: Math.Round((double)r.similarity, 3),
+            ImageUrl: (string?)r.image_url
         )).ToList();
     }
 
@@ -336,7 +338,8 @@ public sealed record ProductSummary(
     decimal? OriginalPrice,
     bool OnSale,
     decimal Rating,
-    int ReviewCount
+    int ReviewCount,
+    string? ImageUrl
 );
 
 public sealed record ProductDetails(
@@ -373,7 +376,8 @@ public sealed record SemanticSearchResult(
     string Brand,
     decimal Price,
     decimal Rating,
-    double Similarity
+    double Similarity,
+    string? ImageUrl
 );
 
 /// <summary>
