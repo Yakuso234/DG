@@ -4,12 +4,15 @@
 [![Build Images](https://github.com/nitin27may/e-commerce-agents/actions/workflows/build-images.yml/badge.svg)](https://github.com/nitin27may/e-commerce-agents/actions/workflows/build-images.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://python.org)
+[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000.svg)](https://nextjs.org)
 [![MAF v1](https://img.shields.io/badge/Microsoft%20Agent%20Framework-v1-5E5DF0.svg)](https://github.com/microsoft/agent-framework)
 [![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-336791.svg)](https://github.com/pgvector/pgvector)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose/)
 
-A **multi-agent e-commerce platform** built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (MAF) Python SDK. Six specialized AI agents collaborate via **A2A protocol** to handle product discovery, orders, pricing, reviews, inventory, and customer support.
+A **multi-agent e-commerce platform** built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (MAF). Ships as **two complete, feature-parity backends — Python and .NET / C#** — both fully working implementations, not samples. Six specialized AI agents collaborate via **A2A protocol** to handle product discovery, orders, pricing, reviews, inventory, and customer support.
+
+**Pick your stack:** [`agents/python/`](./agents/python/) (see [Quick Start](#quick-start) below) or [`agents/dotnet/`](./agents/dotnet/) (`docker-compose.dotnet.yml`, see [`agents/dotnet/README.md`](./agents/dotnet/README.md)) — same database schema, same prompts, same Next.js frontend for either (toggle with `NEXT_PUBLIC_BACKEND_STACK`).
 
 Companion demo repo for the AI article series on [nitinksingh.com](https://nitinksingh.com/posts/maf-v1-21-putting-it-all-together/).
 
@@ -21,7 +24,8 @@ Companion demo repo for the AI article series on [nitinksingh.com](https://nitin
 
 | I want to... | Go here |
 |---|---|
-| Run the demo locally | [Quick Start](#quick-start) below |
+| Run the Python backend locally | [Quick Start](#quick-start) below |
+| Run the .NET backend locally | [`agents/dotnet/README.md`](./agents/dotnet/README.md) (`docker-compose.dotnet.yml`) |
 | Understand how the agents work / add a new one | [Architecture](docs/architecture.md) · [Adding an Agent](docs/adding-an-agent.md) |
 | Use the MCP server | [MCP Integration](docs/mcp-integration.md) |
 | Follow the step-by-step tutorial series | [tutorials/README.md](./tutorials/README.md) |
@@ -305,10 +309,10 @@ Try these in the chat after logging in:
 
 | Layer | Technology |
 |-------|-----------|
-| Agent Framework | [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) v1.0 (Python SDK) |
+| Agent Framework | [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) v1.0 — Python SDK **and** .NET SDK (both backends fully implemented) |
 | Agent Communication | A2A Protocol (HTTP) |
 | LLM | OpenAI / Azure OpenAI (gpt-4.1) |
-| Orchestrator | FastAPI (Python 3.12) |
+| Orchestrator | FastAPI (Python 3.12) · ASP.NET Core minimal APIs (.NET 10, C#) |
 | Database | PostgreSQL 16 + pgvector (1536-dim embeddings) |
 | Cache | Redis 7 |
 | Frontend | Next.js 16, React 19, Tailwind CSS, shadcn/ui |

@@ -62,11 +62,16 @@ public static class McpEndpoints
 
 private static IResult ProtectedResourceMetadata(AgentSettings settings)
 {
-    var issuer = settings.AuthServerIssuer.TrimEnd('/') + "/";
+    // Publish the issuer exactly as configured — the same raw value used by
+    // JwtTokenService's ValidIssuer check and by the tokens the auth server
+    // mints (see agents/python/auth_server: iss / token_endpoint use the raw
+    // AUTH_SERVER_ISSUER with no trailing-slash rewrite). A rewritten value
+    // here would advertise an issuer that doesn't match what tokens actually
+    // carry.
     return Results.Ok(new
     {
         resource = settings.McpResourceUrl,
-        authorization_servers = new[] { issuer },
+        authorization_servers = new[] { settings.AuthServerIssuer },
         scopes_supported = new[] { settings.McpRequiredScope },
         bearer_methods_supported = new[] { "header" },
     });

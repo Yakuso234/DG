@@ -33,7 +33,10 @@ jobs:
 
       - name: Sync dependencies
         working-directory: agents/python
-        run: uv sync --extra dev
+        # --all-packages pulls in the uv workspace members (ecommerce-mcp-product,
+        # ecommerce-mcp-inventory) — required so tests/test_mcp_oauth_integration.py
+        # can import them; without it, collection fails with ModuleNotFoundError.
+        run: uv sync --all-packages --extra dev
 
       - name: Run pytest with coverage
         working-directory: agents/python

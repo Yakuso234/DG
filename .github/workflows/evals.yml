@@ -2,8 +2,10 @@ name: Evals
 
 # Agent-quality + safety/red-team evaluations. These call a real LLM and a
 # seeded database, so they are deliberately kept OUT of the PR-blocking
-# `tests.yml`: they run nightly and on manual dispatch only. Requires an
-# OPENAI_API_KEY repository secret.
+# `tests.yml` and are NOT auto-triggered on any schedule — that would spend
+# real OpenAI budget on every run with no one watching. Run manually
+# (workflow_dispatch) whenever an OPENAI_API_KEY repository secret is
+# available. No tests were removed; only the automatic trigger was.
 
 on:
   workflow_dispatch:
@@ -11,8 +13,6 @@ on:
       pass_threshold:
         description: "Minimum overall score for the quality suites"
         default: "0.7"
-  schedule:
-    - cron: "0 7 * * *" # nightly 07:00 UTC
 
 permissions:
   contents: read
