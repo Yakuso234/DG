@@ -13,6 +13,7 @@ var app = AgentHost.Build(
     configureServices: (builder, settings) =>
     {
         builder.Services.AddSingleton(new PromptLoader(PromptsRoot()));
+        builder.Services.AddSingleton(EmbeddingClientFactory.CreateEmbeddingClient(settings));
         builder.Services.AddSingleton<ProductTools>();
         builder.Services.AddSingleton<AIAgent>(sp =>
         {

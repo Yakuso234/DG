@@ -1,5 +1,6 @@
 using Dapper;
 using ECommerceAgents.ProductDiscovery.Tools;
+using ECommerceAgents.Shared.Agents;
 using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Data;
 using ECommerceAgents.TestFixtures;
@@ -34,10 +35,22 @@ public sealed class ProductToolsTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString };
+        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString, OpenAiApiKey = "test-key" };
         _pool = new DatabasePool(settings);
-        _tools = new ProductTools(_pool);
+        _tools = new ProductTools(_pool, EmbeddingClientFactory.CreateEmbeddingClient(settings));
         await SeedProductsAsync();
+
+        // ivfflat is an approximate-nearest-neighbor index; with only a handful of
+        // rows and the schema's `lists = 10`, the default probes=1 can skip most
+        // clusters entirely and miss real matches. Raising it database-wide (so it
+        // applies regardless of which pooled connection FindSimilarProducts/
+        // SemanticSearch happen to get) makes the embedding-ordering tests below
+        // deterministic — a tuning knob, not a correctness fix for production,
+        // where the catalog is large enough for the default to behave normally.
+        await using (var conn = await _pool.OpenAsync())
+        {
+            await conn.ExecuteAsync("ALTER DATABASE ecommerce_test SET ivfflat.probes = 10");
+        }
     }
 
     public async Task DisposeAsync()
@@ -106,6 +119,76 @@ public sealed class ProductToolsTests : IAsyncLifetime
     {
         var results = await _tools.GetTrendingProducts(limit: 50_000);
         results.Count.Should().BeLessThanOrEqualTo(100);
+    }
+
+    // ─────────────────────── FindSimilarProducts ─────────────
+    // No live embedding API call needed — the tool only reads pre-stored
+    // pgvector rows, so tests seed product_embeddings directly with
+    // literal vectors rather than mocking OpenAI.Embeddings.EmbeddingClient.
+
+    [Fact]
+    public async Task FindSimilarProducts_ReturnsErrorWhenNoEmbeddingExists()
+    {
+        var result = await _tools.FindSimilarProducts(Guid.NewGuid().ToString());
+
+        result.Should().ContainSingle();
+        result[0].Error.Should().NotBeNullOrEmpty();
+        result[0].Id.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task FindSimilarProducts_OrdersByCosineSimilarityAndExcludesSelf()
+    {
+        var (refId, closeId, farId) = await SeedEmbeddingsAsync();
+
+        var results = await _tools.FindSimilarProducts(refId.ToString(), limit: 5);
+
+        results.Select(r => r.Id).Should().NotContain(refId.ToString());
+        results.Select(r => r.Id).Should().ContainInOrder(closeId.ToString(), farId.ToString());
+        results.Should().AllSatisfy(r => r.Error.Should().BeNull());
+        results.First(r => r.Id == closeId.ToString()).Similarity.Should().BeApproximately(1.0, 0.0001);
+        results.First(r => r.Id == farId.ToString()).Similarity.Should().BeApproximately(0.0, 0.0001);
+    }
+
+    /// <summary>Seeds 3 products with hand-built 1536-dim pgvector rows: <c>refId</c>
+    /// and <c>closeId</c> get an identical "hot at index 0" vector (cosine
+    /// similarity 1.0), <c>farId</c> gets an orthogonal "hot at index 1" vector
+    /// (cosine similarity 0.0) — a deterministic ordering with no API call.</summary>
+    private async Task<(Guid RefId, Guid CloseId, Guid FarId)> SeedEmbeddingsAsync()
+    {
+        await using var conn = await _pool.OpenAsync();
+
+        async Task<Guid> InsertProductAsync(string name) =>
+            await conn.ExecuteScalarAsync<Guid>(
+                @"INSERT INTO products
+                    (name, description, category, brand, price, rating, review_count, is_active)
+                  VALUES (@name, 'embedding test product', 'Electronics', 'BrandX', 50.0, 4.5, 5, TRUE)
+                  RETURNING id",
+                new { name }
+            );
+
+        var refId = await InsertProductAsync("embed-ref");
+        var closeId = await InsertProductAsync("embed-close");
+        var farId = await InsertProductAsync("embed-far");
+
+        static string HotVector(int hotIndex)
+        {
+            var values = new double[1536];
+            values[hotIndex] = 1.0;
+            return "[" + string.Join(",", values) + "]";
+        }
+
+        await conn.ExecuteAsync(
+            "INSERT INTO product_embeddings (product_id, embedding) VALUES (@pid, @vec::vector)",
+            new[]
+            {
+                new { pid = refId, vec = HotVector(0) },
+                new { pid = closeId, vec = HotVector(0) },
+                new { pid = farId, vec = HotVector(1) },
+            }
+        );
+
+        return (refId, closeId, farId);
     }
 
     private async Task SeedProductsAsync()

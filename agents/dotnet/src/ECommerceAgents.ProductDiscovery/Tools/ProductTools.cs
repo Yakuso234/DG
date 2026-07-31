@@ -1,7 +1,9 @@
 using Dapper;
 using ECommerceAgents.Shared.Data;
 using Microsoft.Extensions.AI;
+using OpenAI.Embeddings;
 using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json;
 
 namespace ECommerceAgents.ProductDiscovery.Tools;
@@ -12,9 +14,10 @@ namespace ECommerceAgents.ProductDiscovery.Tools;
 /// same so both stacks answer equivalent queries against the same
 /// schema.
 /// </summary>
-public sealed class ProductTools(DatabasePool pool)
+public sealed class ProductTools(DatabasePool pool, EmbeddingClient embeddingClient)
 {
     private readonly DatabasePool _pool = pool;
+    private readonly EmbeddingClient _embeddingClient = embeddingClient;
 
     /// <summary>
     /// Whitelist of allowed <c>ORDER BY</c> clauses. Keys come from the
@@ -45,6 +48,8 @@ public sealed class ProductTools(DatabasePool pool)
         AIFunctionFactory.Create(GetProductDetails, nameof(GetProductDetails)),
         AIFunctionFactory.Create(CompareProducts, nameof(CompareProducts)),
         AIFunctionFactory.Create(GetTrendingProducts, nameof(GetTrendingProducts)),
+        AIFunctionFactory.Create(SemanticSearch, nameof(SemanticSearch)),
+        AIFunctionFactory.Create(FindSimilarProducts, nameof(FindSimilarProducts)),
     };
 
     [Description("Search the product catalog using natural language. Supports filtering by category, price range and rating.")]
@@ -232,6 +237,91 @@ public sealed class ProductTools(DatabasePool pool)
         )).ToList();
     }
 
+    [Description("Search products using semantic similarity via pgvector embeddings. Best for vague or descriptive queries like 'something cozy for winter' or 'gift for a tech enthusiast'.")]
+    public async Task<List<SemanticSearchResult>> SemanticSearch(
+        [Description("Descriptive search query in natural language")] string query,
+        [Description("Max results")] int limit = 5
+    )
+    {
+        var vectorText = await EmbedAsync(query);
+
+        await using var conn = await _pool.OpenAsync();
+        var rows = await conn.QueryAsync(
+            @"SELECT p.id, p.name, p.description, p.category, p.brand, p.price, p.rating,
+                     1 - (pe.embedding <=> @vector::vector) AS similarity
+              FROM product_embeddings pe
+              JOIN products p ON pe.product_id = p.id
+              WHERE p.is_active = TRUE
+              ORDER BY pe.embedding <=> @vector::vector
+              LIMIT @limit",
+            new { vector = vectorText, limit }
+        );
+        return rows.Select(r => new SemanticSearchResult(
+            Id: ((Guid)r.id).ToString(),
+            Name: (string)r.name,
+            Description: Truncate((string?)r.description ?? "", 150),
+            Category: (string)r.category,
+            Brand: (string?)r.brand ?? "",
+            Price: (decimal)r.price,
+            Rating: (decimal)r.rating,
+            Similarity: Math.Round((double)r.similarity, 3)
+        )).ToList();
+    }
+
+    [Description("Find products similar to a given product based on embedding similarity.")]
+    public async Task<List<SimilarProductResult>> FindSimilarProducts(
+        [Description("UUID of the reference product")] string productId,
+        [Description("Max results")] int limit = 5
+    )
+    {
+        if (!Guid.TryParse(productId, out var pid))
+        {
+            return new List<SimilarProductResult> { new(Error: $"No embedding found for product {productId}") };
+        }
+
+        await using var conn = await _pool.OpenAsync();
+
+        var refVectorText = await conn.QuerySingleOrDefaultAsync<string?>(
+            "SELECT embedding::text FROM product_embeddings WHERE product_id = @pid",
+            new { pid }
+        );
+        if (refVectorText is null)
+        {
+            return new List<SimilarProductResult> { new(Error: $"No embedding found for product {productId}") };
+        }
+
+        var rows = await conn.QueryAsync(
+            @"SELECT p.id, p.name, p.category, p.brand, p.price, p.rating,
+                     1 - (pe.embedding <=> @vector::vector) AS similarity
+              FROM product_embeddings pe
+              JOIN products p ON pe.product_id = p.id
+              WHERE pe.product_id != @pid AND p.is_active = TRUE
+              ORDER BY pe.embedding <=> @vector::vector
+              LIMIT @limit",
+            new { vector = refVectorText, pid, limit }
+        );
+        return rows.Select(r => new SimilarProductResult(
+            Id: ((Guid)r.id).ToString(),
+            Name: (string)r.name,
+            Category: (string)r.category,
+            Brand: (string?)r.brand ?? "",
+            Price: (decimal)r.price,
+            Rating: (decimal)r.rating,
+            Similarity: Math.Round((double)r.similarity, 3)
+        )).ToList();
+    }
+
+    /// <summary>Generates a query embedding and renders it as a pgvector text literal
+    /// (e.g. <c>[0.1,0.2,...]</c>) so it can be cast with <c>::vector</c> in SQL —
+    /// mirrors Python's <c>json.dumps(embedding)</c> passed as <c>$1::vector</c>.
+    /// Avoids needing a native Npgsql vector type mapping.</summary>
+    private async Task<string> EmbedAsync(string text)
+    {
+        var response = await _embeddingClient.GenerateEmbeddingAsync(text);
+        var values = response.Value.ToFloats().ToArray();
+        return "[" + string.Join(",", values.Select(v => v.ToString(CultureInfo.InvariantCulture))) + "]";
+    }
+
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
 }
@@ -273,4 +363,32 @@ public sealed record TrendingProduct(
     decimal Rating,
     int OrderCount,
     int UnitsSold
+);
+
+public sealed record SemanticSearchResult(
+    string Id,
+    string Name,
+    string Description,
+    string Category,
+    string Brand,
+    decimal Price,
+    decimal Rating,
+    double Similarity
+);
+
+/// <summary>
+/// Mirrors Python's <c>find_similar_products</c>, which returns
+/// <c>[{"error": "..."}]</c> (a one-element list, not an exception) when the
+/// reference product has no stored embedding — every field but
+/// <see cref="Error"/> is optional so both shapes serialize cleanly.
+/// </summary>
+public sealed record SimilarProductResult(
+    string? Id = null,
+    string? Name = null,
+    string? Category = null,
+    string? Brand = null,
+    decimal? Price = null,
+    decimal? Rating = null,
+    double? Similarity = null,
+    string? Error = null
 );
