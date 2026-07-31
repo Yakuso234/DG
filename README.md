@@ -12,7 +12,7 @@
 
 A **multi-agent e-commerce platform** built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) (MAF). Ships as **two complete, feature-parity backends — Python and .NET / C#** — both fully working implementations, not samples. Six specialized AI agents collaborate via **A2A protocol** to handle product discovery, orders, pricing, reviews, inventory, and customer support.
 
-**Pick your stack:** [`agents/python/`](./agents/python/) (see [Quick Start](#quick-start) below) or [`agents/dotnet/`](./agents/dotnet/) (`docker-compose.dotnet.yml`, see [`agents/dotnet/README.md`](./agents/dotnet/README.md)) — same database schema, same prompts, same Next.js frontend for either (toggle with `NEXT_PUBLIC_BACKEND_STACK`).
+**Pick your stack:** [`agents/python/`](./agents/python/) (see [Quick Start → Python](#run-the-python-backend) below) or [`agents/dotnet/`](./agents/dotnet/) (see [Quick Start → .NET](#run-the-net-backend) below, or [`agents/dotnet/README.md`](./agents/dotnet/README.md)) — same database schema, same prompts, same Next.js frontend for either (toggle with `NEXT_PUBLIC_BACKEND_STACK`).
 
 Companion demo repo for the AI article series on [nitinksingh.com](https://nitinksingh.com/posts/maf-v1-21-putting-it-all-together/).
 
@@ -24,8 +24,8 @@ Companion demo repo for the AI article series on [nitinksingh.com](https://nitin
 
 | I want to... | Go here |
 |---|---|
-| Run the Python backend locally | [Quick Start](#quick-start) below |
-| Run the .NET backend locally | [`agents/dotnet/README.md`](./agents/dotnet/README.md) (`docker-compose.dotnet.yml`) |
+| Run the Python backend locally | [Quick Start → Python](#run-the-python-backend) below |
+| Run the .NET backend locally | [Quick Start → .NET](#run-the-net-backend) below |
 | Understand how the agents work / add a new one | [Architecture](docs/architecture.md) · [Adding an Agent](docs/adding-an-agent.md) |
 | Use the MCP server | [MCP Integration](docs/mcp-integration.md) |
 | Follow the step-by-step tutorial series | [tutorials/README.md](./tutorials/README.md) |
@@ -34,12 +34,15 @@ Companion demo repo for the AI article series on [nitinksingh.com](https://nitin
 
 ## Quick Start
 
+Both backends share the same setup, the same Postgres schema, and the same Next.js frontend —
+only the compose file (and port-8080 orchestrator) differs. Pick one.
+
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 - An [OpenAI API key](https://platform.openai.com/api-keys) (or Azure OpenAI credentials)
 
-### Setup
+### Setup (shared by both stacks)
 
 ```bash
 # 1. Clone the repo
@@ -49,21 +52,44 @@ cd e-commerce-agents
 # 2. Configure environment
 cp .env.example .env
 # Edit .env — add your OPENAI_API_KEY (or Azure OpenAI credentials)
-
-# 3. Start everything (builds, seeds, and starts all services)
-./scripts/dev.sh
 ```
 
-Open in your browser:
+### Run the Python backend
+
+```bash
+# Option A — helper script (builds, seeds, and starts everything):
+./scripts/dev.sh
+
+# Option B — plain Docker Compose (equivalent, no script):
+docker compose --profile seed --profile agents --profile frontend up --build
+```
+
+### Run the .NET backend
+
+```bash
+# Option A — helper script:
+./scripts/dev.sh --dotnet
+
+# Option B — plain Docker Compose (equivalent, no script):
+docker compose -f docker-compose.dotnet.yml \
+  --profile seed --profile agents --profile mcp --profile frontend up --build
+```
+
+> Both compose files gate agents/frontend/seeder behind profiles — infra (`db`, `redis`, `aspire`)
+> starts unconditionally, but a bare `docker compose up` (no `--profile` flags) only brings up
+> infra. Use the commands above to get the full app.
+
+Open in your browser (either stack):
 - **Frontend**: http://localhost:3000
 - **Aspire Dashboard** (telemetry): http://localhost:18888
 
 ### Other Commands
 
 ```bash
-./scripts/dev.sh --clean       # Nuke volumes, rebuild from scratch
-./scripts/dev.sh --seed-only   # Re-run database seeder only
-./scripts/dev.sh --infra-only  # Start db + redis + aspire only
+./scripts/dev.sh --clean               # Nuke volumes, rebuild from scratch
+./scripts/dev.sh --seed-only           # Re-run database seeder only
+./scripts/dev.sh --infra-only          # Start db + redis + aspire only
+./scripts/dev.sh --clean --dotnet      # Same flags work with --dotnet too
 ```
 
 ---

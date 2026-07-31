@@ -2,10 +2,15 @@
 # ============================================================
 # E-Commerce Agents — Development Environment Setup
 # Usage:
-#   ./scripts/dev.sh              Full rebuild and start everything
+#   ./scripts/dev.sh              Full rebuild and start everything (Python backend)
+#   ./scripts/dev.sh --dotnet     Same, but targets the .NET backend instead
 #   ./scripts/dev.sh --clean      Nuke volumes, rebuild from scratch
 #   ./scripts/dev.sh --seed-only  Re-run seeder against existing DB
 #   ./scripts/dev.sh --infra-only Start db + redis + aspire only
+#
+# --dotnet composes with docker-compose.dotnet.yml instead of the default
+# docker-compose.yml, and adds the "mcp" profile (the .NET MCP inventory
+# host). Every other flag combines freely with it, e.g. --clean --dotnet.
 # ============================================================
 
 set -euo pipefail
@@ -101,12 +106,14 @@ print_summary() {
 CLEAN=false
 SEED_ONLY=false
 INFRA_ONLY=false
+DOTNET=false
 
 for arg in "$@"; do
     case $arg in
         --clean)      CLEAN=true ;;
         --seed-only)  SEED_ONLY=true ;;
         --infra-only) INFRA_ONLY=true ;;
+        --dotnet)     DOTNET=true ;;
         --help|-h)
             echo "Usage: ./scripts/dev.sh [OPTIONS]"
             echo ""
@@ -114,6 +121,7 @@ for arg in "$@"; do
             echo "  --clean       Remove volumes and rebuild from scratch"
             echo "  --seed-only   Re-run seeder against existing DB"
             echo "  --infra-only  Start db + redis + aspire only"
+            echo "  --dotnet      Target the .NET backend instead of Python"
             echo "  --help        Show this help"
             exit 0
             ;;
@@ -123,6 +131,28 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# ── Stack selection ──────────────────────────────────────────
+# Both compose files gate agents/seeder/frontend behind profiles; only
+# infra (db, redis, aspire) is unconditional. Everything below uses these
+# arrays instead of hardcoding "docker compose"/profile flags, so the rest
+# of the script is stack-agnostic.
+#   APP_PROFILES — down/build: every profile-gated service (incl. seed)
+#   RUN_PROFILES — final `up -d`: agents + frontend only (seed already ran
+#                  as its own one-shot `run --rm` step, so it's excluded
+#                  here to avoid re-seeding)
+
+if [ "$DOTNET" = true ]; then
+    COMPOSE=(docker compose -f docker-compose.dotnet.yml)
+    APP_PROFILES=(--profile seed --profile agents --profile mcp --profile frontend)
+    RUN_PROFILES=(--profile agents --profile mcp --profile frontend)
+    PGDATA_VOLUME_PATTERN='pgdata-dotnet$'
+else
+    COMPOSE=(docker compose)
+    APP_PROFILES=(--profile seed --profile agents --profile frontend)
+    RUN_PROFILES=(--profile agents --profile frontend)
+    PGDATA_VOLUME_PATTERN='_pgdata$'
+fi
 
 # ── Navigate to project root ─────────────────────────────────
 
@@ -159,10 +189,10 @@ fi
 
 if [ "$CLEAN" = true ]; then
     step "Cleaning up (removing containers, volumes, orphans)"
-    docker compose --profile seed --profile agents --profile frontend down -v --remove-orphans
+    "${COMPOSE[@]}" "${APP_PROFILES[@]}" down -v --remove-orphans
     # Aspire has no persistent volume — removing the container clears all in-memory
     # telemetry (traces, structured logs, metrics). Explicitly remove it to be certain.
-    docker compose rm -f aspire 2>/dev/null || true
+    "${COMPOSE[@]}" rm -f aspire 2>/dev/null || true
     success "Clean complete — containers, volumes, and Aspire telemetry data cleared"
 fi
 
@@ -172,22 +202,22 @@ if [ "$SEED_ONLY" = true ]; then
     step "Running seeder"
 
     # Ensure infra is running
-    docker compose up -d db redis aspire
-    wait_for_health "PostgreSQL" "docker compose exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
-    wait_for_health "Redis" "docker compose exec redis redis-cli ping"
+    "${COMPOSE[@]}" up -d db redis aspire
+    wait_for_health "PostgreSQL" "${COMPOSE[*]} exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
+    wait_for_health "Redis" "${COMPOSE[*]} exec redis redis-cli ping"
 
     # Verify DB credentials work (catches stale volumes)
-    if ! docker compose exec -T db sh -c 'PGPASSWORD=ecommerce_secret psql -h 127.0.0.1 -U ecommerce -d ecommerce_agents -c "SELECT 1"' > /dev/null 2>&1; then
+    if ! "${COMPOSE[@]}" exec -T db sh -c 'PGPASSWORD=ecommerce_secret psql -h 127.0.0.1 -U ecommerce -d ecommerce_agents -c "SELECT 1"' > /dev/null 2>&1; then
         warn "Database auth failed — stale Docker volume. Reinitializing..."
-        docker compose stop db
-        docker compose rm -f db
-        docker volume ls -q | grep '_pgdata$' | xargs docker volume rm 2>/dev/null || true
-        docker compose up -d db
-        wait_for_health "PostgreSQL" "docker compose exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
+        "${COMPOSE[@]}" stop db
+        "${COMPOSE[@]}" rm -f db
+        docker volume ls -q | grep "$PGDATA_VOLUME_PATTERN" | xargs docker volume rm 2>/dev/null || true
+        "${COMPOSE[@]}" up -d db
+        wait_for_health "PostgreSQL" "${COMPOSE[*]} exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
         success "Database reinitialized with correct credentials"
     fi
 
-    docker compose --profile seed run --rm seeder
+    "${COMPOSE[@]}" --profile seed run --rm seeder
     success "Seeder complete"
     exit 0
 fi
@@ -195,33 +225,33 @@ fi
 # ── Stop existing ─────────────────────────────────────────────
 
 step "Stopping existing containers"
-docker compose --profile seed --profile agents --profile frontend down --remove-orphans 2>/dev/null || true
+"${COMPOSE[@]}" "${APP_PROFILES[@]}" down --remove-orphans 2>/dev/null || true
 
 # ── Build ─────────────────────────────────────────────────────
 
 step "Building images"
 if [ "$CLEAN" = true ]; then
-    docker compose --profile seed --profile agents --profile frontend build --no-cache
+    "${COMPOSE[@]}" "${APP_PROFILES[@]}" build --no-cache
 else
-    docker compose --profile seed --profile agents --profile frontend build
+    "${COMPOSE[@]}" "${APP_PROFILES[@]}" build
 fi
 
 # ── Start Infrastructure ──────────────────────────────────────
 
 step "Starting infrastructure (db, redis, aspire)"
-docker compose up -d db redis aspire
+"${COMPOSE[@]}" up -d db redis aspire
 
-wait_for_health "PostgreSQL" "docker compose exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
-wait_for_health "Redis" "docker compose exec redis redis-cli ping"
+wait_for_health "PostgreSQL" "${COMPOSE[*]} exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
+wait_for_health "Redis" "${COMPOSE[*]} exec redis redis-cli ping"
 
 # Verify DB credentials work (catches stale volumes with old passwords)
-if ! docker compose exec -T db sh -c 'PGPASSWORD=ecommerce_secret psql -h 127.0.0.1 -U ecommerce -d ecommerce_agents -c "SELECT 1"' > /dev/null 2>&1; then
+if ! "${COMPOSE[@]}" exec -T db sh -c 'PGPASSWORD=ecommerce_secret psql -h 127.0.0.1 -U ecommerce -d ecommerce_agents -c "SELECT 1"' > /dev/null 2>&1; then
     warn "Database auth failed — stale Docker volume detected. Reinitializing..."
-    docker compose stop db
-    docker compose rm -f db
-    docker volume ls -q | grep '_pgdata$' | xargs docker volume rm 2>/dev/null || true
-    docker compose up -d db
-    wait_for_health "PostgreSQL" "docker compose exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
+    "${COMPOSE[@]}" stop db
+    "${COMPOSE[@]}" rm -f db
+    docker volume ls -q | grep "$PGDATA_VOLUME_PATTERN" | xargs docker volume rm 2>/dev/null || true
+    "${COMPOSE[@]}" up -d db
+    wait_for_health "PostgreSQL" "${COMPOSE[*]} exec db pg_isready -h 127.0.0.1 -U ecommerce -d ecommerce_agents" 60
     success "Database reinitialized with correct credentials"
 fi
 
@@ -230,7 +260,7 @@ success "Infrastructure is ready"
 # ── Run Seeder ────────────────────────────────────────────────
 
 step "Running database seeder"
-docker compose --profile seed run --rm seeder
+"${COMPOSE[@]}" --profile seed run --rm seeder
 success "Database seeded"
 
 # ── Infra Only ────────────────────────────────────────────────
@@ -244,7 +274,7 @@ fi
 # ── Start Agents ──────────────────────────────────────────────
 
 step "Starting agents and frontend"
-docker compose --profile agents --profile frontend up -d
+"${COMPOSE[@]}" "${RUN_PROFILES[@]}" up -d
 
 wait_for_http "Orchestrator"      "http://localhost:8080/health"
 wait_for_http "Product Discovery" "http://localhost:8081/health"
