@@ -255,7 +255,10 @@ public static class AdminRoutes
     private static async Task<IResult> GetAudit(
         DatabasePool pool,
         int limit = 50,
-        int offset = 0
+        int offset = 0,
+        [FromQuery(Name = "agent_name")] string? agentName = null,
+        string? status = null,
+        string? search = null
     )
     {
         var guard = RequireAdmin();
@@ -264,38 +267,51 @@ public static class AdminRoutes
         int clampedLimit = Math.Clamp(limit, 1, 200);
         int clampedOffset = Math.Max(0, offset);
 
+        // Mirrors Python's get_audit_log filters (routes.py:1297-1331) — .NET
+        // previously only accepted limit/offset and always scanned the whole
+        // table. Same DynamicParameters + shared-WHERE-on-both-queries pattern
+        // ProductRoutes.ListProducts already uses.
+        var conditions = new List<string>();
+        var parameters = new DynamicParameters();
+
+        if (!string.IsNullOrWhiteSpace(agentName))
+        {
+            conditions.Add("ul.agent_name = @agentName");
+            parameters.Add("agentName", agentName);
+        }
+        if (status is "success" or "error")
+        {
+            conditions.Add("ul.status = @status");
+            parameters.Add("status", status);
+        }
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            conditions.Add("(u.email ILIKE @search OR ul.input_summary ILIKE @search)");
+            parameters.Add("search", $"%{search}%");
+        }
+        var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+        parameters.Add("limit", clampedLimit);
+        parameters.Add("offset", clampedOffset);
+
         await using var conn = await pool.OpenAsync();
         var rows = (await conn.QueryAsync(
-            @"SELECT
+            $@"SELECT
                   ul.id, ul.agent_name, ul.input_summary, ul.tokens_in, ul.tokens_out,
                   ul.tool_calls_count, ul.duration_ms, ul.status, ul.error_message,
                   ul.trace_id, ul.created_at,
                   u.email AS user_email, u.name AS user_name
               FROM usage_logs ul
               LEFT JOIN users u ON ul.user_id = u.id
+              {where}
               ORDER BY ul.created_at DESC
               LIMIT @limit OFFSET @offset",
-            new { limit = clampedLimit, offset = clampedOffset }
+            parameters
         )).ToList();
 
         var entries = new List<object>();
         foreach (var r in rows)
         {
-            var steps = (await conn.QueryAsync(
-                @"SELECT step_index, tool_name, tool_input, tool_output, status, duration_ms
-                  FROM agent_execution_steps
-                  WHERE usage_log_id = @id
-                  ORDER BY step_index",
-                new { id = (Guid)r.id }
-            )).Select(s => new
-            {
-                step_index = Convert.ToInt32(s.step_index),
-                tool_name = (string?)s.tool_name,
-                tool_input = (string?)s.tool_input?.ToString(),
-                tool_output = (string?)s.tool_output?.ToString(),
-                status = (string?)s.status,
-                duration_ms = s.duration_ms is null ? (int?)null : Convert.ToInt32(s.duration_ms),
-            }).ToList();
+            var steps = await UsageLogSteps.FetchAsync(conn, (Guid)r.id);
 
             entries.Add(new
             {
@@ -316,7 +332,10 @@ public static class AdminRoutes
             });
         }
 
-        var total = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM usage_logs");
+        var total = await conn.ExecuteScalarAsync<long>(
+            $"SELECT COUNT(*) FROM usage_logs ul LEFT JOIN users u ON ul.user_id = u.id {where}",
+            parameters
+        );
 
         return Results.Ok(new
         {
