@@ -11,6 +11,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Xunit;
 
@@ -251,6 +252,59 @@ public sealed class ChatRoutesTests : IAsyncLifetime
 
         var detail = await client.GetFromJsonAsync<JsonElement>($"/api/conversations/{conversationId}");
         detail.GetProperty("messages").GetArrayLength().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task StreamAsync_PreservesEmbeddedNewlinesInSseFraming()
+    {
+        // Regression: a naive `data: {chunk}\n\n` line breaks once chunk itself
+        // contains real newlines — the frontend's event boundary is any "\n\n" in
+        // the buffer (web/src/lib/api.ts::chatStream), so an embedded "\n\n" (or a
+        // lone-newline delta arriving as its own chunk) gets misread as ending the
+        // event early, silently dropping the newline from the reconstructed
+        // message. Chunks must be sent as proper SSE multi-line data (one
+        // "data: <line>" per line, spec §9.2.6) so the frontend's own
+        // dataParts.join("\n") reconstructs the original text exactly — including
+        // markdown list separators and the blank line between a ```product fence
+        // and its JSON body.
+        var original = "Highlights:\n- Over-ear design\n- 30 hour battery\n\n```product\n{\"name\":\"Test\"}\n```\n\nWant more?";
+        using var client = ClientFor(new FakeChatClient().EnqueueResponse(original));
+
+        var response = await client.PostAsJsonAsync("/api/chat/stream", new { message = "tell me" });
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync();
+
+        ReconstructTextFromSse(body).Should().Be(original);
+    }
+
+    /// <summary>Mirrors web/src/lib/api.ts::chatStream's SSE parsing exactly, so
+    /// this test fails the same way a real browser client would regress.</summary>
+    private static string ReconstructTextFromSse(string body)
+    {
+        var text = new StringBuilder();
+        foreach (var evt in body.Split("\n\n"))
+        {
+            if (evt.Length == 0) continue;
+            var lines = evt.Split('\n');
+            var eventType = "";
+            var dataParts = new List<string>();
+            foreach (var line in lines)
+            {
+                if (line.StartsWith("event: "))
+                {
+                    eventType = line["event: ".Length..].Trim();
+                }
+                else if (line.StartsWith("data: "))
+                {
+                    dataParts.Add(line["data: ".Length..]);
+                }
+            }
+            if (dataParts.Count == 0) continue;
+            var data = string.Join("\n", dataParts);
+            if (data == "[DONE]" || eventType is "step" or "metadata") continue;
+            text.Append(data);
+        }
+        return text.ToString();
     }
 
     [Fact]

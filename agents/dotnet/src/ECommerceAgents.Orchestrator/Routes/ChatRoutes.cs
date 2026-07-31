@@ -120,14 +120,26 @@ public static class ChatRoutes
             }
 
             responseText.Append(update.Text);
-            // Matches Python's raw pass-through (agent_host.py: yield f"data: {chunk}\n\n") —
-            // no newline escaping. The frontend's SSE parser (web/src/lib/api.ts::chatStream)
-            // reconstructs multi-line data payloads using real newlines per the SSE spec;
-            // escaping \n to the literal two-character "\n" here broke both the visible text
-            // (literal backslash-n showing up in the UI) and the ```product/```order card
-            // detection regex, which requires a real newline after the fence marker.
-            var payload = $"data: {update.Text}\n\n";
-            await context.Response.WriteAsync(payload, Encoding.UTF8);
+            // SSE multi-line data encoding (spec §9.2.6): a chunk containing raw
+            // newlines must be sent as one "data: <line>" per line within a single
+            // event, terminated by exactly one blank line — not embedded as literal
+            // newlines inside one "data:" line. Embedding them raw breaks framing: the
+            // frontend's event boundary is any "\n\n" in the buffer (api.ts::chatStream),
+            // so a chunk that is itself just "\n" (a lone-newline delta, common between
+            // markdown list items) would prematurely end the event and get parsed as a
+            // separate, empty "data:" line — silently dropping that newline from the
+            // reconstructed message. Splitting per-line here lets the frontend's existing
+            // dataParts.join("\n") correctly reassemble the chunk exactly as authored,
+            // including embedded blank lines (e.g. between a ```product fence and its
+            // JSON body).
+            var lines = update.Text.Split('\n');
+            var frame = new StringBuilder();
+            foreach (var line in lines)
+            {
+                frame.Append("data: ").Append(line).Append('\n');
+            }
+            frame.Append('\n');
+            await context.Response.WriteAsync(frame.ToString(), Encoding.UTF8);
             await context.Response.Body.FlushAsync();
         }
         sw.Stop();
