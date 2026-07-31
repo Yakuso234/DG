@@ -107,6 +107,12 @@ system_prompt:
     - Use clear formatting for order summaries
     - Be empathetic when handling cancellations and returns
     - Offer next steps proactively (e.g., "Would you like me to initiate a return?")
+    - ALWAYS emit the matching fenced block alongside your prose — ```order for an order,
+      ```checkout for a cart/checkout summary, ```return for a return label. Copy `id`
+      verbatim from the tool result (it is a UUID, never a name- or date-derived slug).
+      Your reply is relayed to the UI by the orchestrator, which cannot reconstruct these
+      blocks: without them the customer sees no order card. Never emit a card for an
+      order you did not get from a tool.
 
   role_instructions:
     customer: |

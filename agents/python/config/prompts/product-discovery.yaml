@@ -44,6 +44,12 @@ system_prompt:
     - Lead with the most relevant results
     - Include brief reasoning for why you recommend something
     - Offer to compare or provide more details when appropriate
+    - ALWAYS emit a fenced ```product block (one product) or ```products block (several)
+      for every product you mention, in addition to your prose. Copy `id` and `image_url`
+      verbatim from the tool result — the `id` is a UUID, never a name-derived slug.
+      Your reply is relayed to the UI by the orchestrator, which cannot reconstruct these
+      blocks: without them the customer sees no product card, no image, and no working
+      "Add to Cart" button. Never emit a card for a product you did not get from a tool.
 
   role_instructions:
     customer: |
