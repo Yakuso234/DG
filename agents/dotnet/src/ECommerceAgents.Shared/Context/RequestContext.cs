@@ -17,6 +17,7 @@ public static class RequestContext
     private static readonly AsyncLocal<string?> _userRole = new();
     private static readonly AsyncLocal<string?> _sessionId = new();
     private static readonly AsyncLocal<IReadOnlyList<HistoryEntry>?> _history = new();
+    private static readonly AsyncLocal<List<string>?> _invokedAgents = new();
 
     public static string CurrentUserEmail
     {
@@ -42,19 +43,41 @@ public static class RequestContext
         set => _history.Value = value;
     }
 
+    /// <summary>
+    /// Specialist agents invoked so far during the current chat turn — appended to by
+    /// <c>OrchestratorTools.CallSpecialistAgent</c> on every A2A call. Backs the
+    /// streaming chat endpoint's dynamic <c>agents_involved</c>, mirroring Python's
+    /// <c>current_steps</c> ContextVar (<c>orchestrator/routes.py:655</c>). The
+    /// blocking endpoint doesn't need this — Python's own blocking handler never
+    /// grows <c>agents_involved</c> past <c>["orchestrator"]</c> either.
+    /// </summary>
+    public static IReadOnlyList<string> CurrentInvokedAgents =>
+        (IReadOnlyList<string>?)_invokedAgents.Value ?? Array.Empty<string>();
+
+    /// <summary>Records that <paramref name="agentName"/> was called via A2A during this request.</summary>
+    public static void RecordInvokedAgent(string agentName) => _invokedAgents.Value?.Add(agentName);
+
     public static IDisposable Scope(string email, string role, string sessionId, IReadOnlyList<HistoryEntry>? history = null)
     {
-        var previous = (Email: _userEmail.Value, Role: _userRole.Value, Session: _sessionId.Value, History: _history.Value);
+        var previous = (
+            Email: _userEmail.Value,
+            Role: _userRole.Value,
+            Session: _sessionId.Value,
+            History: _history.Value,
+            InvokedAgents: _invokedAgents.Value
+        );
         _userEmail.Value = email;
         _userRole.Value = role;
         _sessionId.Value = sessionId;
         _history.Value = history ?? Array.Empty<HistoryEntry>();
+        _invokedAgents.Value = new List<string>();
         return new Disposable(() =>
         {
             _userEmail.Value = previous.Email;
             _userRole.Value = previous.Role;
             _sessionId.Value = previous.Session;
             _history.Value = previous.History;
+            _invokedAgents.Value = previous.InvokedAgents;
         });
     }
 

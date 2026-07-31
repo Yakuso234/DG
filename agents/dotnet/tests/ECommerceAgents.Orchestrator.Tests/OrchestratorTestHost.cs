@@ -27,7 +27,8 @@ public static class OrchestratorTestHost
         DatabasePool pool,
         Action<IEndpointRouteBuilder> mapRoutes,
         AgentSettings? settingsOverride = null,
-        HttpMessageHandler? authServerHandler = null
+        HttpMessageHandler? authServerHandler = null,
+        Action<IServiceCollection>? configureServices = null
     )
     {
         var settings = (settingsOverride ?? new AgentSettings()) with
@@ -55,6 +56,7 @@ public static class OrchestratorTestHost
                         opts.SerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower;
                         opts.SerializerOptions.PropertyNameCaseInsensitive = true;
                     });
+                    configureServices?.Invoke(services);
                 });
                 web.Configure(app =>
                 {

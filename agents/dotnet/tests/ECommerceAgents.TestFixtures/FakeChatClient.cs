@@ -1,25 +1,31 @@
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
+using System.Runtime.CompilerServices;
 
 namespace ECommerceAgents.TestFixtures;
 
 /// <summary>
-/// Deterministic chat client for tests. Queues a list of canned responses; each call pops the next one.
-/// Replaces MAF's <c>IChatClient</c> in unit tests so no real LLM call is made.
+/// Deterministic <see cref="IChatClient"/> for LLM-less unit tests. Queues a
+/// list of canned text responses; each call pops the next one. Wrap with
+/// <c>chatClient.AsAIAgent(instructions:, name:)</c> (<c>Microsoft.Agents.AI</c>
+/// — same extension method <c>SpecialistAgentFactory.Create</c> uses) to build
+/// a real <c>AIAgent</c> backed by this fake, so route/persistence tests never
+/// make a real LLM call.
 /// </summary>
 /// <remarks>
-/// Minimal stub implementation — MAF's IChatClient contract is documented in
-/// <c>docs/architecture.md</c>. For enhancement plans see <c>.claude/plans/enhancements/</c>.
+/// Previously a bespoke stub with its own <c>CompleteAsync</c> shape that
+/// didn't actually implement <see cref="IChatClient"/> — unusable to
+/// construct a real <c>AIAgent</c> and had zero call sites. Rewritten to the
+/// real interface (3 methods: <see cref="GetResponseAsync"/>,
+/// <see cref="GetStreamingResponseAsync"/>, <see cref="GetService"/>) so it
+/// actually delivers on this file's original stated purpose.
 /// </remarks>
-public sealed class FakeChatClient
+public sealed class FakeChatClient : IChatClient
 {
     private readonly Queue<string> _responses = new();
+    private readonly List<IEnumerable<ChatMessage>> _receivedMessages = new();
 
     public int CallCount { get; private set; }
-
-    public IReadOnlyList<string> ReceivedPrompts => _receivedPrompts;
-    private readonly List<string> _receivedPrompts = new();
+    public IReadOnlyList<IEnumerable<ChatMessage>> ReceivedMessages => _receivedMessages;
 
     public FakeChatClient EnqueueResponse(string response)
     {
@@ -27,17 +33,44 @@ public sealed class FakeChatClient
         return this;
     }
 
-    public Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken = default)
+    public Task<ChatResponse> GetResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        _receivedMessages.Add(messages);
+        var text = NextResponse();
+        return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, text)));
+    }
+
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default
+    )
+    {
+        _receivedMessages.Add(messages);
+        var text = NextResponse();
+        yield return new ChatResponseUpdate(ChatRole.Assistant, text);
+        await Task.CompletedTask;
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose()
+    {
+    }
+
+    private string NextResponse()
     {
         CallCount++;
-        _receivedPrompts.Add(prompt);
-
         if (_responses.Count == 0)
         {
-            throw new System.InvalidOperationException(
-                "FakeChatClient has no enqueued responses. Call EnqueueResponse before invoking.");
+            throw new InvalidOperationException(
+                "FakeChatClient has no enqueued responses. Call EnqueueResponse before invoking."
+            );
         }
-
-        return Task.FromResult(_responses.Dequeue());
+        return _responses.Dequeue();
     }
 }
