@@ -56,7 +56,22 @@ public sealed class PromptLoader
         var agentPath = Path.Combine(_promptsRoot, $"{agentName}.yaml");
         if (!File.Exists(agentPath))
         {
-            return string.Empty;
+            // Fail fast rather than returning an empty prompt. Silently returning
+            // string.Empty meant every specialist ran with NO system prompt at all —
+            // no grounding rules, no card formatting, no role confinement, no
+            // injection resistance — for as long as the caller passed a name that
+            // didn't match a file (the agents passed snake_case names like
+            // "product_discovery" while the files are kebab-case
+            // "product-discovery.yaml"). An agent with no instructions still
+            // answers plausibly, so nothing looked broken until cards stopped
+            // rendering. A missing prompt is a deploy/wiring bug: crash at startup
+            // with the available names instead of degrading invisibly.
+            var available = Directory.Exists(_promptsRoot)
+                ? string.Join(", ", Directory.GetFiles(_promptsRoot, "*.yaml").Select(Path.GetFileNameWithoutExtension).Order())
+                : "<prompts root not found>";
+            throw new FileNotFoundException(
+                $"No prompt file for agent '{agentName}' at '{agentPath}'. Available: {available}."
+            );
         }
 
         var config = _yaml.Deserialize<Dictionary<string, object>>(File.ReadAllText(agentPath))
