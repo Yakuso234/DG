@@ -3,6 +3,7 @@ using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
 using ECommerceAgents.Shared.Guardrails;
+using ECommerceAgents.Shared.Middleware;
 using Microsoft.Extensions.AI;
 using System.ComponentModel;
 
@@ -13,12 +14,16 @@ namespace ECommerceAgents.InventoryFulfillment.Tools;
 /// <c>agents/python/inventory_fulfillment/tools.py</c> for the four
 /// read-only inventory + shipping tools. The two state-mutating tools
 /// (<see cref="CalculateFulfillmentPlan"/>, <see cref="PlaceBackorder"/>)
-/// are role-gated to seller/admin (see <see cref="RoleGuard"/>).
+/// are role-gated to seller/admin (see <see cref="RoleGuard"/>);
+/// <see cref="PlaceBackorder"/> alone is additionally HITL-gated, matching
+/// Python's <c>HITL_GATED_TOOLS</c> (<c>calculate_fulfillment_plan</c> is
+/// role-gated only, not HITL-gated, in both stacks).
 /// </summary>
-public sealed class InventoryTools(DatabasePool pool, AgentSettings settings)
+public sealed class InventoryTools(DatabasePool pool, AgentSettings settings, HitlApprovalMiddleware hitl)
 {
     private readonly DatabasePool _pool = pool;
     private readonly AgentSettings _settings = settings;
+    private readonly HitlApprovalMiddleware _hitl = hitl;
 
     public IEnumerable<AITool> All() => new AITool[]
     {
@@ -413,91 +418,116 @@ public sealed class InventoryTools(DatabasePool pool, AgentSettings settings)
         [Description("Quantity to backorder (>=1)")] int quantity
     )
     {
-        if (RoleGuard.Ensure(_settings, "seller", "admin") is { } denied)
-        {
-            return PlaceBackorderResult.Failure(denied);
-        }
+        return await _hitl.GuardAsync(
+            toolName: "place_backorder",
+            agentName: "inventory-fulfillment",
+            toolInputForAudit: new { product_id = productId, quantity },
+            body: async () =>
+            {
+                if (RoleGuard.Ensure(_settings, "seller", "admin") is { } denied)
+                {
+                    return PlaceBackorderResult.Failure(denied);
+                }
 
-        var email = RequestContext.CurrentUserEmail;
-        if (string.IsNullOrEmpty(email))
-        {
-            return PlaceBackorderResult.Failure("No user context available");
-        }
-        if (!Guid.TryParse(productId, out var pid))
-        {
-            return PlaceBackorderResult.Failure($"Product not found: {productId}");
-        }
-        if (quantity <= 0)
-        {
-            return PlaceBackorderResult.Failure("Quantity must be greater than zero");
-        }
+                var email = RequestContext.CurrentUserEmail;
+                if (string.IsNullOrEmpty(email))
+                {
+                    return PlaceBackorderResult.Failure("No user context available");
+                }
+                if (!Guid.TryParse(productId, out var pid))
+                {
+                    return PlaceBackorderResult.Failure($"Product not found: {productId}");
+                }
+                if (quantity <= 0)
+                {
+                    return PlaceBackorderResult.Failure("Quantity must be greater than zero");
+                }
 
-        await using var conn = await _pool.OpenAsync();
-        var product = await conn.QueryFirstOrDefaultAsync(
-            "SELECT id, name, price FROM products WHERE id = @pid",
-            new { pid }
-        );
-        if (product is null)
-        {
-            return PlaceBackorderResult.Failure($"Product not found: {productId}");
-        }
+                await using var conn = await _pool.OpenAsync();
+                var product = await conn.QueryFirstOrDefaultAsync(
+                    "SELECT id, name, price FROM products WHERE id = @pid",
+                    new { pid }
+                );
+                if (product is null)
+                {
+                    return PlaceBackorderResult.Failure($"Product not found: {productId}");
+                }
 
-        var totalStock = await conn.ExecuteScalarAsync<int>(
-            @"SELECT COALESCE(SUM(quantity), 0)
-              FROM warehouse_inventory
-              WHERE product_id = @pid",
-            new { pid }
-        );
+                var totalStock = await conn.ExecuteScalarAsync<int>(
+                    @"SELECT COALESCE(SUM(quantity), 0)
+                      FROM warehouse_inventory
+                      WHERE product_id = @pid",
+                    new { pid }
+                );
 
-        var productName = (string)product.name;
-        if (totalStock > 0)
-        {
-            return new PlaceBackorderResult(
+                var productName = (string)product.name;
+                if (totalStock > 0)
+                {
+                    return new PlaceBackorderResult(
+                        Error: null,
+                        BackorderPlaced: false,
+                        BackorderId: null,
+                        ProductId: productId,
+                        ProductName: productName,
+                        Quantity: null,
+                        UnitPrice: null,
+                        EstimatedTotal: null,
+                        UserEmail: email,
+                        ExpectedRestock: null,
+                        CurrentStock: totalStock,
+                        Message: $"Product is currently in stock ({totalStock} units available). No backorder needed."
+                    );
+                }
+
+                var nextRestock = await conn.QueryFirstOrDefaultAsync(
+                    @"SELECT rs.expected_date, rs.expected_quantity, w.name AS warehouse
+                      FROM restock_schedule rs
+                      JOIN warehouses w ON rs.warehouse_id = w.id
+                      WHERE rs.product_id = @pid AND rs.expected_date >= CURRENT_DATE
+                      ORDER BY rs.expected_date
+                      LIMIT 1",
+                    new { pid }
+                );
+
+                var unitPrice = (decimal)product.price;
+                return new PlaceBackorderResult(
+                    Error: null,
+                    BackorderPlaced: true,
+                    BackorderId: Guid.NewGuid().ToString(),
+                    ProductId: productId,
+                    ProductName: productName,
+                    Quantity: quantity,
+                    UnitPrice: unitPrice,
+                    EstimatedTotal: Math.Round(unitPrice * quantity, 2),
+                    UserEmail: email,
+                    ExpectedRestock: nextRestock is null
+                        ? null
+                        : new RestockForecast(
+                            Date: ((DateTime)nextRestock.expected_date).ToString("yyyy-MM-dd"),
+                            Quantity: (int)nextRestock.expected_quantity,
+                            Warehouse: (string)nextRestock.warehouse
+                        ),
+                    CurrentStock: 0,
+                    Message: "Backorder placed successfully. You will be notified when the product is back in stock."
+                );
+            },
+            pendingResult: requestId => new PlaceBackorderResult(
                 Error: null,
                 BackorderPlaced: false,
                 BackorderId: null,
                 ProductId: productId,
-                ProductName: productName,
-                Quantity: null,
+                ProductName: null,
+                Quantity: quantity,
                 UnitPrice: null,
                 EstimatedTotal: null,
-                UserEmail: email,
+                UserEmail: RequestContext.CurrentUserEmail,
                 ExpectedRestock: null,
-                CurrentStock: totalStock,
-                Message: $"Product is currently in stock ({totalStock} units available). No backorder needed."
-            );
-        }
-
-        var nextRestock = await conn.QueryFirstOrDefaultAsync(
-            @"SELECT rs.expected_date, rs.expected_quantity, w.name AS warehouse
-              FROM restock_schedule rs
-              JOIN warehouses w ON rs.warehouse_id = w.id
-              WHERE rs.product_id = @pid AND rs.expected_date >= CURRENT_DATE
-              ORDER BY rs.expected_date
-              LIMIT 1",
-            new { pid }
-        );
-
-        var unitPrice = (decimal)product.price;
-        return new PlaceBackorderResult(
-            Error: null,
-            BackorderPlaced: true,
-            BackorderId: Guid.NewGuid().ToString(),
-            ProductId: productId,
-            ProductName: productName,
-            Quantity: quantity,
-            UnitPrice: unitPrice,
-            EstimatedTotal: Math.Round(unitPrice * quantity, 2),
-            UserEmail: email,
-            ExpectedRestock: nextRestock is null
-                ? null
-                : new RestockForecast(
-                    Date: ((DateTime)nextRestock.expected_date).ToString("yyyy-MM-dd"),
-                    Quantity: (int)nextRestock.expected_quantity,
-                    Warehouse: (string)nextRestock.warehouse
-                ),
-            CurrentStock: 0,
-            Message: "Backorder placed successfully. You will be notified when the product is back in stock."
+                CurrentStock: null,
+                Message:
+                    $"Your request to place a backorder has been submitted for manager approval " +
+                    $"(ref: {requestId.ToString()[..8]}). You will be notified once an admin reviews it. " +
+                    "No changes have been made yet."
+            )
         );
     }
 }

@@ -3,6 +3,7 @@ using ECommerceAgents.InventoryFulfillment.Tools;
 using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
+using ECommerceAgents.Shared.Middleware;
 using ECommerceAgents.TestFixtures;
 using FluentAssertions;
 using Xunit;
@@ -35,9 +36,11 @@ public sealed class InventoryToolsTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString };
+        // HitlEnabled: false — these tests exercise place_backorder's own
+        // business logic, not the HITL gate (that's HitlApprovalTests.cs).
+        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString, HitlEnabled = false };
         _pool = new DatabasePool(settings);
-        _tools = new InventoryTools(_pool, settings);
+        _tools = new InventoryTools(_pool, settings, new HitlApprovalMiddleware(_pool, settings));
         RequestContext.CurrentUserEmail = Email;
         RequestContext.CurrentUserRole = "seller";
         await SeedAsync();
@@ -49,7 +52,7 @@ public sealed class InventoryToolsTests : IAsyncLifetime
         await conn.ExecuteAsync(
             @"TRUNCATE order_status_history, order_items, orders, restock_schedule,
                        warehouse_inventory, shipping_rates, carriers, warehouses,
-                       products, users RESTART IDENTITY CASCADE"
+                       products, users, tool_approval_requests RESTART IDENTITY CASCADE"
         );
         RequestContext.CurrentUserEmail = "";
         RequestContext.CurrentUserRole = "";
@@ -273,6 +276,33 @@ public sealed class InventoryToolsTests : IAsyncLifetime
         result.ExpectedRestock.Should().NotBeNull();
     }
 
+    [Fact]
+    public async Task PlaceBackorder_WhenHitlEnabled_ReturnsPendingAndCreatesNoBackorder()
+    {
+        // Separate HitlEnabled=true instance — the class-level _tools fixture
+        // runs with it off (see InitializeAsync) so the tests above exercise
+        // real business logic, not the gate.
+        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString, HitlEnabled = true };
+        var gatedTools = new InventoryTools(_pool, settings, new HitlApprovalMiddleware(_pool, settings));
+
+        EnsureUserScope();
+        await using (var conn = await _pool.OpenAsync())
+        {
+            await conn.ExecuteAsync("UPDATE warehouse_inventory SET quantity = 0");
+        }
+        var result = await gatedTools.PlaceBackorder(_productId.ToString(), 3);
+
+        result.Error.Should().BeNull();
+        result.Message.Should().Contain("submitted for manager approval");
+        result.BackorderPlaced.Should().BeFalse(); // not actually placed yet
+
+        await using var check = await _pool.OpenAsync();
+        var pendingCount = await check.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM tool_approval_requests WHERE tool_name = 'place_backorder' AND status = 'pending'"
+        );
+        pendingCount.Should().Be(1);
+    }
+
     // ─────────────────────── seed ────────────────────────────
 
     private async Task SeedAsync()
@@ -281,7 +311,7 @@ public sealed class InventoryToolsTests : IAsyncLifetime
         await conn.ExecuteAsync(
             @"TRUNCATE order_status_history, order_items, orders, restock_schedule,
                        warehouse_inventory, shipping_rates, carriers, warehouses,
-                       products, users RESTART IDENTITY CASCADE"
+                       products, users, tool_approval_requests RESTART IDENTITY CASCADE"
         );
 
         var userId = await conn.ExecuteScalarAsync<Guid>(

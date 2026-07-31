@@ -3,6 +3,7 @@ using ECommerceAgents.OrderManagement.Tools;
 using ECommerceAgents.Shared.Configuration;
 using ECommerceAgents.Shared.Context;
 using ECommerceAgents.Shared.Data;
+using ECommerceAgents.Shared.Middleware;
 using ECommerceAgents.TestFixtures;
 using FluentAssertions;
 using Xunit;
@@ -40,9 +41,13 @@ public sealed class OrderToolsTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString };
+        // HitlEnabled: false — these tests exercise cancel_order/modify_order's
+        // own business logic, not the HITL gate (that's HitlApprovalTests.cs).
+        // Without this, every call would short-circuit to a pending-approval
+        // result instead of running the real cancel/modify path.
+        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString, HitlEnabled = false };
         _pool = new DatabasePool(settings);
-        _tools = new OrderTools(_pool, settings);
+        _tools = new OrderTools(_pool, settings, new HitlApprovalMiddleware(_pool, settings));
         RequestContext.CurrentUserEmail = Email;
         RequestContext.CurrentUserRole = "customer";
         await SeedAsync();
@@ -52,7 +57,7 @@ public sealed class OrderToolsTests : IAsyncLifetime
     {
         await using var conn = await _pool.OpenAsync();
         await conn.ExecuteAsync(
-            "TRUNCATE order_status_history, order_items, orders, products, users RESTART IDENTITY CASCADE"
+            "TRUNCATE order_status_history, order_items, orders, products, users, tool_approval_requests RESTART IDENTITY CASCADE"
         );
         RequestContext.CurrentUserEmail = "";
         RequestContext.CurrentUserRole = "";
@@ -236,6 +241,33 @@ public sealed class OrderToolsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CancelOrder_WhenHitlEnabled_ReturnsPendingAndDoesNotMutateOrder()
+    {
+        // Separate HitlEnabled=true instance — the class-level _tools fixture
+        // runs with it off (see InitializeAsync) so the tests above exercise
+        // real business logic, not the gate.
+        var settings = new AgentSettings { DatabaseUrl = _pg.ConnectionString, HitlEnabled = true };
+        var gatedTools = new OrderTools(_pool, settings, new HitlApprovalMiddleware(_pool, settings));
+
+        EnsureUserScope();
+        var orderId = await GetFirstOrderIdByStatus("placed");
+        var result = await gatedTools.CancelOrder(orderId.ToString(), "ordered the wrong size");
+
+        result.Error.Should().BeNull();
+        result.Message.Should().Contain("submitted for manager approval");
+        result.NewStatus.Should().BeNull(); // not actually cancelled yet
+
+        await using var conn = await _pool.OpenAsync();
+        var dbStatus = await conn.ExecuteScalarAsync<string>("SELECT status FROM orders WHERE id = @id", new { id = orderId });
+        dbStatus.Should().Be("placed"); // unchanged — HITL intercepted before the real logic ran
+
+        var pendingCount = await conn.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM tool_approval_requests WHERE tool_name = 'cancel_order' AND status = 'pending'"
+        );
+        pendingCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ModifyOrder_RejectsBadAddress()
     {
         EnsureUserScope();
@@ -297,7 +329,7 @@ public sealed class OrderToolsTests : IAsyncLifetime
     {
         await using var conn = await _pool.OpenAsync();
         await conn.ExecuteAsync(
-            "TRUNCATE order_status_history, order_items, orders, products, users RESTART IDENTITY CASCADE"
+            "TRUNCATE order_status_history, order_items, orders, products, users, tool_approval_requests RESTART IDENTITY CASCADE"
         );
 
         _userId = await conn.ExecuteScalarAsync<Guid>(
