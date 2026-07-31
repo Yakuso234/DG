@@ -120,7 +120,13 @@ public static class ChatRoutes
             }
 
             responseText.Append(update.Text);
-            var payload = $"data: {update.Text.Replace("\n", "\\n")}\n\n";
+            // Matches Python's raw pass-through (agent_host.py: yield f"data: {chunk}\n\n") —
+            // no newline escaping. The frontend's SSE parser (web/src/lib/api.ts::chatStream)
+            // reconstructs multi-line data payloads using real newlines per the SSE spec;
+            // escaping \n to the literal two-character "\n" here broke both the visible text
+            // (literal backslash-n showing up in the UI) and the ```product/```order card
+            // detection regex, which requires a real newline after the fence marker.
+            var payload = $"data: {update.Text}\n\n";
             await context.Response.WriteAsync(payload, Encoding.UTF8);
             await context.Response.Body.FlushAsync();
         }
