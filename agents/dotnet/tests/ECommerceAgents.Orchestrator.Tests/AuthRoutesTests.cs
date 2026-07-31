@@ -71,7 +71,13 @@ public sealed class AuthRoutesTests : IAsyncLifetime
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         payload.GetProperty("access_token").GetString().Should().NotBeNullOrEmpty();
         payload.GetProperty("refresh_token").GetString().Should().NotBeNullOrEmpty();
-        payload.GetProperty("role").GetString().Should().Be("customer");
+        // Nested `user` object — the frontend's auth-context.tsx reads result.user
+        // directly (matching Python's AuthResponse.user contract); a flat response
+        // here leaves `user` undefined client-side and login silently never redirects.
+        var user = payload.GetProperty("user");
+        user.GetProperty("email").GetString().Should().Be("newbie@example.com");
+        user.GetProperty("name").GetString().Should().Be("New Bie");
+        user.GetProperty("role").GetString().Should().Be("customer");
     }
 
     [Fact]
@@ -94,8 +100,10 @@ public sealed class AuthRoutesTests : IAsyncLifetime
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         payload.GetProperty("access_token").GetString().Should().NotBeNullOrEmpty();
-        payload.GetProperty("email").GetString().Should().Be(Email);
-        payload.GetProperty("role").GetString().Should().Be("customer");
+        var user = payload.GetProperty("user");
+        user.GetProperty("email").GetString().Should().Be(Email);
+        user.GetProperty("name").GetString().Should().Be("Auth Tester");
+        user.GetProperty("role").GetString().Should().Be("customer");
     }
 
     [Fact]
@@ -104,6 +112,24 @@ public sealed class AuthRoutesTests : IAsyncLifetime
         using var client = ClientFor();
         var response = await client.PostAsJsonAsync("/api/auth/login", new { email = Email, password = "wrong" });
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Login_LocalMode_RejectsDeactivatedAccount()
+    {
+        const string email = "deactivated@example.com";
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(Password);
+        await using (var conn = await _pool.OpenAsync())
+        {
+            await conn.ExecuteAsync(
+                "INSERT INTO users (email, password_hash, name, role, is_active) VALUES (@email, @passwordHash, 'Deactivated', 'customer', false)",
+                new { email, passwordHash }
+            );
+        }
+
+        using var client = ClientFor();
+        var response = await client.PostAsJsonAsync("/api/auth/login", new { email, password = Password });
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -118,6 +144,32 @@ public sealed class AuthRoutesTests : IAsyncLifetime
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         payload.GetProperty("access_token").GetString().Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Refresh_LocalMode_RejectsWhenAccountDeactivatedAfterTokenIssued()
+    {
+        const string email = "refresh-then-deactivate@example.com";
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(Password);
+        await using (var conn = await _pool.OpenAsync())
+        {
+            await conn.ExecuteAsync(
+                "INSERT INTO users (email, password_hash, name, role) VALUES (@email, @passwordHash, 'Soon Deactivated', 'customer')",
+                new { email, passwordHash }
+            );
+        }
+
+        using var client = ClientFor();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password = Password });
+        var refreshToken = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("refresh_token").GetString();
+
+        await using (var conn = await _pool.OpenAsync())
+        {
+            await conn.ExecuteAsync("UPDATE users SET is_active = false WHERE email = @email", new { email });
+        }
+
+        var response = await client.PostAsJsonAsync("/api/auth/refresh", new { refresh_token = refreshToken });
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -151,8 +203,9 @@ public sealed class AuthRoutesTests : IAsyncLifetime
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         payload.GetProperty("access_token").GetString().Should().Be("as-access-token");
         payload.GetProperty("refresh_token").GetString().Should().Be("as-refresh-token");
-        payload.GetProperty("role").GetString().Should().Be("customer");
-        payload.GetProperty("email").GetString().Should().Be(Email);
+        var user = payload.GetProperty("user");
+        user.GetProperty("role").GetString().Should().Be("customer");
+        user.GetProperty("email").GetString().Should().Be(Email);
     }
 
     [Fact]

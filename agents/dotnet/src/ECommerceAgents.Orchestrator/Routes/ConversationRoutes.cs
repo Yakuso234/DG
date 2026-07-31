@@ -4,6 +4,7 @@ using ECommerceAgents.Shared.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using System.Text.Json;
 
 namespace ECommerceAgents.Orchestrator.Routes;
 
@@ -81,7 +82,7 @@ public static class ConversationRoutes
             content = (string)m.content,
             agent_name = (string?)m.agent_name,
             agents_involved = (m.agents_involved as string[])?.ToList() ?? new List<string>(),
-            metadata = (m.metadata as string) ?? "{}",
+            metadata = ParseJsonObject(m.metadata),
             tokens_in = Convert.ToInt32(m.tokens_in ?? 0),
             tokens_out = Convert.ToInt32(m.tokens_out ?? 0),
             created_at = ((DateTime)m.created_at).ToString("o"),
@@ -116,5 +117,31 @@ public static class ConversationRoutes
         return affected == 0
             ? Results.NotFound(new { detail = "Conversation not found" })
             : Results.Ok(new { status = "deleted" });
+    }
+
+    // ─────────────────────── helpers ─────────────────────────
+
+    /// <summary>
+    /// Deserializes the JSONB <c>messages.metadata</c> column into a real
+    /// object — Dapper/Npgsql return JSONB as a raw string, so returning it
+    /// unparsed (as the previous <c>(m.metadata as string) ?? "{}"</c> did)
+    /// serializes as a quoted JSON *string* in the response instead of a
+    /// nested object, unlike Python's <c>m["metadata"] or {}</c>. Matches the
+    /// same pattern <see cref="CartRoutes"/>'s <c>ParseJson</c> already uses
+    /// for other JSONB columns.
+    /// </summary>
+    private static Dictionary<string, JsonElement> ParseJsonObject(object? raw)
+    {
+        var text = raw is string s ? s : raw?.ToString();
+        if (string.IsNullOrWhiteSpace(text)) return new Dictionary<string, JsonElement>();
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(text)
+                ?? new Dictionary<string, JsonElement>();
+        }
+        catch
+        {
+            return new Dictionary<string, JsonElement>();
+        }
     }
 }

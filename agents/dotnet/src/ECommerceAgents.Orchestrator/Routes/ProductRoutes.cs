@@ -2,6 +2,7 @@ using Dapper;
 using ECommerceAgents.Shared.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using System.Text.Json;
 
@@ -36,8 +37,8 @@ public static class ProductRoutes
         HttpRequest request,
         DatabasePool pool,
         string? category = null,
-        decimal? minPrice = null,
-        decimal? maxPrice = null,
+        [FromQuery(Name = "min_price")] decimal? minPrice = null,
+        [FromQuery(Name = "max_price")] decimal? maxPrice = null,
         string? search = null,
         string sort = "rating",
         int limit = 50,
