@@ -23,17 +23,43 @@ public static class SpecialistAgentFactory
     {
         var instructions = prompts.Load(agentName, userRole);
         var chatClient = ChatClientFactory.CreateChatClient(settings);
+        var options = BuildOptions(settings, instructions, agentName, tools);
+        return chatClient.AsAIAgent(options);
+    }
+
+    /// <summary>
+    /// Pure construction-time options builder, factored out of <see cref="Create"/>
+    /// so the temperature/instructions/tools wiring is unit-testable without
+    /// standing up a real (network-backed) chat client.
+    /// </summary>
+    public static ChatClientAgentOptions BuildOptions(
+        AgentSettings settings,
+        string instructions,
+        string agentName,
+        IEnumerable<AITool>? tools = null
+    )
+    {
+        var options = new ChatClientAgentOptions
+        {
+            Name = agentName,
+            ChatOptions = new ChatOptions
+            {
+                Instructions = instructions,
+                // Pins sampling temperature so identical prompts yield consistent
+                // answers — mirrors Python's per-run options={"temperature": ...}
+                // (shared/agent_host.py::_run_options). Set once here at
+                // construction time rather than per-run since it never varies
+                // per-request in this codebase.
+                Temperature = (float)settings.Temperature,
+            },
+        };
 
         var toolList = tools?.ToList();
         if (toolList is { Count: > 0 })
         {
-            return chatClient.AsAIAgent(
-                instructions: instructions,
-                name: agentName,
-                tools: toolList
-            );
+            options.ChatOptions.Tools = toolList;
         }
 
-        return chatClient.AsAIAgent(instructions: instructions, name: agentName);
+        return options;
     }
 }
