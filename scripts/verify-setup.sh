@@ -53,7 +53,6 @@ cd "$REPO_ROOT" || exit 2
 section "Tooling"
 check "uv (Python package manager)" "command -v uv"
 check "Python 3.12+" "python3 --version | grep -E 'Python 3\.(12|13|14)'"
-check ".NET SDK 9+" "dotnet --list-sdks | grep -E '^(9|10)\.'"
 check "Docker" "command -v docker"
 check "Docker Compose v2" "docker compose version"
 check "Node 20+ (for Next.js frontend)" "node --version | grep -E 'v(20|21|22|23|24)'"
@@ -104,24 +103,9 @@ case "$LLM_PROVIDER" in
 esac
 
 section "Workspace structure"
-check "tutorials/ present" "[[ -d tutorials ]]"
-check "agents/dotnet/ solution present" "[[ -f agents/dotnet/ECommerceAgents.sln ]]"
 check "docker-compose.yml present" "[[ -f docker-compose.yml ]]"
-check "docker-compose.dotnet.yml present" "[[ -f docker-compose.dotnet.yml ]]"
 check "agents/python/ backend present" "[[ -d agents/python ]]"
 check "web/ Next.js frontend present" "[[ -d web ]]"
-
-section "Quick-build smoke"
-if command -v dotnet >/dev/null 2>&1; then
-    if (cd agents/dotnet && dotnet build --nologo --verbosity quiet 2>&1 | grep -q "Build succeeded"); then
-        info ".NET solution builds green"
-    else
-        warn ".NET solution build failed (run 'cd agents/dotnet && dotnet build' for details)"
-        fail_count=$((fail_count + 1))
-    fi
-else
-    warn ".NET SDK missing — skipping build smoke"
-fi
 
 section "Summary"
 passed=$((check_count - fail_count))

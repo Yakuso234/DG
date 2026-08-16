@@ -3,14 +3,9 @@
 # E-Commerce Agents — Development Environment Setup
 # Usage:
 #   ./scripts/dev.sh              Full rebuild and start everything (Python backend)
-#   ./scripts/dev.sh --dotnet     Same, but targets the .NET backend instead
 #   ./scripts/dev.sh --clean      Nuke volumes, rebuild from scratch
 #   ./scripts/dev.sh --seed-only  Re-run seeder against existing DB
 #   ./scripts/dev.sh --infra-only Start db + redis + aspire only
-#
-# --dotnet composes with docker-compose.dotnet.yml instead of the default
-# docker-compose.yml, and adds the "mcp" profile (the .NET MCP inventory
-# host). Every other flag combines freely with it, e.g. --clean --dotnet.
 # ============================================================
 
 set -euo pipefail
@@ -106,14 +101,12 @@ print_summary() {
 CLEAN=false
 SEED_ONLY=false
 INFRA_ONLY=false
-DOTNET=false
 
 for arg in "$@"; do
     case $arg in
         --clean)      CLEAN=true ;;
         --seed-only)  SEED_ONLY=true ;;
         --infra-only) INFRA_ONLY=true ;;
-        --dotnet)     DOTNET=true ;;
         --help|-h)
             echo "Usage: ./scripts/dev.sh [OPTIONS]"
             echo ""
@@ -121,7 +114,6 @@ for arg in "$@"; do
             echo "  --clean       Remove volumes and rebuild from scratch"
             echo "  --seed-only   Re-run seeder against existing DB"
             echo "  --infra-only  Start db + redis + aspire only"
-            echo "  --dotnet      Target the .NET backend instead of Python"
             echo "  --help        Show this help"
             exit 0
             ;;
@@ -133,26 +125,18 @@ for arg in "$@"; do
 done
 
 # ── Stack selection ──────────────────────────────────────────
-# Both compose files gate agents/seeder/frontend behind profiles; only
-# infra (db, redis, aspire) is unconditional. Everything below uses these
-# arrays instead of hardcoding "docker compose"/profile flags, so the rest
-# of the script is stack-agnostic.
+# Only infra (db, redis, aspire) is unconditional; agents/seeder/frontend
+# are gated behind profiles. Everything below uses these arrays instead of
+# hardcoding "docker compose"/profile flags.
 #   APP_PROFILES — down/build: every profile-gated service (incl. seed)
 #   RUN_PROFILES — final `up -d`: agents + frontend only (seed already ran
 #                  as its own one-shot `run --rm` step, so it's excluded
 #                  here to avoid re-seeding)
 
-if [ "$DOTNET" = true ]; then
-    COMPOSE=(docker compose -f docker-compose.dotnet.yml)
-    APP_PROFILES=(--profile seed --profile agents --profile mcp --profile frontend)
-    RUN_PROFILES=(--profile agents --profile mcp --profile frontend)
-    PGDATA_VOLUME_PATTERN='pgdata-dotnet$'
-else
-    COMPOSE=(docker compose)
-    APP_PROFILES=(--profile seed --profile agents --profile frontend)
-    RUN_PROFILES=(--profile agents --profile frontend)
-    PGDATA_VOLUME_PATTERN='_pgdata$'
-fi
+COMPOSE=(docker compose)
+APP_PROFILES=(--profile seed --profile agents --profile frontend)
+RUN_PROFILES=(--profile agents --profile frontend)
+PGDATA_VOLUME_PATTERN='_pgdata$'
 
 # ── Navigate to project root ─────────────────────────────────
 
