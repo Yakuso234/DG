@@ -11,6 +11,9 @@ uv.lock
 # ...but the main Python app's lockfile IS committed so CI installs are
 # reproducible and setup-uv's cache key (**/uv.lock) resolves.
 !agents/python/uv.lock
+# ...and spike lockfiles are committed too: they are the reproducibility
+# evidence for ADR-001.
+!spikes/*/uv.lock
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -99,3 +102,6 @@ docs/DG-问题与面试复盘.md
 # DG local planning and development-baseline records (never commit)
 docs/DG-项目目标与路线图.md
 docs/DG-开发环境基线.md
+
+# pnpm content-addressable store accidentally created in repo root (never commit)
+.pnpm-store/

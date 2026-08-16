@@ -1,0 +1,23 @@
+{
+  "stack": "b-langgraph",
+  "python": "3.14.2",
+  "scenarios": {
+    "S1": "PASS",
+    "S2": "PASS",
+    "S3": "PASS",
+    "S4": "PASS",
+    "S5a": "PASS",
+    "S5b": "PASS"
+  },
+  "pytest_exit_code": 0,
+  "duration_seconds": 3.28,
+  "deps": {
+    "langgraph": "1.2.11",
+    "langgraph-checkpoint-sqlite": "3.1.1",
+    "mcp": "2.0.0",
+    "a2a-sdk": "1.1.2",
+    "agent-framework": "n/a (B 栈不使用)"
+  },
+  "glue_lines": 474,
+  "monkeypatches": []
+}

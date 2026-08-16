@@ -1,0 +1,30 @@
+[project]
+name = "b-langgraph"
+version = "0.1.0"
+description = "SPIKE-001 B: LangGraph 1.x + a2a-sdk + mcp sdk minimal prototype"
+authors = [
+    { name = "Yakuso234", email = "3419777460@qq.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "a2a-sdk>=1.1.2",
+    "langgraph>=1.0,<2.0",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+    "mcp>=2.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+filterwarnings = [
+    "ignore:label\\(\\) is deprecated:DeprecationWarning:a2a.utils.proto_utils",
+]

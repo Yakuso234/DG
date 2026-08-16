@@ -1,0 +1,16 @@
+# uv / python
+.venv/
+.uv-cache/
+.uv-python/
+__pycache__/
+*.py[cod]
+
+# pytest
+.pytest_cache/
+pytest-cache-files-*/
+
+# 调试/临时目录（沙箱下 0o700 目录无法删除，忽略之）
+.hilt-*/
+.t-*/
+*hilt*/
+mk-*/

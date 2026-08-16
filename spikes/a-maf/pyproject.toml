@@ -1,0 +1,33 @@
+[project]
+name = "a-maf"
+version = "0.1.0"
+description = "SPIKE-001 Spike A: Microsoft Agent Framework (MAF) 1.0 minimal prototype"
+requires-python = ">=3.14"
+dependencies = [
+    "agent-framework==1.0.0",
+    "mcp==1.27.0",
+    "a2a-sdk==0.3.23",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = ["-ra", "-p", "no:cacheprovider"]
+markers = [
+    "s1: SPIKE-001 scenario S1 (deterministic state machine)",
+    "s2: SPIKE-001 scenario S2 (MCP read tool)",
+    "s3: SPIKE-001 scenario S3 (persistent HITL recovery)",
+    "s4: SPIKE-001 scenario S4 (Fake Model full chain, no network)",
+    "s5a: SPIKE-001 scenario S5a (A2A in-memory round-trip)",
+    "s5b: SPIKE-001 scenario S5b (A2A cross-process HTTP, best effort)",
+]

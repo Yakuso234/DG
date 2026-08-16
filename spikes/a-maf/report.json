@@ -1,0 +1,24 @@
+{
+  "stack": "a-maf",
+  "python": "3.14",
+  "python_full": "3.14.2",
+  "scenarios": {
+    "S1": "PASS",
+    "S2": "PASS",
+    "S3": "PASS",
+    "S4": "PASS",
+    "S5a": "PASS",
+    "S5b": "PASS"
+  },
+  "pytest_exit_code": 0,
+  "duration_seconds": 3.81,
+  "deps": {
+    "agent-framework": "1.0.0",
+    "agent-framework-core": "1.0.0",
+    "mcp": "1.27.0",
+    "a2a-sdk": "0.3.23",
+    "langgraph": "not-installed"
+  },
+  "glue_lines": 596,
+  "monkeypatches": []
+}

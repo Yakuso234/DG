@@ -1,0 +1,8 @@
+# SPIKE-001 Spike A local ignores (this dir only)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.pytest-tmp/
+.spike-tmp/
+data/*.json
