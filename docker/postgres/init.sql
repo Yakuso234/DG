@@ -481,3 +481,109 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_hash ON oauth_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_client ON oauth_tokens(client_id, revoked);
+
+-- ============================================================
+-- FlowPilot (DG) 工单域 — Phase 1 确定性执行核心
+-- 电商表删除在保留清单批 4 执行；本节为新增表，与电商表共存。
+-- ============================================================
+
+-- 工单聚合根。version 供乐观锁使用：状态转移/更新必须匹配 version。
+CREATE TABLE IF NOT EXISTS tickets (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title        VARCHAR(255) NOT NULL,
+    description  TEXT NOT NULL DEFAULT '',
+    priority     SMALLINT NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+    status       VARCHAR(32) NOT NULL DEFAULT 'NEW',
+    submitter    VARCHAR(255) NOT NULL DEFAULT '',
+    assignee     VARCHAR(255),
+    version      INTEGER NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_submitter ON tickets(submitter);
+
+-- 证据：必须带工具名、来源（MCP 服务）与采集时间。
+CREATE TABLE IF NOT EXISTS evidence (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id    UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    tool         VARCHAR(64) NOT NULL,
+    source       VARCHAR(64) NOT NULL,
+    data         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    collected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_ticket ON evidence(ticket_id);
+
+-- 结构化处置计划。
+CREATE TABLE IF NOT EXISTS action_proposals (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id    UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    action       VARCHAR(64) NOT NULL,
+    params       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    evidence_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    risk         VARCHAR(16) NOT NULL DEFAULT 'low' CHECK (risk IN ('low', 'high')),
+    status       VARCHAR(16) NOT NULL DEFAULT 'proposed'
+                 CHECK (status IN ('proposed', 'approved', 'denied', 'executed')),
+    created_by   VARCHAR(255) NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_action_proposals_ticket ON action_proposals(ticket_id);
+
+-- 审批记录：一次提案的全部决策版本（version 从 1 递增）。
+CREATE TABLE IF NOT EXISTS approvals (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    proposal_id     UUID NOT NULL REFERENCES action_proposals(id) ON DELETE CASCADE,
+    ticket_id       UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    approver        VARCHAR(255) NOT NULL,
+    decision        VARCHAR(16) NOT NULL CHECK (decision IN ('approved', 'denied', 'modified')),
+    modified_params JSONB,
+    note            TEXT NOT NULL DEFAULT '',
+    decided_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    version         INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (proposal_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_proposal ON approvals(proposal_id);
+
+-- 受控执行：幂等键唯一；attempts 记录重试；status 记录执行状态。
+CREATE TABLE IF NOT EXISTS executions (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    proposal_id      UUID NOT NULL REFERENCES action_proposals(id) ON DELETE CASCADE,
+    ticket_id        UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    idempotency_key  VARCHAR(255) NOT NULL UNIQUE,
+    status           VARCHAR(16) NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+    attempts         INTEGER NOT NULL DEFAULT 0,
+    result           JSONB,
+    started_at       TIMESTAMPTZ,
+    finished_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_executions_ticket ON executions(ticket_id);
+
+-- Agent 运行记录：模型、Token、时延、Trace ID（Phase 3 填充，Phase 1 建表）。
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id     UUID REFERENCES tickets(id) ON DELETE CASCADE,
+    agent         VARCHAR(64) NOT NULL,
+    input_summary TEXT NOT NULL DEFAULT '',
+    output        JSONB,
+    model         VARCHAR(64),
+    tokens        JSONB,
+    latency_ms    INTEGER,
+    trace_id      VARCHAR(128),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_ticket ON agent_runs(ticket_id);
+
+-- 审计事件：任何业务写操作都必须产生一条（红线）。
+CREATE TABLE IF NOT EXISTS audit_events (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity     VARCHAR(32) NOT NULL,
+    entity_id  VARCHAR(64) NOT NULL,
+    action     VARCHAR(64) NOT NULL,
+    actor      VARCHAR(255) NOT NULL,
+    actor_role VARCHAR(32) NOT NULL,
+    before     JSONB,
+    after      JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON audit_events(entity, entity_id);

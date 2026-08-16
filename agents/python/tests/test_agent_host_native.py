@@ -24,10 +24,30 @@ import pytest
 
 # Load the repo-root .env into os.environ so the integration tests see the
 # live Azure / OpenAI credentials the rest of the suite uses.
+# NOTE: tutorials/ was deleted in DG batch 1, so the old
+# `tutorials._shared.maf_bootstrap` helper is replaced by the repo's own
+# patch_maf (idempotent: only patches an empty agent_framework __init__)
+# plus an inline .env loader.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
-from tutorials._shared import maf_bootstrap  # noqa: E402
 
-maf_bootstrap.bootstrap()
+from patch_maf import patch  # noqa: E402
+
+patch()
+
+
+def _load_root_env() -> None:
+    env_file = pathlib.Path(__file__).resolve().parents[3] / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_root_env()
 
 from shared.agent_host import (  # noqa: E402
     _history_as_maf_messages,
