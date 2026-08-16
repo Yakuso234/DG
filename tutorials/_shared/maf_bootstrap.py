@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import pathlib
 
@@ -52,23 +53,28 @@ from agent_framework._sessions import (
 
 
 def _patch_init() -> None:
-    import agent_framework
+    spec = importlib.util.find_spec("agent_framework")
+    if spec is None or spec.origin is None:
+        raise ModuleNotFoundError("agent_framework is not installed")
 
-    init_path = pathlib.Path(agent_framework.__file__)
-    current = init_path.read_text()
+    init_path = pathlib.Path(spec.origin)
+    try:
+        current = init_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        current = ""
     # Patch when empty (first run) OR when an older bootstrap installed an
     # earlier patch that we now need to supersede with a newer export list.
-    if current.strip() == "" or (
-        _PATCH_MARKER not in current and "Microsoft Agent Framework — re-exports" in current
-    ):
-        init_path.write_text(_PATCH)
+    if current.strip() == "" or (_PATCH_MARKER not in current and "Microsoft Agent Framework — re-exports" in current):
+        init_path.write_text(_PATCH, encoding="utf-8")
+        import agent_framework
+
         importlib.reload(agent_framework)
 
 
 def _load_dotenv() -> None:
     if not ENV_FILE.exists():
         return
-    for raw in ENV_FILE.read_text().splitlines():
+    for raw in ENV_FILE.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue

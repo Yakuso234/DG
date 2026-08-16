@@ -21,7 +21,7 @@ SHARED_DIR = PROMPTS_DIR / "_shared"
 @lru_cache(maxsize=32)
 def _load_yaml(path: Path) -> dict:
     """Load and cache a YAML file."""
-    with open(path) as f:
+    with path.open(encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 

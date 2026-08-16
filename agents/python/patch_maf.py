@@ -5,6 +5,7 @@ The package ships with an empty __init__.py that doesn't re-export public APIs.
 """
 
 import importlib
+import importlib.util
 import pathlib
 
 PATCH = '''\
@@ -21,10 +22,20 @@ from agent_framework._mcp import MCPStreamableHTTPTool, MCPStdioTool, MCPTool
 
 
 def patch() -> None:
-    import agent_framework
-    init_path = pathlib.Path(agent_framework.__file__)
-    if init_path.read_text().strip() == "":
-        init_path.write_text(PATCH)
+    spec = importlib.util.find_spec("agent_framework")
+    if spec is None or spec.origin is None:
+        raise ModuleNotFoundError("agent_framework is not installed")
+
+    init_path = pathlib.Path(spec.origin)
+    try:
+        current = init_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        current = ""
+
+    if current.strip() == "":
+        init_path.write_text(PATCH, encoding="utf-8")
+        import agent_framework
+
         importlib.reload(agent_framework)
         print(f"Patched {init_path}")
 

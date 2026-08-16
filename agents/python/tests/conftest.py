@@ -11,7 +11,6 @@ Policy:
 
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
@@ -22,12 +21,12 @@ import pytest
 import pytest_asyncio
 from testcontainers.postgres import PostgresContainer
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INIT_SQL = REPO_ROOT / "docker" / "postgres" / "init.sql"
 
 
 # ─────────────────────── Postgres fixture ───────────────────────
+
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[PostgresContainer, None, None]:
@@ -50,7 +49,7 @@ def database_url(postgres_container: PostgresContainer) -> str:
 @pytest_asyncio.fixture(scope="session")
 async def _schema_applied(database_url: str) -> None:
     """Apply the production schema from docker/postgres/init.sql once per session."""
-    sql = INIT_SQL.read_text()
+    sql = INIT_SQL.read_text(encoding="utf-8")
     conn = await asyncpg.connect(database_url)
     try:
         await conn.execute(sql)
@@ -90,6 +89,7 @@ async def clean_db(postgres_pool: asyncpg.Pool) -> AsyncGenerator[asyncpg.Pool, 
 
 # ─────────────────────── Fake LLM fixtures ──────────────────────
 
+
 class FakeChatClient:
     """
     Deterministic stand-in for the MAF ChatClient. Queue canned responses and
@@ -101,7 +101,7 @@ class FakeChatClient:
         self.call_count: int = 0
         self.received_prompts: list[list[dict[str, Any]]] = []
 
-    def enqueue(self, *responses: str) -> "FakeChatClient":
+    def enqueue(self, *responses: str) -> FakeChatClient:
         self._responses.extend(responses)
         return self
 
@@ -109,10 +109,7 @@ class FakeChatClient:
         self.call_count += 1
         self.received_prompts.append(messages)
         if not self._responses:
-            raise RuntimeError(
-                "FakeChatClient has no enqueued responses. "
-                "Call enqueue(...) before invoking."
-            )
+            raise RuntimeError("FakeChatClient has no enqueued responses. Call enqueue(...) before invoking.")
         return self._responses.pop(0)
 
 
@@ -122,6 +119,7 @@ def fake_chat_client() -> FakeChatClient:
 
 
 # ─────────────────────── Canary fixture ─────────────────────────
+
 
 @pytest.fixture
 def sample_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:

@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 dist/
 .venv/
+.pytest-tmp/
 .uv/
 uv.lock
 # ...but the main Python app's lockfile IS committed so CI installs are
@@ -90,3 +91,11 @@ web/e2e/portfolio-chat-flows.spec.ts
 web/e2e/portfolio-code-snippets.spec.ts
 web/e2e/screenshots/
 .claude/scheduled_tasks.lock
+
+# Codex local collaboration memory (never commit)
+PROJECT_MEMORY.md
+docs/DG-问题与面试复盘.md
+
+# DG local planning and development-baseline records (never commit)
+docs/DG-项目目标与路线图.md
+docs/DG-开发环境基线.md
