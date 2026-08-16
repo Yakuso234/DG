@@ -23,7 +23,7 @@ from flowpilot.domain.executor import (
 )
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role
-from flowpilot.domain.status import IllegalTransitionError, LEGAL_TRANSITIONS, TicketStatus
+from flowpilot.domain.status import LEGAL_TRANSITIONS, IllegalTransitionError, TicketStatus
 
 # ─────────────────────── 领域级（无 DB）───────────────────────
 

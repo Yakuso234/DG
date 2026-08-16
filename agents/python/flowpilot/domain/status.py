@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 
 
-class TicketStatus(str, enum.Enum):
+class TicketStatus(enum.StrEnum):
     NEW = "NEW"
     TRIAGED = "TRIAGED"
     INVESTIGATING = "INVESTIGATING"

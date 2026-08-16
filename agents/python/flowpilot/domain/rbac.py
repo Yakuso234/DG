@@ -13,7 +13,7 @@ from typing import Any
 from flowpilot.domain.status import TicketStatus
 
 
-class Role(str, enum.Enum):
+class Role(enum.StrEnum):
     SUBMITTER = "submitter"  # 提交人：建单、补充描述、查看自己的工单
     HANDLER = "handler"  # 处理人：调查、加证据、状态转移、建提案
     APPROVER = "approver"  # 审批人：审批决策，不能自己执行

@@ -13,7 +13,7 @@ from typing import Any
 from flowpilot.domain.models import ActionProposal
 
 
-class RiskLevel(str, enum.Enum):
+class RiskLevel(enum.StrEnum):
     LOW = "low"
     HIGH = "high"
 
@@ -75,9 +75,7 @@ def assert_executable(
         raise ExecutionError(f"提案 {proposal.id} 已执行过（幂等键冲突）")
     validate_params(proposal.action, proposal.params)
     if risk_of(proposal.action) is RiskLevel.HIGH and not approved:
-        raise ApprovalRequiredError(
-            f"高风险动作 {proposal.action} 必须先经审批（proposal={proposal.id}）"
-        )
+        raise ApprovalRequiredError(f"高风险动作 {proposal.action} 必须先经审批（proposal={proposal.id}）")
 
 
 def next_idempotency_key(proposal_id: str, action: str) -> str:

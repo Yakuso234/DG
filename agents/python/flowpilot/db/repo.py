@@ -27,8 +27,8 @@ from flowpilot.domain.models import (
     Ticket,
     utc_now_iso,
 )
-from flowpilot.domain.rbac import Actor
-from flowpilot.domain.status import IllegalTransitionError, TicketStatus
+from flowpilot.domain.rbac import Actor, PermissionDeniedError
+from flowpilot.domain.status import TicketStatus
 
 
 class NotFoundError(LookupError):
@@ -124,9 +124,7 @@ class TicketRepo:
 
     async def list_tickets(self, actor: Actor, limit: int = 50) -> list[Ticket]:
         actor.check("ticket.view_any")
-        rows = await self._pool.fetch(
-            "SELECT * FROM tickets ORDER BY created_at DESC LIMIT $1", min(limit, 200)
-        )
+        rows = await self._pool.fetch("SELECT * FROM tickets ORDER BY created_at DESC LIMIT $1", min(limit, 200))
         return [_row_to_ticket(r) for r in rows]
 
     async def transition(self, actor: Actor, ticket_id: str, target: TicketStatus) -> Ticket:
@@ -136,12 +134,10 @@ class TicketRepo:
 
         actor.check("ticket.transition")
         if not can_transition_to(actor.role, target):
-            raise PermissionError(f"{actor.role.value} 不能转移到 {target.value}")
+            raise PermissionDeniedError(actor.role, f"transition:{target.value}", "角色不允许转移到该状态")
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                row = await conn.fetchrow(
-                    "SELECT * FROM tickets WHERE id = $1 FOR UPDATE", uuid.UUID(ticket_id)
-                )
+                row = await conn.fetchrow("SELECT * FROM tickets WHERE id = $1 FOR UPDATE", uuid.UUID(ticket_id))
                 if row is None:
                     raise NotFoundError(f"工单 {ticket_id} 不存在")
                 ticket = _row_to_ticket(row)
@@ -270,7 +266,8 @@ class TicketRepo:
                 approval_id = uuid.uuid4()
                 await conn.execute(
                     """
-                    INSERT INTO approvals (id, proposal_id, ticket_id, approver, decision, modified_params, note, version)
+                    INSERT INTO approvals
+                        (id, proposal_id, ticket_id, approver, decision, modified_params, note, version)
                     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
                     """,
                     approval_id,
@@ -334,9 +331,7 @@ class TicketRepo:
                     created_at=row["created_at"].isoformat(),
                 )
                 idempotency_key = next_idempotency_key(proposal_id, proposal.action)
-                existing = await conn.fetchrow(
-                    "SELECT * FROM executions WHERE idempotency_key = $1", idempotency_key
-                )
+                existing = await conn.fetchrow("SELECT * FROM executions WHERE idempotency_key = $1", idempotency_key)
                 if existing is not None:
                     return ExecutionRecord(
                         id=str(existing["id"]),
@@ -357,7 +352,9 @@ class TicketRepo:
                 execution_id = uuid.uuid4()
                 exec_row = await conn.fetchrow(
                     """
-                    INSERT INTO executions (id, proposal_id, ticket_id, idempotency_key, status, attempts, result, started_at, finished_at)
+                    INSERT INTO executions
+                        (id, proposal_id, ticket_id, idempotency_key, status, attempts, result,
+                         started_at, finished_at)
                     VALUES ($1, $2, $3, $4, 'succeeded', 1, $5::jsonb, NOW(), NOW())
                     RETURNING *
                     """,
