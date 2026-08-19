@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
 from flowpilot.agent_graph import build_graph, initial_state
@@ -51,4 +52,29 @@ async def test_langgraph_interrupts_and_resumes_human_approval() -> None:
 
     resumed = await graph.ainvoke(Command(resume="approved"), config)
     assert resumed["approval"] == {"decision": "approved"}
+    assert resumed["steps"][-1] == "approval"
+
+
+async def test_langgraph_resumes_approval_from_sqlite_checkpoint(tmp_path) -> None:
+    database_path = tmp_path / "approval-checkpoints.sqlite"
+    gateway = MockSwVideoOpsGateway(
+        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
+    )
+    config = {"configurable": {"thread_id": "sqlite-approval-thread"}}
+
+    async with AsyncSqliteSaver.from_conn_string(str(database_path)) as checkpointer:
+        await checkpointer.setup()
+        paused = await build_graph(gateway, checkpointer=checkpointer, require_approval=True).ainvoke(
+            initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-p4-sqlite"), config
+        )
+
+    assert "__interrupt__" in paused
+
+    async with AsyncSqliteSaver.from_conn_string(str(database_path)) as checkpointer:
+        await checkpointer.setup()
+        resumed = await build_graph(gateway, checkpointer=checkpointer, require_approval=True).ainvoke(
+            Command(resume="denied"), config
+        )
+
+    assert resumed["approval"] == {"decision": "denied"}
     assert resumed["steps"][-1] == "approval"
