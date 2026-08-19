@@ -1,5 +1,6 @@
 from flowpilot.db.repo import (
     ApprovalConflictError,
+    IdempotencyConflictError,
     NotFoundError,
     StatePreconditionError,
     TicketRepo,
@@ -8,6 +9,7 @@ from flowpilot.db.repo import (
 
 __all__ = [
     "ApprovalConflictError",
+    "IdempotencyConflictError",
     "NotFoundError",
     "StatePreconditionError",
     "TicketRepo",

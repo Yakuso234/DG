@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -192,8 +193,9 @@ class MockSwVideoOpsGateway:
 
 
 def status_to_evidence(*, ticket_id: str, snapshot: VideoProcessingSnapshot) -> Evidence:
+    evidence_key = f"sw-video-status:{snapshot.creator_id}:{snapshot.video_id}:{snapshot.trace_id}"
     return Evidence(
-        id=f"sw-video-status:{snapshot.creator_id}:{snapshot.video_id}:{snapshot.trace_id}",
+        id=str(uuid.uuid5(uuid.NAMESPACE_URL, evidence_key)),
         ticket_id=ticket_id,
         tool="get_video_processing_status",
         source="sw-video-ops-mcp",

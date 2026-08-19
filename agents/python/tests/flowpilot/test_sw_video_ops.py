@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import httpx
 import pytest
 
@@ -96,6 +98,9 @@ async def test_mock_gateway_mcp_tools_and_evidence_normalization() -> None:
         status["trace_id"],
     )
     evidence = status_to_evidence(ticket_id="ticket-1", snapshot=snapshot)
+    repeated = status_to_evidence(ticket_id="ticket-1", snapshot=snapshot)
+    assert uuid.UUID(evidence.id).version == 5
+    assert repeated.id == evidence.id
     assert evidence.source == "sw-video-ops-mcp"
     assert evidence.data["source_system"] == "sw-video-service"
     assert overview["processing_task_count"] == 1

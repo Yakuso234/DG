@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flowpilot.domain.models import ActionProposal, Approval, Evidence, ExecutionRecord, utc_now_iso
+from flowpilot.domain.models import ActionProposal, Approval, Evidence, ExecutionRecord, Ticket, utc_now_iso
 from flowpilot.domain.rbac import Actor, Role
 from flowpilot.domain.status import TicketStatus
 from flowpilot.sw_video_ops import MockSwVideoOpsGateway, VideoProcessingSnapshot
@@ -13,9 +13,14 @@ class FakeRuntimeRepo:
     def __init__(self) -> None:
         self.proposal: ActionProposal | None = None
         self.calls: list[str] = []
+        self.status = TicketStatus.NEW
+
+    async def get_ticket(self, _actor: Actor, ticket_id: str) -> Ticket:
+        return Ticket(ticket_id, "test", "", 3, status=self.status)
 
     async def transition(self, _actor: Actor, _ticket_id: str, _target: TicketStatus) -> None:
         self.calls.append("transition")
+        self.status = _target
 
     async def add_evidence(self, _actor: Actor, evidence: Evidence) -> Evidence:
         self.calls.append("evidence")

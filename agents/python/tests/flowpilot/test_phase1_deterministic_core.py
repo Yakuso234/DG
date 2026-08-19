@@ -313,6 +313,40 @@ async def test_audit_trail_covers_every_write(repo: TicketRepo) -> None:
     assert ev_events and ev_events[0].action == "evidence.create"
 
 
+async def test_evidence_and_proposal_retries_are_idempotent(repo: TicketRepo) -> None:
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "工作流重试", "x")
+    handler = _actor(Role.HANDLER)
+    evidence = Evidence(
+        id=str(uuid.uuid4()),
+        ticket_id=ticket.id,
+        tool="get_video_processing_status",
+        source="sw-video-ops-mcp",
+        data={"processing_status": "PROCESSING"},
+        collected_at=utc_now_iso(),
+    )
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    proposal = ActionProposal(
+        proposal.id,
+        proposal.ticket_id,
+        proposal.action,
+        proposal.params,
+        [evidence.id],
+        proposal.risk,
+        proposal.created_by,
+        proposal.created_at,
+    )
+
+    await repo.add_evidence(handler, evidence)
+    await repo.add_evidence(handler, evidence)
+    await repo.create_proposal(handler, proposal)
+    await repo.create_proposal(handler, proposal)
+
+    assert len(await repo.list_evidence(handler, ticket.id)) == 1
+    admin = _actor(Role.ADMIN)
+    assert len(await repo.audit_for(admin, "evidence", evidence.id)) == 1
+    assert len(await repo.audit_for(admin, "proposal", proposal.id)) == 1
+
+
 async def test_get_missing_ticket_raises_not_found(repo: TicketRepo) -> None:
     with pytest.raises(NotFoundError):
         await repo.get_ticket(_actor(Role.HANDLER), str(uuid.uuid4()))

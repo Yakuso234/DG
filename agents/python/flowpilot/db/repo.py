@@ -44,6 +44,10 @@ class StatePreconditionError(RuntimeError):
     """状态机顺序合法，但缺少进入目标状态所需的领域数据。"""
 
 
+class IdempotencyConflictError(RuntimeError):
+    """同一领域 ID 已存在，但内容与本次重试不一致。"""
+
+
 def _row_to_ticket(row: asyncpg.Record) -> Ticket:
     return Ticket(
         id=str(row["id"]),
@@ -219,10 +223,12 @@ class TicketRepo:
         actor.check("evidence.create")
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                await conn.execute(
+                inserted = await conn.fetchrow(
                     """
                     INSERT INTO evidence (id, ticket_id, tool, source, data, collected_at)
                     VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    ON CONFLICT (id) DO NOTHING
+                    RETURNING id
                     """,
                     uuid.UUID(evidence.id),
                     uuid.UUID(evidence.ticket_id),
@@ -231,6 +237,16 @@ class TicketRepo:
                     json.dumps(evidence.data, ensure_ascii=False),
                     datetime.fromisoformat(evidence.collected_at),
                 )
+                if inserted is None:
+                    existing = await conn.fetchrow("SELECT * FROM evidence WHERE id = $1", uuid.UUID(evidence.id))
+                    if existing is None or (
+                        str(existing["ticket_id"]) != evidence.ticket_id
+                        or existing["tool"] != evidence.tool
+                        or existing["source"] != evidence.source
+                        or json.loads(existing["data"]) != evidence.data
+                    ):
+                        raise IdempotencyConflictError(f"Evidence {evidence.id} 已存在但内容不一致")
+                    return evidence
                 await _audit(
                     conn,
                     actor,
@@ -267,10 +283,12 @@ class TicketRepo:
             raise ParamValidationError("提案 params.ticket_id 必须与所属 ticket_id 一致")
         async with self._pool.acquire() as conn:
             async with conn.transaction():
-                await conn.execute(
+                inserted = await conn.fetchrow(
                     """
                     INSERT INTO action_proposals (id, ticket_id, action, params, evidence_ids, risk, created_by)
                     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+                    ON CONFLICT (id) DO NOTHING
+                    RETURNING id
                     """,
                     uuid.UUID(proposal.id),
                     uuid.UUID(proposal.ticket_id),
@@ -280,6 +298,20 @@ class TicketRepo:
                     proposal.risk,
                     actor.id,
                 )
+                if inserted is None:
+                    existing = await conn.fetchrow(
+                        "SELECT * FROM action_proposals WHERE id = $1", uuid.UUID(proposal.id)
+                    )
+                    if existing is None or (
+                        str(existing["ticket_id"]) != proposal.ticket_id
+                        or existing["action"] != proposal.action
+                        or json.loads(existing["params"]) != proposal.params
+                        or json.loads(existing["evidence_ids"]) != proposal.evidence_ids
+                        or existing["risk"] != proposal.risk
+                        or existing["created_by"] != actor.id
+                    ):
+                        raise IdempotencyConflictError(f"ActionProposal {proposal.id} 已存在但内容不一致")
+                    return proposal
                 await _audit(
                     conn,
                     actor,

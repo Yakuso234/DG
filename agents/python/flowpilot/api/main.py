@@ -23,9 +23,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
-from flowpilot.approval_workflow import ApprovalWorkflowResult, ApprovalWorkflowService
+from flowpilot.approval_workflow import (
+    ApprovalWorkflowMismatchError,
+    ApprovalWorkflowResult,
+    ApprovalWorkflowService,
+)
 from flowpilot.db import (
     ApprovalConflictError,
+    IdempotencyConflictError,
     NotFoundError,
     StatePreconditionError,
     TicketRepo,
@@ -40,7 +45,7 @@ from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
 from flowpilot.sw_video_ops import SwVideoOpsHttpGateway
-from flowpilot.ticket_workflow import TicketWorkflowService, TicketWorkflowStartResult
+from flowpilot.ticket_workflow import TicketWorkflowService, TicketWorkflowStartResult, TicketWorkflowStateError
 from flowpilot.workflow_runtime import open_workflow_runtime
 
 
@@ -87,6 +92,9 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     IllegalTransitionError: 409,
     VersionConflictError: 409,
     ApprovalConflictError: 409,
+    IdempotencyConflictError: 409,
+    ApprovalWorkflowMismatchError: 409,
+    TicketWorkflowStateError: 409,
     ApprovalRequiredError: 409,
     StatePreconditionError: 409,
     ParamValidationError: 422,

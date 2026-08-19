@@ -6,12 +6,14 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from flowpilot.agent_graph import initial_state
-from flowpilot.domain.models import ActionProposal, Evidence
+from flowpilot.domain.models import ActionProposal, Evidence, Ticket
 from flowpilot.domain.rbac import Actor
 from flowpilot.domain.status import TicketStatus
 
 
 class TicketWorkflowRepository(Protocol):
+    async def get_ticket(self, actor: Actor, ticket_id: str) -> Ticket: ...
+
     async def transition(self, actor: Actor, ticket_id: str, target: TicketStatus) -> Any: ...
 
     async def add_evidence(self, actor: Actor, evidence: Evidence) -> Evidence: ...
@@ -50,11 +52,55 @@ class TicketWorkflowService:
         trace_id: str,
         thread_id: str,
     ) -> TicketWorkflowStartResult:
-        await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.TRIAGED)
-        await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.INVESTIGATING)
+        ticket = await self._repo.get_ticket(self._handler_actor, ticket_id)
+        current = ticket.status
+        if current is TicketStatus.NEW:
+            await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.TRIAGED)
+            current = TicketStatus.TRIAGED
+        if current is TicketStatus.TRIAGED:
+            await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.INVESTIGATING)
+            current = TicketStatus.INVESTIGATING
+        resumable = {TicketStatus.INVESTIGATING, TicketStatus.PROPOSED, TicketStatus.WAITING_APPROVAL}
+        if current not in resumable:
+            raise TicketWorkflowStateError(f"工单处于 {current.value}，不能启动或恢复调查工作流")
 
         config = {"configurable": {"thread_id": thread_id}}
-        graph_state = await self._graph.ainvoke(
+        graph_state = await self._paused_or_new_state(
+            ticket_id=ticket_id,
+            creator_id=creator_id,
+            video_id=video_id,
+            trace_id=trace_id,
+            config=config,
+        )
+        evidence_items, proposal = self._validated_outputs(graph_state, ticket_id)
+
+        for evidence in evidence_items:
+            await self._repo.add_evidence(self._handler_actor, evidence)
+        await self._repo.create_proposal(self._handler_actor, proposal)
+        if current is TicketStatus.INVESTIGATING:
+            await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.PROPOSED)
+            current = TicketStatus.PROPOSED
+        if current is TicketStatus.PROPOSED:
+            await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.WAITING_APPROVAL)
+        return TicketWorkflowStartResult(ticket_id, thread_id, tuple(evidence_items), proposal, graph_state)
+
+    async def _paused_or_new_state(
+        self,
+        *,
+        ticket_id: str,
+        creator_id: int,
+        video_id: int,
+        trace_id: str,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        snapshot = await self._graph.aget_state(config)
+        values = dict(snapshot.values)
+        if values.get("proposal") and values.get("evidence"):
+            if any(getattr(task, "interrupts", ()) for task in snapshot.tasks):
+                values["__interrupt__"] = True
+                return values
+            raise TicketWorkflowStateError("checkpoint 已越过审批暂停点，不能再次启动")
+        return await self._graph.ainvoke(
             initial_state(
                 ticket_id=ticket_id,
                 creator_id=creator_id,
@@ -63,14 +109,6 @@ class TicketWorkflowService:
             ),
             config,
         )
-        evidence_items, proposal = self._validated_outputs(graph_state, ticket_id)
-
-        for evidence in evidence_items:
-            await self._repo.add_evidence(self._handler_actor, evidence)
-        await self._repo.create_proposal(self._handler_actor, proposal)
-        await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.PROPOSED)
-        await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.WAITING_APPROVAL)
-        return TicketWorkflowStartResult(ticket_id, thread_id, tuple(evidence_items), proposal, graph_state)
 
     @staticmethod
     def _validated_outputs(graph_state: dict[str, Any], ticket_id: str) -> tuple[list[Evidence], ActionProposal]:

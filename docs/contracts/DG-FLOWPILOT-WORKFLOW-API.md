@@ -78,6 +78,6 @@ Denied decisions move to `ESCALATED` without invoking the executor.
 
 - Phase 1 request headers are not production authentication; JWT replacement is pending.
 - SQLite checkpoint is for a local single-instance demo, not multi-replica deployment.
-- Start-workflow recovery after a partial database write is not yet idempotent.
+- Start retries reuse a paused checkpoint and treat identical Evidence/Proposal IDs as idempotent; real PostgreSQL verification is pending Docker.
 - PostgreSQL/Testcontainers verification must be rerun when Docker is available.
 - SW inbound token verification and approved recovery API are not yet implemented in SW.
