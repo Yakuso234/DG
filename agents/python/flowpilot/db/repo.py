@@ -14,11 +14,7 @@ from typing import Any
 import asyncpg
 
 from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
-from flowpilot.domain.executor import (
-    assert_executable,
-    next_idempotency_key,
-    validate_params,
-)
+from flowpilot.domain.executor import ParamValidationError, assert_executable, next_idempotency_key, validate_params
 from flowpilot.domain.models import (
     ActionProposal,
     Approval,
@@ -267,6 +263,8 @@ class TicketRepo:
         actor.check("proposal.create")
         # 先阻断无效提案，保证进入 PROPOSED 的提案满足动作合同；执行前仍会二次校验。
         validate_params(proposal.action, proposal.params)
+        if proposal.params.get("ticket_id") != proposal.ticket_id:
+            raise ParamValidationError("提案 params.ticket_id 必须与所属 ticket_id 一致")
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -314,6 +312,16 @@ class TicketRepo:
                     raise NotFoundError(f"提案 {proposal_id} 不存在")
                 if row["status"] != "proposed":
                     raise ApprovalConflictError(f"提案 {proposal_id} 已决议（status={row['status']}）")
+                if actor.id == row["created_by"]:
+                    raise PermissionDeniedError(actor.role, "proposal.approve", "创建人不能审批自己的提案")
+                if decision == "modified":
+                    if modified_params is None:
+                        raise ParamValidationError("modified 决议必须提供 modified_params")
+                    validate_params(row["action"], modified_params)
+                    if modified_params.get("ticket_id") != str(row["ticket_id"]):
+                        raise ParamValidationError("modified_params.ticket_id 必须与所属 ticket_id 一致")
+                elif modified_params is not None:
+                    raise ParamValidationError("只有 modified 决议可以提供 modified_params")
                 version = await conn.fetchval(
                     "SELECT COALESCE(MAX(version), 0) + 1 FROM approvals WHERE proposal_id = $1",
                     uuid.UUID(proposal_id),
@@ -336,9 +344,10 @@ class TicketRepo:
                 )
                 new_status = "approved" if decision in ("approved", "modified") else "denied"
                 await conn.execute(
-                    "UPDATE action_proposals SET status = $2 WHERE id = $1",
+                    "UPDATE action_proposals SET status = $2, params = COALESCE($3::jsonb, params) WHERE id = $1",
                     uuid.UUID(proposal_id),
                     new_status,
+                    json.dumps(modified_params, ensure_ascii=False) if decision == "modified" else None,
                 )
                 await _audit(
                     conn,
@@ -347,7 +356,12 @@ class TicketRepo:
                     str(approval_id),
                     "proposal.approve",
                     None,
-                    {"proposal_id": proposal_id, "decision": decision, "version": int(version)},
+                    {
+                        "proposal_id": proposal_id,
+                        "decision": decision,
+                        "modified_params": modified_params,
+                        "version": int(version),
+                    },
                 )
         return Approval(
             id=str(approval_id),

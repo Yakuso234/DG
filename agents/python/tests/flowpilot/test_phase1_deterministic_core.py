@@ -230,6 +230,41 @@ async def test_approval_concurrent_decision_rejected(repo: TicketRepo) -> None:
         await repo.approve_proposal(a2, proposal.id, "denied")
 
 
+async def test_proposal_creator_cannot_approve_own_high_risk_proposal(repo: TicketRepo) -> None:
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "职责分离", "x")
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    await repo.create_proposal(_actor(Role.HANDLER, "u-creator"), proposal)
+
+    with pytest.raises(PermissionDeniedError, match="创建人不能审批"):
+        await repo.approve_proposal(_actor(Role.ADMIN, "u-creator"), proposal.id, "approved")
+
+
+async def test_modified_approval_persists_validated_params_for_executor(postgres_pool, clean_db) -> None:
+    business = MockBusinessSystem()
+    repo = TicketRepo(postgres_pool, MockBusinessActionRunner(business))
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "修改参数", "x")
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    await repo.create_proposal(_actor(Role.HANDLER), proposal)
+
+    approval = await repo.approve_proposal(
+        _actor(Role.APPROVER), proposal.id, "modified", {"ticket_id": ticket.id, "force": True}
+    )
+    record = await repo.execute_proposal(_actor(Role.SERVICE), proposal.id)
+
+    assert approval.modified_params == {"ticket_id": ticket.id, "force": True}
+    assert record.status == "succeeded"
+    assert business.operations[0]["params"] == {"ticket_id": ticket.id, "force": True}
+
+
+async def test_modified_approval_rejects_cross_ticket_params(repo: TicketRepo) -> None:
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "参数范围", "x")
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    await repo.create_proposal(_actor(Role.HANDLER), proposal)
+
+    with pytest.raises(ParamValidationError, match="所属 ticket_id"):
+        await repo.approve_proposal(_actor(Role.APPROVER), proposal.id, "modified", {"ticket_id": str(uuid.uuid4())})
+
+
 async def test_version_conflict_on_concurrent_transition(repo: TicketRepo) -> None:
     ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "乐观锁", "x")
     handler = _actor(Role.HANDLER)
