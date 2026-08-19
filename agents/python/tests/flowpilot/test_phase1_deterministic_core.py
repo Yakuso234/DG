@@ -15,7 +15,8 @@ import uuid
 
 import pytest
 
-from flowpilot.db import ApprovalConflictError, NotFoundError, TicketRepo, VersionConflictError
+from flowpilot.action_runner import MockBusinessActionRunner
+from flowpilot.db import ApprovalConflictError, NotFoundError, StatePreconditionError, TicketRepo, VersionConflictError
 from flowpilot.domain.executor import (
     ApprovalRequiredError,
     ParamValidationError,
@@ -24,6 +25,7 @@ from flowpilot.domain.executor import (
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role
 from flowpilot.domain.status import LEGAL_TRANSITIONS, IllegalTransitionError, TicketStatus
+from flowpilot.mock_business import MockBusinessSystem
 
 # ─────────────────────── 领域级（无 DB）───────────────────────
 
@@ -128,6 +130,66 @@ async def test_deterministic_closed_loop_without_llm(repo: TicketRepo) -> None:
     assert record.status == "succeeded"
     ticket = await repo.transition(service, ticket.id, TicketStatus.RESOLVED)
     assert ticket.status is TicketStatus.RESOLVED
+
+
+async def test_state_transitions_require_persisted_domain_prerequisites(repo: TicketRepo) -> None:
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "前置条件", "x")
+    handler = _actor(Role.HANDLER)
+    await repo.transition(handler, ticket.id, TicketStatus.TRIAGED)
+    await repo.transition(handler, ticket.id, TicketStatus.INVESTIGATING)
+    with pytest.raises(StatePreconditionError, match="ActionProposal"):
+        await repo.transition(handler, ticket.id, TicketStatus.PROPOSED)
+
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    await repo.create_proposal(handler, proposal)
+    await repo.transition(handler, ticket.id, TicketStatus.PROPOSED)
+    await repo.transition(handler, ticket.id, TicketStatus.WAITING_APPROVAL)
+    with pytest.raises(StatePreconditionError, match="已批准"):
+        await repo.transition(_actor(Role.SERVICE), ticket.id, TicketStatus.EXECUTING)
+
+    await repo.approve_proposal(_actor(Role.APPROVER), proposal.id, "approved")
+    await repo.transition(_actor(Role.SERVICE), ticket.id, TicketStatus.EXECUTING)
+    with pytest.raises(StatePreconditionError, match="成功的执行记录"):
+        await repo.transition(_actor(Role.SERVICE), ticket.id, TicketStatus.RESOLVED)
+
+
+async def test_execution_invokes_mock_business_and_persists_success(postgres_pool, clean_db) -> None:
+    business = MockBusinessSystem()
+    repo = TicketRepo(postgres_pool, MockBusinessActionRunner(business))
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "真实 Mock 执行", "x")
+    handler = _actor(Role.HANDLER)
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    await repo.create_proposal(handler, proposal)
+    await repo.approve_proposal(_actor(Role.APPROVER), proposal.id, "approved")
+
+    record = await repo.execute_proposal(_actor(Role.SERVICE), proposal.id)
+
+    assert record.status == "succeeded"
+    assert record.result is not None
+    assert record.result["adapter"] == "mock-business"
+    assert business.operations and business.operations[0]["op"] == "restart_pipeline"
+
+
+async def test_execution_failure_is_persisted_without_faking_success(postgres_pool, clean_db) -> None:
+    business = MockBusinessSystem()
+    repo = TicketRepo(postgres_pool, MockBusinessActionRunner(business))
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "Mock 超时", "x")
+    handler = _actor(Role.HANDLER)
+    proposal = _proposal(ticket.id, "restart_pipeline", "high")
+    await repo.create_proposal(handler, proposal)
+    await repo.approve_proposal(_actor(Role.APPROVER), proposal.id, "approved")
+    business.register(ticket.id)
+    business.inject_fault(ticket.id, "timeout")
+
+    record = await repo.execute_proposal(_actor(Role.SERVICE), proposal.id)
+    repeated = await repo.execute_proposal(_actor(Role.SERVICE), proposal.id)
+
+    assert record.status == "failed"
+    assert record.result is not None
+    assert record.result["error_type"] == "FaultInjectedError"
+    assert repeated.id == record.id
+    events = await repo.audit_for(_actor(Role.ADMIN), "execution", record.id)
+    assert [event.action for event in events] == ["execution.started", "execution.failed"]
 
 
 async def test_high_risk_proposal_cannot_execute_without_approval(repo: TicketRepo) -> None:

@@ -50,6 +50,11 @@ class MockBusinessSystem:
     def register(self, entity_id: str, state: str = "processing") -> None:
         self._entities[entity_id] = BusinessEntity(id=entity_id, state=state)
 
+    def ensure_entity(self, entity_id: str, state: str = "processing") -> None:
+        """为确定性 Demo 准备业务实体；已存在时不覆盖其故障或事件。"""
+        if entity_id not in self._entities:
+            self.register(entity_id, state=state)
+
     def _entity(self, entity_id: str) -> BusinessEntity:
         if entity_id not in self._entities:
             raise KeyError(f"业务实体 {entity_id} 不存在")
@@ -88,6 +93,14 @@ class MockBusinessSystem:
         entity.state = "processing"
         entity.events.append({"type": "restart", "at": record["at"]})
         return {"ok": True, "entity_id": entity_id, "state": entity.state}
+
+    def add_note(self, entity_id: str, content: str) -> dict:
+        """记录低风险备注，供执行器测试完整的写操作适配路径。"""
+        entity = self._entity(entity_id)
+        record = {"op": "add_note", "entity_id": entity_id, "content": content, "at": utc_now_iso()}
+        self.operations.append(record)
+        entity.events.append({"type": "note", "content": content, "at": record["at"]})
+        return {"ok": True, "entity_id": entity_id, "recorded": True}
 
     def inject_fault(self, entity_id: str, fault: str) -> None:
         if fault not in ("timeout", "partial_failure", "flapping"):

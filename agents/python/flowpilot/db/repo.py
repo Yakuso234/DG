@@ -13,10 +13,11 @@ from typing import Any
 
 import asyncpg
 
+from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
 from flowpilot.domain.executor import (
-    ApprovalRequiredError,
     assert_executable,
     next_idempotency_key,
+    validate_params,
 )
 from flowpilot.domain.models import (
     ActionProposal,
@@ -43,6 +44,10 @@ class ApprovalConflictError(RuntimeError):
     """审批并发冲突：提案已被其他人决议。"""
 
 
+class StatePreconditionError(RuntimeError):
+    """状态机顺序合法，但缺少进入目标状态所需的领域数据。"""
+
+
 def _row_to_ticket(row: asyncpg.Record) -> Ticket:
     return Ticket(
         id=str(row["id"]),
@@ -55,6 +60,20 @@ def _row_to_ticket(row: asyncpg.Record) -> Ticket:
         version=int(row["version"]),
         created_at=row["created_at"].isoformat(),
         updated_at=row["updated_at"].isoformat(),
+    )
+
+
+def _row_to_execution(row: asyncpg.Record) -> ExecutionRecord:
+    return ExecutionRecord(
+        id=str(row["id"]),
+        proposal_id=str(row["proposal_id"]),
+        ticket_id=str(row["ticket_id"]),
+        idempotency_key=row["idempotency_key"],
+        status=row["status"],
+        attempts=int(row["attempts"]),
+        result=json.loads(row["result"]) if row["result"] else None,
+        started_at=row["started_at"].isoformat() if row["started_at"] else None,
+        finished_at=row["finished_at"].isoformat() if row["finished_at"] else None,
     )
 
 
@@ -83,8 +102,41 @@ async def _audit(
 
 
 class TicketRepo:
-    def __init__(self, pool: asyncpg.Pool) -> None:
+    def __init__(self, pool: asyncpg.Pool, action_runner: BusinessActionRunner | None = None) -> None:
         self._pool = pool
+        self._action_runner = action_runner or MockBusinessActionRunner()
+
+    async def _assert_transition_preconditions(
+        self, conn: asyncpg.Connection, ticket_id: str, target: TicketStatus
+    ) -> None:
+        """校验状态机之外的数据不变量，不能只依赖 API/Agent 调用顺序。"""
+        ticket_uuid = uuid.UUID(ticket_id)
+        if target is TicketStatus.PROPOSED:
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM action_proposals WHERE ticket_id = $1)", ticket_uuid
+            )
+            if not exists:
+                raise StatePreconditionError("进入 PROPOSED 前必须存在有效 ActionProposal")
+        elif target is TicketStatus.WAITING_APPROVAL:
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM action_proposals WHERE ticket_id = $1 AND status = 'proposed')",
+                ticket_uuid,
+            )
+            if not exists:
+                raise StatePreconditionError("进入 WAITING_APPROVAL 前必须存在待审批提案")
+        elif target is TicketStatus.EXECUTING:
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM action_proposals WHERE ticket_id = $1 AND status = 'approved')",
+                ticket_uuid,
+            )
+            if not exists:
+                raise StatePreconditionError("进入 EXECUTING 前必须存在已批准提案")
+        elif target is TicketStatus.RESOLVED:
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM executions WHERE ticket_id = $1 AND status = 'succeeded')", ticket_uuid
+            )
+            if not exists:
+                raise StatePreconditionError("进入 RESOLVED 前必须存在成功的执行记录")
 
     async def create_ticket(self, actor: Actor, title: str, description: str, priority: int = 3) -> Ticket:
         actor.check("ticket.create")
@@ -142,6 +194,7 @@ class TicketRepo:
                     raise NotFoundError(f"工单 {ticket_id} 不存在")
                 ticket = _row_to_ticket(row)
                 assert_legal_transition(ticket.status, target)
+                await self._assert_transition_preconditions(conn, ticket_id, target)
                 updated = await conn.fetchrow(
                     """
                     UPDATE tickets SET status = $2, version = version + 1, updated_at = NOW()
@@ -212,6 +265,8 @@ class TicketRepo:
 
     async def create_proposal(self, actor: Actor, proposal: ActionProposal) -> ActionProposal:
         actor.check("proposal.create")
+        # 先阻断无效提案，保证进入 PROPOSED 的提案满足动作合同；执行前仍会二次校验。
+        validate_params(proposal.action, proposal.params)
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -307,10 +362,10 @@ class TicketRepo:
         )
 
     async def execute_proposal(self, actor: Actor, proposal_id: str) -> ExecutionRecord:
-        """受控执行：幂等键唯一约束 + 高风险必须已审批。
+        """提交执行记录后调用业务适配器，并把成功或失败结果持久化。
 
-        同一 proposal 重复调用返回同一执行记录（幂等）；未审批的高风险
-        提案抛 ApprovalRequiredError。
+        先以唯一幂等键提交 ``running`` 记录并释放事务，再执行有副作用的
+        业务调用；重复请求只返回原记录，避免在数据库事务内等待外部调用。
         """
         actor.check("execution.run")
         async with self._pool.acquire() as conn:
@@ -333,61 +388,76 @@ class TicketRepo:
                 idempotency_key = next_idempotency_key(proposal_id, proposal.action)
                 existing = await conn.fetchrow("SELECT * FROM executions WHERE idempotency_key = $1", idempotency_key)
                 if existing is not None:
-                    return ExecutionRecord(
-                        id=str(existing["id"]),
-                        proposal_id=proposal_id,
-                        ticket_id=str(existing["ticket_id"]),
-                        idempotency_key=idempotency_key,
-                        status=existing["status"],
-                        attempts=int(existing["attempts"]),
-                        result=json.loads(existing["result"]) if existing["result"] else None,
-                        started_at=existing["started_at"].isoformat() if existing["started_at"] else None,
-                        finished_at=existing["finished_at"].isoformat() if existing["finished_at"] else None,
-                    )
+                    return _row_to_execution(existing)
                 approved = row["status"] == "approved"
-                try:
-                    assert_executable(proposal, approved=approved, already_executed=False)
-                except ApprovalRequiredError:
-                    raise
+                assert_executable(proposal, approved=approved, already_executed=False)
                 execution_id = uuid.uuid4()
                 exec_row = await conn.fetchrow(
                     """
                     INSERT INTO executions
                         (id, proposal_id, ticket_id, idempotency_key, status, attempts, result,
                          started_at, finished_at)
-                    VALUES ($1, $2, $3, $4, 'succeeded', 1, $5::jsonb, NOW(), NOW())
+                    VALUES ($1, $2, $3, $4, 'running', 1, NULL, NOW(), NULL)
                     RETURNING *
                     """,
                     execution_id,
                     uuid.UUID(proposal_id),
                     uuid.UUID(proposal.ticket_id),
                     idempotency_key,
-                    json.dumps({"ok": True, "action": proposal.action}, ensure_ascii=False),
-                )
-                await conn.execute(
-                    "UPDATE action_proposals SET status = 'executed' WHERE id = $1", uuid.UUID(proposal_id)
                 )
                 await _audit(
                     conn,
                     actor,
                     "execution",
                     str(execution_id),
-                    "execution.run",
+                    "execution.started",
                     None,
-                    {"proposal_id": proposal_id, "idempotency_key": idempotency_key},
+                    {"proposal_id": proposal_id, "idempotency_key": idempotency_key, "status": "running"},
                 )
         assert exec_row is not None
-        return ExecutionRecord(
-            id=str(exec_row["id"]),
-            proposal_id=proposal_id,
-            ticket_id=str(exec_row["ticket_id"]),
-            idempotency_key=idempotency_key,
-            status=exec_row["status"],
-            attempts=int(exec_row["attempts"]),
-            result=json.loads(exec_row["result"]) if exec_row["result"] else None,
-            started_at=exec_row["started_at"].isoformat() if exec_row["started_at"] else None,
-            finished_at=exec_row["finished_at"].isoformat() if exec_row["finished_at"] else None,
-        )
+
+        try:
+            result = await self._action_runner.run(proposal)
+            outcome_status = "succeeded"
+            audit_action = "execution.succeeded"
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "action": proposal.action,
+                "error_type": type(exc).__name__,
+                "detail": str(exc),
+            }
+            outcome_status = "failed"
+            audit_action = "execution.failed"
+
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                completed = await conn.fetchrow(
+                    """
+                    UPDATE executions SET status = $2, result = $3::jsonb, finished_at = NOW()
+                    WHERE id = $1 AND status = 'running'
+                    RETURNING *
+                    """,
+                    execution_id,
+                    outcome_status,
+                    json.dumps(result, ensure_ascii=False),
+                )
+                if completed is None:
+                    raise RuntimeError(f"执行记录 {execution_id} 未处于 running 状态，无法写入结果")
+                if outcome_status == "succeeded":
+                    await conn.execute(
+                        "UPDATE action_proposals SET status = 'executed' WHERE id = $1", uuid.UUID(proposal_id)
+                    )
+                await _audit(
+                    conn,
+                    actor,
+                    "execution",
+                    str(execution_id),
+                    audit_action,
+                    {"status": "running"},
+                    {"status": outcome_status, "result": result},
+                )
+        return _row_to_execution(completed)
 
     async def audit_for(self, actor: Actor, entity: str, entity_id: str) -> list[AuditEvent]:
         actor.check("audit.read")

@@ -21,7 +21,14 @@ from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from flowpilot.db import ApprovalConflictError, NotFoundError, TicketRepo, VersionConflictError
+from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
+from flowpilot.db import (
+    ApprovalConflictError,
+    NotFoundError,
+    StatePreconditionError,
+    TicketRepo,
+    VersionConflictError,
+)
 from flowpilot.domain.executor import (
     ApprovalRequiredError,
     ExecutionError,
@@ -52,7 +59,7 @@ def _repo(request: Request) -> TicketRepo:
     pool = request.app.state.pool
     if pool is None:
         raise RuntimeError("DB 池未初始化（lifespan 失败）")
-    return TicketRepo(pool)
+    return TicketRepo(pool, request.app.state.action_runner)
 
 
 def _actor_from_request(request: Request):
@@ -72,6 +79,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     VersionConflictError: 409,
     ApprovalConflictError: 409,
     ApprovalRequiredError: 409,
+    StatePreconditionError: 409,
     ParamValidationError: 422,
     ExecutionError: 409,
 }
@@ -119,9 +127,10 @@ class TransitionBody(BaseModel):
     target: str
 
 
-def build_app(pool: asyncpg.Pool | None = None) -> FastAPI:
+def build_app(pool: asyncpg.Pool | None = None, action_runner: BusinessActionRunner | None = None) -> FastAPI:
     app = FastAPI(title="FlowPilot API (Phase 1)", version="0.1.0")
     app.state.pool = pool
+    app.state.action_runner = action_runner or MockBusinessActionRunner()
     _register_error_handlers(app)
 
     if pool is None:

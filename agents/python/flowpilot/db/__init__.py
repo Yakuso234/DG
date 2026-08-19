@@ -1,6 +1,7 @@
 from flowpilot.db.repo import (
     ApprovalConflictError,
     NotFoundError,
+    StatePreconditionError,
     TicketRepo,
     VersionConflictError,
 )
@@ -8,6 +9,7 @@ from flowpilot.db.repo import (
 __all__ = [
     "ApprovalConflictError",
     "NotFoundError",
+    "StatePreconditionError",
     "TicketRepo",
     "VersionConflictError",
 ]

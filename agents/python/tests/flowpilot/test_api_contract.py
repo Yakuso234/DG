@@ -36,7 +36,7 @@ async def _make_ticket(client: AsyncClient, title: str = "视频处理中") -> d
 
 
 async def _walk_to_approval(client: AsyncClient, ticket_id: str, action: str = "restart_pipeline") -> dict:
-    for target in ("TRIAGED", "INVESTIGATING", "PROPOSED", "WAITING_APPROVAL"):
+    for target in ("TRIAGED", "INVESTIGATING"):
         resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": target}, headers=HANDLER)
         assert resp.status_code == 200, resp.text
     resp = await client.post(
@@ -45,7 +45,11 @@ async def _walk_to_approval(client: AsyncClient, ticket_id: str, action: str = "
         headers=HANDLER,
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()
+    proposal = resp.json()
+    for target in ("PROPOSED", "WAITING_APPROVAL"):
+        resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": target}, headers=HANDLER)
+        assert resp.status_code == 200, resp.text
+    return proposal
 
 
 async def test_health(client: AsyncClient) -> None:
@@ -73,12 +77,14 @@ async def test_http_closed_loop(client: AsyncClient) -> None:
     assert resp.status_code == 201
     assert resp.json()["decision"] == "approved"
 
-    for target in ("EXECUTING", "RESOLVED"):
-        resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": target}, headers=SERVICE)
-        assert resp.status_code == 200, resp.text
+    resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": "EXECUTING"}, headers=SERVICE)
+    assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/proposals/{proposal['id']}/execute", headers=SERVICE)
     assert resp.status_code == 200
     assert resp.json()["status"] == "succeeded"
+
+    resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": "RESOLVED"}, headers=SERVICE)
+    assert resp.status_code == 200, resp.text
 
     got = await client.get(f"/api/tickets/{ticket_id}", headers=ADMIN)
     assert got.json()["status"] == "RESOLVED"
@@ -101,6 +107,18 @@ async def test_illegal_transition_409(client: AsyncClient) -> None:
     resp = await client.post(f"/api/tickets/{ticket['id']}/transitions", json={"target": "TRIAGED"}, headers=HANDLER)
     assert resp.status_code == 409
     assert "IllegalTransitionError" in resp.json()["detail"]
+
+
+async def test_transition_preconditions_are_enforced_at_api_boundary(client: AsyncClient) -> None:
+    ticket = await _make_ticket(client)
+    ticket_id = ticket["id"]
+    for target in ("TRIAGED", "INVESTIGATING"):
+        resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": target}, headers=HANDLER)
+        assert resp.status_code == 200, resp.text
+
+    resp = await client.post(f"/api/tickets/{ticket_id}/transitions", json={"target": "PROPOSED"}, headers=HANDLER)
+    assert resp.status_code == 409
+    assert "StatePreconditionError" in resp.json()["detail"]
 
 
 async def test_unauthorized_transition_403(client: AsyncClient) -> None:
@@ -143,13 +161,5 @@ async def test_invalid_param_contract_422(client: AsyncClient) -> None:
         json={"action": "restart_pipeline", "params": {"evil": True}, "risk": "high"},
         headers=HANDLER,
     )
-    assert resp.status_code == 201  # 提案创建不校验参数（校验在执行器）
-    proposal_id = resp.json()["id"]
-    # 推进到执行阶段验证参数合同在入口生效
-    resp2 = await client.post(
-        f"/api/proposals/{proposal_id}/approvals", json={"decision": "approved"}, headers=APPROVER
-    )
-    assert resp2.status_code == 201
-    resp3 = await client.post(f"/api/proposals/{proposal_id}/execute", headers=SERVICE)
-    assert resp3.status_code == 422
-    assert "ParamValidationError" in resp3.json()["detail"]
+    assert resp.status_code == 422
+    assert "ParamValidationError" in resp.json()["detail"]
