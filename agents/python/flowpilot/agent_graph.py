@@ -77,8 +77,8 @@ def build_graph(gateway: SwVideoOpsGateway, *, checkpointer: Any = None, require
         decision = interrupt(
             {"ticket_id": state["ticket_id"], "proposal": state["proposal"], "risk": state["risk_review"]}
         )
-        if decision not in ("approved", "denied"):
-            raise ValueError("审批恢复值只能是 approved 或 denied")
+        if decision not in ("approved", "denied", "modified"):
+            raise ValueError("审批恢复值只能是 approved、denied 或 modified")
         return {"approval": {"decision": decision}, "steps": _steps(state, "approval")}
 
     builder = StateGraph(FlowPilotGraphState)
