@@ -6,6 +6,7 @@ import uuid
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from flowpilot.domain.executor import risk_of, validate_params
 from flowpilot.domain.models import ActionProposal, utc_now_iso
@@ -21,6 +22,7 @@ class FlowPilotGraphState(TypedDict, total=False):
     evidence: list[dict[str, Any]]
     proposal: dict[str, Any]
     risk_review: dict[str, Any]
+    approval: dict[str, Any]
     steps: list[str]
 
 
@@ -32,7 +34,7 @@ def _steps(state: FlowPilotGraphState, step: str) -> list[str]:
     return [*state.get("steps", []), step]
 
 
-def build_graph(gateway: SwVideoOpsGateway):
+def build_graph(gateway: SwVideoOpsGateway, *, checkpointer: Any = None, require_approval: bool = False):
     """构建无 LLM、可测试的 P3 主图；模型替换不改变领域校验边界。"""
 
     async def triage(state: FlowPilotGraphState) -> dict[str, Any]:
@@ -71,14 +73,28 @@ def build_graph(gateway: SwVideoOpsGateway):
             "steps": _steps(state, "risk_review"),
         }
 
+    async def await_approval(state: FlowPilotGraphState) -> dict[str, Any]:
+        decision = interrupt(
+            {"ticket_id": state["ticket_id"], "proposal": state["proposal"], "risk": state["risk_review"]}
+        )
+        if decision not in ("approved", "denied"):
+            raise ValueError("审批恢复值只能是 approved 或 denied")
+        return {"approval": {"decision": decision}, "steps": _steps(state, "approval")}
+
     builder = StateGraph(FlowPilotGraphState)
     builder.add_node("triage", triage)
     builder.add_node("investigation", investigate)
     builder.add_node("resolution", resolution)
     builder.add_node("risk_review", risk_review)
+    if require_approval:
+        builder.add_node("await_approval", await_approval)
     builder.add_edge(START, "triage")
     builder.add_edge("triage", "investigation")
     builder.add_edge("investigation", "resolution")
     builder.add_edge("resolution", "risk_review")
-    builder.add_edge("risk_review", END)
-    return builder.compile()
+    if require_approval:
+        builder.add_edge("risk_review", "await_approval")
+        builder.add_edge("await_approval", END)
+    else:
+        builder.add_edge("risk_review", END)
+    return builder.compile(checkpointer=checkpointer)
