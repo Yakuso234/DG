@@ -101,3 +101,17 @@ uv run python -m evals.run_evals \
   --output-json eval-results.json
 python -c "import json; r=json.load(open('eval-results.json')); exit(0 if r['overall_score'] >= 0.8 else 1)"
 ```
+# FlowPilot deterministic baseline
+
+The DG/FlowPilot interview-demo path has a separate no-LLM, no-network
+evaluation suite. It validates the current video-processing scenario before
+the legacy e-commerce evaluators are migrated:
+
+```bash
+cd agents/python
+uv run python -m flowpilot.evaluation --dataset evals/datasets/flowpilot_video_ops.json
+```
+
+The JSON report includes per-case contract checks, pass rate, and local P50/P95
+runtime. Latency values are development-machine samples, not production or LLM
+performance claims.
