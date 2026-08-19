@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
 import asyncpg
@@ -36,8 +37,11 @@ from flowpilot.domain.executor import (
     ParamValidationError,
 )
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
-from flowpilot.domain.rbac import PermissionDeniedError, actor_from_headers
+from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
+from flowpilot.sw_video_ops import SwVideoOpsHttpGateway
+from flowpilot.ticket_workflow import TicketWorkflowService, TicketWorkflowStartResult
+from flowpilot.workflow_runtime import open_workflow_runtime
 
 
 class WorkflowUnavailableError(RuntimeError):
@@ -137,31 +141,67 @@ class WorkflowApprovalCreate(ApprovalCreate):
     thread_id: str = Field(min_length=1, max_length=128)
 
 
+class WorkflowStartCreate(BaseModel):
+    creator_id: int = Field(gt=0)
+    video_id: int = Field(gt=0)
+    trace_id: str = Field(min_length=1, max_length=128)
+    thread_id: str = Field(min_length=1, max_length=128)
+
+
 def build_app(
     pool: asyncpg.Pool | None = None,
     action_runner: BusinessActionRunner | None = None,
     approval_workflow: ApprovalWorkflowService | None = None,
+    ticket_workflow: TicketWorkflowService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="FlowPilot API (Phase 1)", version="0.1.0")
     app.state.pool = pool
     app.state.action_runner = action_runner or MockBusinessActionRunner()
     app.state.approval_workflow = approval_workflow
+    app.state.ticket_workflow = ticket_workflow
     _register_error_handlers(app)
 
     if pool is None:
-        from contextlib import asynccontextmanager
 
         @asynccontextmanager
         async def _lifespan(app: FastAPI):  # pragma: no cover - 需要真实 DB
             dsn = os.environ.get("FLOWPILOT_DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
             if not dsn:
                 raise RuntimeError("缺少 FLOWPILOT_DATABASE_URL / DATABASE_URL")
-            app.state.pool = await asyncpg.create_pool(dsn, min_size=1, max_size=10)
-            try:
-                yield
-            finally:
-                await app.state.pool.close()
-                app.state.pool = None
+            async with AsyncExitStack() as stack:
+                app.state.pool = await asyncpg.create_pool(dsn, min_size=1, max_size=10)
+                stack.push_async_callback(app.state.pool.close)
+                enabled = os.environ.get("FLOWPILOT_WORKFLOW_ENABLED", "false").lower() in {"1", "true", "yes"}
+                try:
+                    if enabled:
+                        checkpoint_path = os.environ.get("FLOWPILOT_CHECKPOINT_PATH", "").strip()
+                        if not checkpoint_path:
+                            raise RuntimeError("启用工作流时必须设置 FLOWPILOT_CHECKPOINT_PATH")
+                        gateway = SwVideoOpsHttpGateway.from_env()
+                        stack.push_async_callback(gateway.aclose)
+                        handler_actor = Actor(
+                            os.environ.get("FLOWPILOT_HANDLER_ACTOR_ID", "flowpilot-handler"), Role.HANDLER
+                        )
+                        service_actor = Actor(
+                            os.environ.get("FLOWPILOT_EXECUTOR_ACTOR_ID", "flowpilot-action-executor"), Role.SERVICE
+                        )
+                        runtime = await stack.enter_async_context(
+                            open_workflow_runtime(
+                                TicketRepo(app.state.pool, app.state.action_runner),
+                                gateway,
+                                checkpoint_path=checkpoint_path,
+                                handler_actor=handler_actor,
+                                service_actor=service_actor,
+                            )
+                        )
+                        app.state.ticket_workflow = runtime.ticket_workflow
+                        app.state.approval_workflow = runtime.approval_workflow
+                    yield
+                finally:
+                    app.state.pool = None
+                    if enabled:
+                        app.state.ticket_workflow = None
+                        app.state.approval_workflow = None
 
         app.router.lifespan_context = _lifespan
 
@@ -237,6 +277,28 @@ def build_app(
             actor, proposal_id, body.decision, body.modified_params, body.note
         )
         return approval.to_dict()
+
+    @app.post("/api/workflows/tickets/{ticket_id}/start", status_code=202)
+    async def start_ticket_workflow(ticket_id: str, body: WorkflowStartCreate, request: Request) -> dict[str, Any]:
+        workflow = request.app.state.ticket_workflow
+        if workflow is None:
+            raise WorkflowUnavailableError("工单 Agent 工作流尚未装配")
+        _actor_from_request(request).check("ticket.transition")
+        result: TicketWorkflowStartResult = await workflow.start(
+            ticket_id=ticket_id,
+            creator_id=body.creator_id,
+            video_id=body.video_id,
+            trace_id=body.trace_id,
+            thread_id=body.thread_id,
+        )
+        return {
+            "ticket_id": result.ticket_id,
+            "thread_id": result.thread_id,
+            "ticket_target": result.ticket_target.value,
+            "evidence": [item.to_dict() for item in result.evidence],
+            "proposal": result.proposal.to_dict(),
+            "steps": result.graph_state.get("steps", []),
+        }
 
     @app.post("/api/workflows/proposals/{proposal_id}/approvals")
     async def decide_workflow_approval(
