@@ -87,17 +87,24 @@ class MockBusinessSystem:
             "op": "restart_pipeline",
             "entity_id": entity_id,
             "force": force,
+            "params": {"ticket_id": entity_id, "force": force},
             "at": utc_now_iso(),
         }
         self.operations.append(record)
         entity.state = "processing"
         entity.events.append({"type": "restart", "at": record["at"]})
-        return {"ok": True, "entity_id": entity_id, "state": entity.state}
+        return {"ok": True, "entity_id": entity_id, "state": entity.state, "force": force}
 
     def add_note(self, entity_id: str, content: str) -> dict:
         """记录低风险备注，供执行器测试完整的写操作适配路径。"""
         entity = self._entity(entity_id)
-        record = {"op": "add_note", "entity_id": entity_id, "content": content, "at": utc_now_iso()}
+        record = {
+            "op": "add_note",
+            "entity_id": entity_id,
+            "content": content,
+            "params": {"ticket_id": entity_id, "content": content},
+            "at": utc_now_iso(),
+        }
         self.operations.append(record)
         entity.events.append({"type": "note", "content": content, "at": record["at"]})
         return {"ok": True, "entity_id": entity_id, "recorded": True}

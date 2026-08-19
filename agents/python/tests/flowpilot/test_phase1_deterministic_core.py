@@ -73,8 +73,8 @@ def repo(postgres_pool, clean_db):
     return TicketRepo(postgres_pool)
 
 
-def _actor(role: Role, uid: str = "u-test") -> Actor:
-    return Actor(id=uid, role=role)
+def _actor(role: Role, uid: str | None = None) -> Actor:
+    return Actor(id=uid or f"u-{role.value}", role=role)
 
 
 def _proposal(ticket_id: str, action: str, risk: str) -> ActionProposal:

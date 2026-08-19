@@ -51,6 +51,7 @@ def test_restart_records_auditable_operation(biz: MockBusinessSystem) -> None:
     assert len(biz.operations) == 1
     assert biz.operations[0]["op"] == "restart_pipeline"
     assert biz.operations[0]["force"] is True
+    assert biz.operations[0]["params"] == {"ticket_id": "e-1", "force": True}
 
 
 def test_unknown_entity_and_fault_rejected(biz: MockBusinessSystem) -> None:
