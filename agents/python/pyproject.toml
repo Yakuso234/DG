@@ -38,6 +38,7 @@ dependencies = [
     "opentelemetry-instrumentation-logging>=0.49b0",
     "opentelemetry-instrumentation-openai-v2>=0.1",
     "mcp[cli]>=1.27.0",
+    "langgraph>=1.0,<2.0",
     "authlib>=1.6",
 ]
 
