@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
+from flowpilot.approval_workflow import ApprovalWorkflowResult, ApprovalWorkflowService
 from flowpilot.db import (
     ApprovalConflictError,
     NotFoundError,
@@ -37,6 +38,10 @@ from flowpilot.domain.executor import (
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import PermissionDeniedError, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
+
+
+class WorkflowUnavailableError(RuntimeError):
+    """当前 API 进程未装配审批恢复工作流。"""
 
 
 def _actor(
@@ -82,6 +87,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StatePreconditionError: 409,
     ParamValidationError: 422,
     ExecutionError: 409,
+    WorkflowUnavailableError: 503,
 }
 
 
@@ -127,10 +133,19 @@ class TransitionBody(BaseModel):
     target: str
 
 
-def build_app(pool: asyncpg.Pool | None = None, action_runner: BusinessActionRunner | None = None) -> FastAPI:
+class WorkflowApprovalCreate(ApprovalCreate):
+    thread_id: str = Field(min_length=1, max_length=128)
+
+
+def build_app(
+    pool: asyncpg.Pool | None = None,
+    action_runner: BusinessActionRunner | None = None,
+    approval_workflow: ApprovalWorkflowService | None = None,
+) -> FastAPI:
     app = FastAPI(title="FlowPilot API (Phase 1)", version="0.1.0")
     app.state.pool = pool
     app.state.action_runner = action_runner or MockBusinessActionRunner()
+    app.state.approval_workflow = approval_workflow
     _register_error_handlers(app)
 
     if pool is None:
@@ -222,6 +237,30 @@ def build_app(pool: asyncpg.Pool | None = None, action_runner: BusinessActionRun
             actor, proposal_id, body.decision, body.modified_params, body.note
         )
         return approval.to_dict()
+
+    @app.post("/api/workflows/proposals/{proposal_id}/approvals")
+    async def decide_workflow_approval(
+        proposal_id: str, body: WorkflowApprovalCreate, request: Request
+    ) -> dict[str, Any]:
+        """受控入口：审批落库、恢复同一图、匹配后才允许执行。"""
+        workflow = request.app.state.approval_workflow
+        if workflow is None:
+            raise WorkflowUnavailableError("审批恢复工作流尚未装配")
+        actor = _actor_from_request(request)
+        result: ApprovalWorkflowResult = await workflow.decide(
+            actor,
+            proposal_id,
+            body.decision,
+            {"configurable": {"thread_id": body.thread_id}},
+            modified_params=body.modified_params,
+            note=body.note,
+        )
+        return {
+            "approval": result.approval.to_dict(),
+            "execution": result.execution.to_dict() if result.execution is not None else None,
+            "ticket_target": result.ticket_target.value,
+            "steps": result.graph_state.get("steps", []),
+        }
 
     @app.post("/api/proposals/{proposal_id}/execute")
     async def execute_proposal(proposal_id: str, request: Request) -> dict[str, Any]:
