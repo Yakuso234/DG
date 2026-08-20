@@ -9,7 +9,7 @@ async def test_flowpilot_video_ops_dataset_passes_deterministic_baseline() -> No
     cases = load_flowpilot_eval_cases(DATASET)
     summary = await FlowPilotDeterministicEvaluator().evaluate(cases)
 
-    assert summary.total == 6
+    assert summary.total == 7
     assert summary.passed == summary.total
     assert summary.pass_rate == 1.0
     assert summary.p50_latency_ms >= 0
@@ -23,3 +23,12 @@ async def test_injected_error_text_cannot_change_action_or_params() -> None:
 
     assert results and all(item.passed for item in results)
     assert all(item.checks["action_correct"] and item.checks["params_scoped"] for item in results)
+
+
+async def test_missing_lease_has_distinct_rejection_reason() -> None:
+    case = next(case for case in load_flowpilot_eval_cases(DATASET) if case.id == "processing-without-lease")
+
+    result = await FlowPilotDeterministicEvaluator().evaluate_case(case)
+
+    assert result.passed is True
+    assert result.detail == "missing_lease_evidence"

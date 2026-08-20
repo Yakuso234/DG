@@ -22,8 +22,13 @@ class FakeTicketWorkflow:
         proposal = ActionProposal(
             "proposal-1",
             kwargs["ticket_id"],
-            "restart_pipeline",
-            {"ticket_id": kwargs["ticket_id"]},
+            "recover_expired_video_processing",
+            {
+                "ticket_id": kwargs["ticket_id"],
+                "creator_id": kwargs["creator_id"],
+                "video_id": kwargs["video_id"],
+                "trace_id": kwargs["trace_id"],
+            },
             [evidence.id],
             "high",
             "flowpilot-resolution-agent",

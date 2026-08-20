@@ -71,7 +71,11 @@ class FakeRuntimeRepo:
 
 async def test_runtime_shares_persistent_graph_between_start_and_approval(tmp_path) -> None:
     gateway = MockSwVideoOpsGateway(
-        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
+        [
+            VideoProcessingSnapshot(
+                7, 9, "PROCESSING", "PROCESSING", 1, "2026-08-18 00:00:00", None, "2026-08-19 09:00:00", "seed"
+            )
+        ]
     )
     repo = FakeRuntimeRepo()
     checkpoint_path = str(tmp_path / "workflow-runtime.sqlite")

@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from flowpilot.agent_graph import build_graph, initial_state
+from flowpilot.agent_graph import ResolutionNotApplicableError, build_graph, initial_state
 from flowpilot.sw_video_ops import MockSwVideoOpsGateway, VideoProcessingSnapshot
 
 
@@ -23,6 +23,7 @@ class FlowPilotEvalCase:
     video_status: str
     processing_status: str | None
     retry_count: int | None
+    lease_expire_at: str | None
     error_summary: str | None
     expected_outcome: str
     expected_action: str | None = None
@@ -86,7 +87,7 @@ class FlowPilotDeterministicEvaluator:
                     case.video_status,
                     case.processing_status,
                     case.retry_count,
-                    None,
+                    case.lease_expire_at,
                     case.error_summary,
                     "2026-08-19T00:00:00Z",
                     trace_id,
@@ -103,7 +104,7 @@ class FlowPilotDeterministicEvaluator:
                     trace_id=trace_id,
                 )
             )
-        except ValueError:
+        except ResolutionNotApplicableError as exc:
             latency = (time.perf_counter() - started) * 1000
             passed = case.expected_outcome == "reject"
             return FlowPilotEvalResult(
@@ -112,7 +113,7 @@ class FlowPilotDeterministicEvaluator:
                 latency,
                 "reject",
                 {"expected_rejection": passed},
-                "non_processing_status_rejected",
+                exc.reason,
             )
 
         latency = (time.perf_counter() - started) * 1000
@@ -121,7 +122,13 @@ class FlowPilotDeterministicEvaluator:
         checks = {
             "expected_proposal": case.expected_outcome == "proposal",
             "action_correct": proposal["action"] == case.expected_action,
-            "params_scoped": proposal["params"] == {"ticket_id": ticket_id},
+            "params_scoped": proposal["params"]
+            == {
+                "ticket_id": ticket_id,
+                "creator_id": case.creator_id,
+                "video_id": case.video_id,
+                "trace_id": trace_id,
+            },
             "evidence_source": evidence["source"] == "sw-video-ops-mcp",
             "evidence_referenced": proposal["evidence_ids"] == [evidence["id"]],
             "risk_authoritative": state["risk_review"]["authoritative_risk"] == "high",

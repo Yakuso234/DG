@@ -45,6 +45,7 @@ from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
 from flowpilot.sw_video_ops import SwVideoOpsHttpGateway
+from flowpilot.sw_video_recovery import SwVideoRecoveryActionRunner
 from flowpilot.ticket_workflow import TicketWorkflowService, TicketWorkflowStartResult, TicketWorkflowStateError
 from flowpilot.workflow_runtime import open_workflow_runtime
 
@@ -179,6 +180,16 @@ def build_app(
             async with AsyncExitStack() as stack:
                 app.state.pool = await asyncpg.create_pool(dsn, min_size=1, max_size=10)
                 stack.push_async_callback(app.state.pool.close)
+                if action_runner is None:
+                    runner_mode = os.environ.get("FLOWPILOT_ACTION_RUNNER", "mock").strip().lower()
+                    if runner_mode == "sw-video-recovery":
+                        sw_runner = SwVideoRecoveryActionRunner.from_env()
+                        stack.push_async_callback(sw_runner.aclose)
+                        app.state.action_runner = sw_runner
+                    elif runner_mode != "mock":
+                        raise RuntimeError(
+                            f"FLOWPILOT_ACTION_RUNNER 只能是 mock 或 sw-video-recovery，实际为 {runner_mode!r}"
+                        )
                 enabled = os.environ.get("FLOWPILOT_WORKFLOW_ENABLED", "false").lower() in {"1", "true", "yes"}
                 try:
                     if enabled:

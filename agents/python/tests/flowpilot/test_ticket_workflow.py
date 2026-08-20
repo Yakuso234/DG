@@ -35,7 +35,11 @@ class FakeTicketWorkflowRepo:
 
 async def test_start_workflow_persists_graph_outputs_before_waiting_for_approval() -> None:
     gateway = MockSwVideoOpsGateway(
-        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
+        [
+            VideoProcessingSnapshot(
+                7, 9, "PROCESSING", "PROCESSING", 1, "2026-08-18 00:00:00", None, "2026-08-19 09:00:00", "seed"
+            )
+        ]
     )
     graph = build_graph(gateway, checkpointer=MemorySaver(), require_approval=True)
     repo = FakeTicketWorkflowRepo()

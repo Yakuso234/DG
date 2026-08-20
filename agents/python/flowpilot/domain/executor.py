@@ -30,19 +30,32 @@ class ApprovalRequiredError(ExecutionError):
     """高风险动作未经批准即执行。"""
 
 
+SW_VIDEO_RECOVERY_ACTION = "recover_expired_video_processing"
+
+
 # 动作合同目录：action -> (风险级别, 必填参数, 允许参数)。
 # 不在目录中的动作一律拒绝执行；目录在 Phase 4 由 Risk Reviewer 复核，
 # 但始终由领域代码决定是否放行。
 ACTION_CATALOG: dict[str, tuple[RiskLevel, frozenset[str], frozenset[str]]] = {
     # 只读诊断动作（低风险）
     "diagnose_status": (RiskLevel.LOW, frozenset({"ticket_id"}), frozenset({"ticket_id", "depth"})),
-    # 可逆写动作：重启流水线（低风险但需要审批标记为低风险直接执行）
+    # 可逆但有真实副作用的通用重启动作，仍按高风险要求审批。
     "restart_pipeline": (RiskLevel.HIGH, frozenset({"ticket_id"}), frozenset({"ticket_id", "force"})),
+    # SW 视频恢复：只允许恢复租约已过期的处理任务，执行目标与追踪字段必须完整。
+    SW_VIDEO_RECOVERY_ACTION: (
+        RiskLevel.HIGH,
+        frozenset({"ticket_id", "creator_id", "video_id", "trace_id"}),
+        frozenset({"ticket_id", "creator_id", "video_id", "trace_id"}),
+    ),
     # 不可逆动作：高危，必须审批
     "delete_data": (RiskLevel.HIGH, frozenset({"ticket_id"}), frozenset({"ticket_id", "cascade"})),
     # 写回工单备注（低风险）
     "add_note": (RiskLevel.LOW, frozenset({"ticket_id", "content"}), frozenset({"ticket_id", "content"})),
 }
+
+# 审批人可以修改处置选项，但不能把已经调查和复核过的提案转向另一个
+# 工单或业务对象；需要换目标时必须重新调查并创建新提案。
+EXECUTION_SCOPE_KEYS = frozenset({"ticket_id", "creator_id", "video_id", "trace_id"})
 
 
 def validate_params(action: str, params: dict[str, Any]) -> None:
@@ -56,6 +69,23 @@ def validate_params(action: str, params: dict[str, Any]) -> None:
     extra = params.keys() - allowed
     if extra:
         raise ParamValidationError(f"动作 {action} 含非法参数: {sorted(extra)}")
+
+
+def validate_modified_params(
+    action: str,
+    original_params: dict[str, Any],
+    modified_params: dict[str, Any],
+) -> None:
+    """校验审批修改，并禁止改变已经由证据绑定的执行范围。"""
+    validate_params(action, modified_params)
+    changed_scope = sorted(
+        key
+        for key in EXECUTION_SCOPE_KEYS
+        if key in original_params or key in modified_params
+        if original_params.get(key) != modified_params.get(key)
+    )
+    if changed_scope:
+        raise ParamValidationError(f"modified_params 不能改变执行范围参数: {changed_scope}")
 
 
 def risk_of(action: str) -> RiskLevel:

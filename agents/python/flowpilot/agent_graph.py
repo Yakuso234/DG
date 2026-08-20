@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from flowpilot.domain.executor import risk_of, validate_params
+from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION, risk_of, validate_params
 from flowpilot.domain.models import ActionProposal, utc_now_iso
 from flowpilot.sw_video_ops import SwVideoOpsGateway, status_to_evidence
 
@@ -24,6 +24,14 @@ class FlowPilotGraphState(TypedDict, total=False):
     risk_review: dict[str, Any]
     approval: dict[str, Any]
     steps: list[str]
+
+
+class ResolutionNotApplicableError(ValueError):
+    """当前证据不满足自动生成恢复提案的确定性前置条件。"""
+
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(detail)
+        self.reason = reason
 
 
 def initial_state(*, ticket_id: str, creator_id: int, video_id: int, trace_id: str) -> FlowPilotGraphState:
@@ -51,12 +59,25 @@ def build_graph(gateway: SwVideoOpsGateway, *, checkpointer: Any = None, require
         evidence = state["evidence"]
         processing_status = evidence[0]["data"]["processing_status"]
         if processing_status != "PROCESSING":
-            raise ValueError(f"当前 P3 只为 PROCESSING 卡住场景生成恢复提案，实际为 {processing_status!r}")
+            raise ResolutionNotApplicableError(
+                "non_processing_status",
+                f"当前 P3 只为 PROCESSING 卡住场景生成恢复提案，实际为 {processing_status!r}",
+            )
+        if not evidence[0]["data"].get("lease_expire_at"):
+            raise ResolutionNotApplicableError(
+                "missing_lease_evidence",
+                "PROCESSING 任务缺少租约到期时间，不能生成受控恢复提案",
+            )
         proposal = ActionProposal(
             id=str(uuid.uuid4()),
             ticket_id=state["ticket_id"],
-            action="restart_pipeline",
-            params={"ticket_id": state["ticket_id"]},
+            action=SW_VIDEO_RECOVERY_ACTION,
+            params={
+                "ticket_id": state["ticket_id"],
+                "creator_id": state["creator_id"],
+                "video_id": state["video_id"],
+                "trace_id": state["trace_id"],
+            },
             evidence_ids=[evidence[0]["id"]],
             risk="high",
             created_by="flowpilot-resolution-agent",

@@ -49,7 +49,7 @@ class FakeApprovalWorkflowRepo:
             id="execution-1",
             proposal_id=proposal_id,
             ticket_id="ticket-1",
-            idempotency_key=f"{proposal_id}:restart_pipeline",
+            idempotency_key=f"{proposal_id}:recover_expired_video_processing",
             status=self.execution_status,
             attempts=1,
             result={},
@@ -60,7 +60,11 @@ class FakeApprovalWorkflowRepo:
 
 async def _paused_graph() -> tuple[Any, dict[str, Any]]:
     gateway = MockSwVideoOpsGateway(
-        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
+        [
+            VideoProcessingSnapshot(
+                7, 9, "PROCESSING", "PROCESSING", 1, "2026-08-18 00:00:00", None, "2026-08-19 09:00:00", "seed"
+            )
+        ]
     )
     graph = build_graph(gateway, checkpointer=MemorySaver(), require_approval=True)
     config = {"configurable": {"thread_id": "approval-service-thread"}}

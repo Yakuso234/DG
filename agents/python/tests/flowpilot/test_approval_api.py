@@ -42,7 +42,7 @@ class FakeApprovalWorkflow:
             id="execution-1",
             proposal_id=proposal_id,
             ticket_id="ticket-1",
-            idempotency_key=f"{proposal_id}:restart_pipeline",
+            idempotency_key=f"{proposal_id}:recover_expired_video_processing",
             status="succeeded",
             attempts=1,
             result={"ok": True},

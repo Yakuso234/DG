@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION
 from flowpilot.domain.models import ActionProposal
 from flowpilot.mock_business import MockBusinessSystem
 
@@ -29,13 +30,19 @@ class MockBusinessActionRunner:
         self.business = business or MockBusinessSystem()
 
     async def run(self, proposal: ActionProposal) -> dict[str, Any]:
-        entity_id = str(proposal.params["ticket_id"])
+        entity_id = (
+            str(proposal.params["video_id"])
+            if proposal.action == SW_VIDEO_RECOVERY_ACTION
+            else str(proposal.params["ticket_id"])
+        )
         self.business.ensure_entity(entity_id, state="processing")
 
         if proposal.action == "diagnose_status":
             result = self.business.get_status(entity_id)
         elif proposal.action == "restart_pipeline":
             result = self.business.restart_pipeline(entity_id, force=bool(proposal.params.get("force", False)))
+        elif proposal.action == SW_VIDEO_RECOVERY_ACTION:
+            result = self.business.restart_pipeline(entity_id, force=False)
         elif proposal.action == "add_note":
             result = self.business.add_note(entity_id, str(proposal.params["content"]))
         else:

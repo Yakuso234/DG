@@ -23,7 +23,13 @@ async def test_langgraph_main_flow_generates_evidence_and_high_risk_proposal() -
 
     assert state["steps"] == ["triage", "investigation", "resolution", "risk_review"]
     assert state["evidence"][0]["source"] == "sw-video-ops-mcp"
-    assert state["proposal"]["action"] == "restart_pipeline"
+    assert state["proposal"]["action"] == "recover_expired_video_processing"
+    assert state["proposal"]["params"] == {
+        "ticket_id": "ticket-1",
+        "creator_id": 7,
+        "video_id": 9,
+        "trace_id": "trace-p3",
+    }
     assert state["risk_review"] == {"approved_for_human_review": True, "authoritative_risk": "high"}
 
 
@@ -37,9 +43,23 @@ async def test_langgraph_refuses_non_processing_scenario() -> None:
         )
 
 
-async def test_langgraph_interrupts_and_resumes_human_approval() -> None:
+async def test_langgraph_refuses_processing_task_without_lease_evidence() -> None:
     gateway = MockSwVideoOpsGateway(
         [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
+    )
+    with pytest.raises(ValueError, match="租约到期时间"):
+        await build_graph(gateway).ainvoke(
+            initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-missing-lease")
+        )
+
+
+async def test_langgraph_interrupts_and_resumes_human_approval() -> None:
+    gateway = MockSwVideoOpsGateway(
+        [
+            VideoProcessingSnapshot(
+                7, 9, "PROCESSING", "PROCESSING", 1, "2026-08-18 00:00:00", None, "2026-08-19 09:00:00", "seed"
+            )
+        ]
     )
     graph = build_graph(gateway, checkpointer=MemorySaver(), require_approval=True)
     config = {"configurable": {"thread_id": "approval-thread"}}
@@ -58,7 +78,11 @@ async def test_langgraph_interrupts_and_resumes_human_approval() -> None:
 async def test_langgraph_resumes_approval_from_sqlite_checkpoint(tmp_path) -> None:
     database_path = tmp_path / "approval-checkpoints.sqlite"
     gateway = MockSwVideoOpsGateway(
-        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
+        [
+            VideoProcessingSnapshot(
+                7, 9, "PROCESSING", "PROCESSING", 1, "2026-08-18 00:00:00", None, "2026-08-19 09:00:00", "seed"
+            )
+        ]
     )
     config = {"configurable": {"thread_id": "sqlite-approval-thread"}}
 

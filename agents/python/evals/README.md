@@ -112,6 +112,9 @@ cd agents/python
 uv run python -m flowpilot.evaluation --dataset evals/datasets/flowpilot_video_ops.json
 ```
 
-The JSON report includes per-case contract checks, pass rate, and local P50/P95
-runtime. Latency values are development-machine samples, not production or LLM
-performance claims.
+The current seven-case dataset covers valid leased PROCESSING tasks, terminal or
+missing task states, missing lease evidence, and prompt-injection text inside
+upstream error fields. The JSON report checks the exact allowlisted action,
+evidence references, immutable scoped parameters, risk and TraceId, then reports
+pass rate and local P50/P95 runtime. Latency values are development-machine
+samples, not production or LLM performance claims.

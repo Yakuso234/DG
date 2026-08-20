@@ -14,7 +14,13 @@ from typing import Any
 import asyncpg
 
 from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
-from flowpilot.domain.executor import ParamValidationError, assert_executable, next_idempotency_key, validate_params
+from flowpilot.domain.executor import (
+    ParamValidationError,
+    assert_executable,
+    next_idempotency_key,
+    validate_modified_params,
+    validate_params,
+)
 from flowpilot.domain.models import (
     ActionProposal,
     Approval,
@@ -349,9 +355,9 @@ class TicketRepo:
                 if decision == "modified":
                     if modified_params is None:
                         raise ParamValidationError("modified 决议必须提供 modified_params")
-                    validate_params(row["action"], modified_params)
                     if modified_params.get("ticket_id") != str(row["ticket_id"]):
                         raise ParamValidationError("modified_params.ticket_id 必须与所属 ticket_id 一致")
+                    validate_modified_params(row["action"], json.loads(row["params"]), modified_params)
                 elif modified_params is not None:
                     raise ParamValidationError("只有 modified 决议可以提供 modified_params")
                 version = await conn.fetchval(
