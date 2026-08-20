@@ -44,7 +44,7 @@ from flowpilot.domain.executor import (
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
-from flowpilot.sw_video_ops import SwVideoOpsHttpGateway
+from flowpilot.sw_video_ops import gateway_from_env
 from flowpilot.sw_video_recovery import SwVideoRecoveryActionRunner
 from flowpilot.ticket_workflow import TicketWorkflowService, TicketWorkflowStartResult, TicketWorkflowStateError
 from flowpilot.workflow_runtime import open_workflow_runtime
@@ -196,8 +196,10 @@ def build_app(
                         checkpoint_path = os.environ.get("FLOWPILOT_CHECKPOINT_PATH", "").strip()
                         if not checkpoint_path:
                             raise RuntimeError("启用工作流时必须设置 FLOWPILOT_CHECKPOINT_PATH")
-                        gateway = SwVideoOpsHttpGateway.from_env()
-                        stack.push_async_callback(gateway.aclose)
+                        gateway = gateway_from_env()
+                        close_gateway = getattr(gateway, "aclose", None)
+                        if callable(close_gateway):
+                            stack.push_async_callback(close_gateway)
                         handler_actor = Actor(
                             os.environ.get("FLOWPILOT_HANDLER_ACTOR_ID", "flowpilot-handler"), Role.HANDLER
                         )

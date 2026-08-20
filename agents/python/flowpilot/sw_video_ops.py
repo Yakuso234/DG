@@ -63,6 +63,18 @@ class SwVideoOpsGateway(Protocol):
     async def get_processing_operations_overview(self, *, trace_id: str) -> dict[str, Any]: ...
 
 
+def gateway_from_env() -> SwVideoOpsGateway:
+    """按显式配置选择直连 SW HTTP 或通过 SW MCP 的只读调查路径。"""
+    transport = os.environ.get("FLOWPILOT_SW_OPS_TRANSPORT", "direct-http").strip().lower()
+    if transport == "direct-http":
+        return SwVideoOpsHttpGateway.from_env()
+    if transport == "mcp":
+        from flowpilot.sw_video_ops_mcp_client import SwVideoOpsMcpGateway
+
+        return SwVideoOpsMcpGateway.from_env()
+    raise SwVideoOpsError(f"FLOWPILOT_SW_OPS_TRANSPORT 只能是 direct-http 或 mcp，实际为 {transport!r}")
+
+
 class SwVideoOpsHttpGateway:
     """只读 SW 私有 HTTP 客户端：不允许没有服务身份的调用。"""
 

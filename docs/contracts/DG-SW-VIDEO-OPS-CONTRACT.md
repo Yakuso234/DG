@@ -14,6 +14,12 @@
 | `get_video_processing_status` | `GET /video/api/private/creator/{creatorId}/processing/{videoId}` | 读取创作者范围内的视频/处理任务状态、重试、租约和受限失败摘要 |
 | `get_processing_operations_overview` | `GET /video/api/private/processing/operations/overview` | 读取队列、处理中与失败任务计数 |
 
+DG 的 Investigation 可选择两种只读 transport：默认 `direct-http` 直连上表的
+私有 HTTP，或配置 `FLOWPILOT_SW_OPS_TRANSPORT=mcp` 后以官方 MCP
+`ClientSession` 访问 `SW_VIDEO_MCP_URL`（Streamable HTTP，默认 `/mcp`）。两者
+都归一为相同的 `SwVideoOpsGateway` 合同；MCP client 对服务调用禁用环境代理，
+避免 loopback/private endpoint 被系统代理意外转发。
+
 DG 只接受 SW 的 `Result<data>` JSON 响应；缺少必要字段、非 JSON 或异常状态统一转为结构化调用失败，不能被模型当作事实。
 
 ## SW 私有恢复接口
@@ -51,8 +57,10 @@ X-Trace-Id: ${trace_id}
 Idempotency-Key: ${proposal_id}:recover_expired_video_processing
 ```
 
-DG 在缺少 Token 时失败关闭，不会发送匿名请求。写动作默认仍使用本地 Mock；
-只有显式设置 `FLOWPILOT_ACTION_RUNNER=sw-video-recovery` 才启用真实 SW 适配器。
+DG 在缺少 Token 时失败关闭，不会发送匿名请求。MCP mode 的服务身份头由 MCP
+client 发往 MCP server，TraceId 作为工具参数传递，再由 server 的下游 SW HTTP
+gateway 发送 `X-Trace-Id`。写动作默认仍使用本地 Mock；只有显式设置
+`FLOWPILOT_ACTION_RUNNER=sw-video-recovery` 才启用真实 SW 适配器。
 
 SW 当前私有路由只由 Gateway 阻断公网访问，尚未确认上述 Token 和
 `Idempotency-Key` 的服务端验证。因此当前实现能证明 DG 出站身份、DG 侧唯一幂等记录、

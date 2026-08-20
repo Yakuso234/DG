@@ -13,9 +13,16 @@ FLOWPILOT_DATABASE_URL=postgresql://...
 FLOWPILOT_WORKFLOW_ENABLED=true
 FLOWPILOT_CHECKPOINT_PATH=C:\absolute\path\flowpilot-checkpoints.sqlite
 FLOWPILOT_ACTION_RUNNER=sw-video-recovery
-SW_VIDEO_BASE_URL=http://localhost:...
+FLOWPILOT_SW_OPS_TRANSPORT=mcp
+SW_VIDEO_MCP_URL=http://127.0.0.1:9010/mcp
 SW_VIDEO_SERVICE_TOKEN=...
 ```
+
+`FLOWPILOT_SW_OPS_TRANSPORT` defaults to `direct-http`. In that mode use
+`SW_VIDEO_BASE_URL=http://localhost:...`; in `mcp` mode use the streamable HTTP
+endpoint in `SW_VIDEO_MCP_URL`. Both modes require the service token. The MCP
+client disables ambient proxy settings so local service-to-service calls cannot
+silently leave the loopback/private network.
 
 Optional non-secret internal actor identifiers:
 
@@ -84,4 +91,6 @@ Denied decisions move to `ESCALATED` without invoking the executor.
 - Start retries reuse a paused checkpoint and treat identical Evidence/Proposal IDs as idempotent.
 - The complete FlowPilot suite has been verified against PostgreSQL 16 through Testcontainers; this is local integration evidence, not production load evidence.
 - DG's approved recovery client is implemented against SW's existing `recover-expired` API.
+- The Investigation gateway can use a real MCP `ClientSession` over Streamable HTTP; the
+  local protocol regression starts FastMCP on loopback and keeps the SW gateway mocked.
 - SW inbound token/idempotency-header verification and a live two-project integration run remain pending.
