@@ -28,6 +28,7 @@ from flowpilot.approval_workflow import (
     ApprovalWorkflowResult,
     ApprovalWorkflowService,
 )
+from flowpilot.auth import FlowPilotAuthConfig, FlowPilotAuthError
 from flowpilot.db import (
     ApprovalConflictError,
     IdempotencyConflictError,
@@ -83,7 +84,10 @@ def _repo(request: Request) -> TicketRepo:
     return TicketRepo(pool, request.app.state.action_runner)
 
 
-def _actor_from_request(request: Request):
+def _actor_from_request(request: Request) -> Actor:
+    auth_config: FlowPilotAuthConfig = request.app.state.auth_config
+    if auth_config.mode == "jwt-local":
+        return auth_config.actor_from_bearer(request.headers.get("authorization"))
     headers = request.headers
     return _actor(
         headers.get("x-user-id"),
@@ -94,6 +98,7 @@ def _actor_from_request(request: Request):
 
 
 _ERROR_STATUS: dict[type[Exception], int] = {
+    FlowPilotAuthError: 401,
     NotFoundError: 404,
     PermissionDeniedError: 403,
     IllegalTransitionError: 409,
@@ -169,12 +174,14 @@ def build_app(
     action_runner: BusinessActionRunner | None = None,
     approval_workflow: ApprovalWorkflowService | None = None,
     ticket_workflow: TicketWorkflowService | None = None,
+    auth_config: FlowPilotAuthConfig | None = None,
 ) -> FastAPI:
     app = FastAPI(title="FlowPilot API (Phase 1)", version="0.1.0")
     app.state.pool = pool
     app.state.action_runner = action_runner or MockBusinessActionRunner()
     app.state.approval_workflow = approval_workflow
     app.state.ticket_workflow = ticket_workflow
+    app.state.auth_config = auth_config or FlowPilotAuthConfig.from_env()
     _register_error_handlers(app)
 
     @app.middleware("http")

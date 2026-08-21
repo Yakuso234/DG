@@ -46,6 +46,30 @@ FLOWPILOT_EXECUTOR_ACTOR_ID=flowpilot-action-executor
 SW_VIDEO_SERVICE_NAME=flowpilot
 ```
 
+## API authentication modes
+
+`FLOWPILOT_AUTH_MODE=headers` is the default for the local Mock Demo and
+legacy contract tests. It reads `x-user-id` / `x-user-role` and is explicitly
+not a trusted deployment mode.
+
+Set `FLOWPILOT_AUTH_MODE=jwt-local` to require a signed HS256 Bearer access
+token for every non-health FlowPilot API route:
+
+```text
+FLOWPILOT_AUTH_MODE=jwt-local
+FLOWPILOT_JWT_SECRET=<at-least-32-byte-secret>
+FLOWPILOT_JWT_ISSUER=https://auth.example.internal
+FLOWPILOT_JWT_AUDIENCE=flowpilot-api
+```
+
+The token must contain `exp`, `sub`, `role`, and `type=access`; `user_id` is
+used as the stable Actor ID when present, otherwise `sub` is used. `role` must
+be a FlowPilot role (`submitter`, `handler`, `approver`, `admin`, `service`).
+In jwt-local mode, all `x-user-*` / `x-agent-*` headers are ignored. Missing,
+expired, invalid, wrong-audience, or wrong-role tokens fail with HTTP 401.
+This is a local HS256 boundary; production federation/JWKS remains a separate
+future integration.
+
 If `FLOWPILOT_WORKFLOW_ENABLED` is not true, the normal ticket API remains
 available but workflow start/approval endpoints return HTTP 503. If it is true,
 missing checkpoint or SW service-identity settings fail application startup.

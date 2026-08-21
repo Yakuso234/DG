@@ -7,6 +7,7 @@
 
 - 使用真实 FastAPI、asyncpg/PostgreSQL、LangGraph、SQLite checkpoint 与领域审计。
 - 使用 `MockSwVideoOpsGateway`、`MockBusinessActionRunner` 与 Fake Model；不会访问 SW、MCP 网络端点或任何模型 API。
+- 默认使用 `FLOWPILOT_AUTH_MODE=headers` 的本地 Demo 身份头；不把它当作 JWT 演示或生产鉴权证据。
 - 这证明 DG 的本地持久化闭环，不应表述为 DG+SW 双项目联调或真实 LLM 效果。
 
 ## 前置条件
