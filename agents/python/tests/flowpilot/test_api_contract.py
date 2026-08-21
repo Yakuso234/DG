@@ -58,6 +58,20 @@ async def test_health(client: AsyncClient) -> None:
     assert resp.json()["service"] == "flowpilot-api"
 
 
+async def test_api_propagates_valid_trace_id_and_rejects_invalid_input(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/tickets",
+        json={"title": "trace"},
+        headers={**SUB, "X-Trace-Id": "trace-api-1"},
+    )
+    assert response.status_code == 201
+    assert response.headers["X-Trace-Id"] == "trace-api-1"
+
+    rejected = await client.get("/health", headers={"X-Trace-Id": "trace with spaces"})
+    assert rejected.status_code == 400
+    assert rejected.headers["X-Trace-Id"].startswith("fp-")
+
+
 async def test_missing_identity_rejected(client: AsyncClient) -> None:
     resp = await client.post("/api/tickets", json={"title": "x"})
     assert resp.status_code == 403

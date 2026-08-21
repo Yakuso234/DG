@@ -105,7 +105,7 @@ async def run_demo(
                 start_response = await client.post(
                     f"/api/workflows/tickets/{ticket['id']}/start",
                     json={"creator_id": 7, "video_id": 901, "trace_id": trace_id, "thread_id": thread_id},
-                    headers=_HANDLER,
+                    headers={**_HANDLER, "X-Trace-Id": trace_id},
                 )
                 start_response.raise_for_status()
                 started = start_response.json()

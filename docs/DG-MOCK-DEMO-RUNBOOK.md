@@ -46,6 +46,10 @@ uv run python -m flowpilot.demo
 uv run python -m flowpilot.demo --trace-id trace-interview-001
 ```
 
+Demo 会将该值同时写入工作流请求头 `X-Trace-Id` 与请求体 `trace_id`；API
+会在每个响应中回传同一个 Header。两者不一致时工作流会拒绝请求，避免一次
+调查链路被拆成两个无法关联的 Trace。
+
 ## 面试演示顺序
 
 1. 说明输入是租约过期的 PROCESSING 视频任务，Mock 仅替代外部 SW，不替代数据库或工作流。

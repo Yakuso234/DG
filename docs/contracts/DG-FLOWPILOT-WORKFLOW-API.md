@@ -62,6 +62,7 @@ any other value fails startup. The real adapter only accepts
 POST /api/workflows/tickets/{ticket_id}/start
 X-User-Id: u-handler
 X-User-Role: handler
+X-Trace-Id: trace-demo-1
 Content-Type: application/json
 
 {
@@ -71,6 +72,14 @@ Content-Type: application/json
   "thread_id": "ticket-{ticket_id}"
 }
 ```
+
+The API generates a `X-Trace-Id` for every request and returns it on every
+response. A caller may provide a 1-128 character trace containing only letters,
+numbers, `.`, `_`, `:`, or `-`. For workflow start, a supplied body `trace_id`
+must match a supplied `X-Trace-Id`; otherwise the request is rejected with 422.
+When the body field is omitted, the request TraceId is used. This prevents the
+HTTP request, graph Evidence, MCP/SW propagation, and later logs from being
+silently split across multiple correlation IDs.
 
 The service advances `NEW -> TRIAGED -> INVESTIGATING`, runs the LangGraph
 investigation, validates and persists Evidence/ActionProposal, then advances

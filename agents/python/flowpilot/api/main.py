@@ -44,6 +44,7 @@ from flowpilot.domain.executor import (
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
+from flowpilot.observability import TRACE_ID_HEADER, current_trace_id, is_valid_trace_id, new_trace_id, set_trace_id
 from flowpilot.structured_model import structured_model_from_env
 from flowpilot.sw_video_ops import gateway_from_env
 from flowpilot.sw_video_recovery import SwVideoRecoveryActionRunner
@@ -53,6 +54,10 @@ from flowpilot.workflow_runtime import open_workflow_runtime
 
 class WorkflowUnavailableError(RuntimeError):
     """当前 API 进程未装配审批恢复工作流。"""
+
+
+class TraceIdMismatchError(ValueError):
+    """调用方提供的请求 TraceId 与工作流业务 TraceId 不一致。"""
 
 
 def _actor(
@@ -100,6 +105,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     ApprovalRequiredError: 409,
     StatePreconditionError: 409,
     ParamValidationError: 422,
+    TraceIdMismatchError: 422,
     ExecutionError: 409,
     WorkflowUnavailableError: 503,
 }
@@ -154,7 +160,7 @@ class WorkflowApprovalCreate(ApprovalCreate):
 class WorkflowStartCreate(BaseModel):
     creator_id: int = Field(gt=0)
     video_id: int = Field(gt=0)
-    trace_id: str = Field(min_length=1, max_length=128)
+    trace_id: str | None = Field(default=None, max_length=128)
     thread_id: str = Field(min_length=1, max_length=128)
 
 
@@ -170,6 +176,22 @@ def build_app(
     app.state.approval_workflow = approval_workflow
     app.state.ticket_workflow = ticket_workflow
     _register_error_handlers(app)
+
+    @app.middleware("http")
+    async def trace_id_context(request: Request, call_next):
+        incoming = request.headers.get(TRACE_ID_HEADER)
+        if incoming is not None and not is_valid_trace_id(incoming):
+            trace_id = new_trace_id()
+            set_trace_id(trace_id)
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "X-Trace-Id 只能包含字母、数字、点、下划线、冒号或连字符，且长度为 1-128"},
+                headers={TRACE_ID_HEADER: trace_id},
+            )
+        set_trace_id(incoming or new_trace_id())
+        response = await call_next(request)
+        response.headers[TRACE_ID_HEADER] = current_trace_id()
+        return response
 
     if pool is None:
 
@@ -308,16 +330,24 @@ def build_app(
         if workflow is None:
             raise WorkflowUnavailableError("工单 Agent 工作流尚未装配")
         _actor_from_request(request).check("ticket.transition")
+        request_trace_id = request.headers.get(TRACE_ID_HEADER)
+        if body.trace_id is not None and not is_valid_trace_id(body.trace_id):
+            raise TraceIdMismatchError("请求体 trace_id 格式非法")
+        if request_trace_id is not None and body.trace_id is not None and request_trace_id != body.trace_id:
+            raise TraceIdMismatchError("请求头 X-Trace-Id 必须与工作流 trace_id 一致")
+        trace_id = body.trace_id or current_trace_id()
+        set_trace_id(trace_id)
         result: TicketWorkflowStartResult = await workflow.start(
             ticket_id=ticket_id,
             creator_id=body.creator_id,
             video_id=body.video_id,
-            trace_id=body.trace_id,
+            trace_id=trace_id,
             thread_id=body.thread_id,
         )
         return {
             "ticket_id": result.ticket_id,
             "thread_id": result.thread_id,
+            "trace_id": trace_id,
             "ticket_target": result.ticket_target.value,
             "evidence": [item.to_dict() for item in result.evidence],
             "proposal": result.proposal.to_dict(),

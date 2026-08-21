@@ -49,15 +49,30 @@ async def test_start_workflow_route_binds_business_and_trace_identifiers() -> No
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/api/workflows/tickets/ticket-1/start",
-            headers=HANDLER_HEADERS,
+            headers={**HANDLER_HEADERS, "X-Trace-Id": "trace-1"},
             json={"creator_id": 7, "video_id": 9, "trace_id": "trace-1", "thread_id": "thread-1"},
         )
 
     assert response.status_code == 202
     assert response.json()["ticket_target"] == TicketStatus.WAITING_APPROVAL.value
+    assert response.json()["trace_id"] == "trace-1"
+    assert response.headers["X-Trace-Id"] == "trace-1"
     assert workflow.calls == [
         {"ticket_id": "ticket-1", "creator_id": 7, "video_id": 9, "trace_id": "trace-1", "thread_id": "thread-1"}
     ]
+
+
+async def test_workflow_rejects_mismatched_request_and_business_trace_ids() -> None:
+    transport = httpx.ASGITransport(app=build_app(ticket_workflow=FakeTicketWorkflow()))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/workflows/tickets/ticket-1/start",
+            headers={**HANDLER_HEADERS, "X-Trace-Id": "trace-header"},
+            json={"creator_id": 7, "video_id": 9, "trace_id": "trace-body", "thread_id": "thread-1"},
+        )
+
+    assert response.status_code == 422
+    assert "X-Trace-Id" in response.json()["detail"]
 
 
 async def test_start_workflow_route_fails_closed_when_runtime_missing() -> None:
