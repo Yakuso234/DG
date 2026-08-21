@@ -24,6 +24,20 @@ endpoint in `SW_VIDEO_MCP_URL`. Both modes require the service token. The MCP
 client disables ambient proxy settings so local service-to-service calls cannot
 silently leave the loopback/private network.
 
+The optional structured-model setting is explicit and has no implicit network
+or API-key fallback:
+
+```text
+FLOWPILOT_STRUCTURED_MODEL=deterministic  # default
+# or
+FLOWPILOT_STRUCTURED_MODEL=fake           # deterministic test double
+```
+
+The model can only suggest triage fields and the already-whitelisted recovery
+action. FlowPilot constructs the Evidence references and immutable execution
+scope itself, recomputes risk from `ACTION_CATALOG`, then still requires human
+approval before any write call. A real provider is deliberately not enabled yet.
+
 Optional non-secret internal actor identifiers:
 
 ```text

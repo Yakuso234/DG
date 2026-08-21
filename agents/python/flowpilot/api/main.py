@@ -44,6 +44,7 @@ from flowpilot.domain.executor import (
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
+from flowpilot.structured_model import structured_model_from_env
 from flowpilot.sw_video_ops import gateway_from_env
 from flowpilot.sw_video_recovery import SwVideoRecoveryActionRunner
 from flowpilot.ticket_workflow import TicketWorkflowService, TicketWorkflowStartResult, TicketWorkflowStateError
@@ -197,6 +198,7 @@ def build_app(
                         if not checkpoint_path:
                             raise RuntimeError("启用工作流时必须设置 FLOWPILOT_CHECKPOINT_PATH")
                         gateway = gateway_from_env()
+                        model = structured_model_from_env()
                         close_gateway = getattr(gateway, "aclose", None)
                         if callable(close_gateway):
                             stack.push_async_callback(close_gateway)
@@ -213,6 +215,7 @@ def build_app(
                                 checkpoint_path=checkpoint_path,
                                 handler_actor=handler_actor,
                                 service_actor=service_actor,
+                                model=model,
                             )
                         )
                         app.state.ticket_workflow = runtime.ticket_workflow

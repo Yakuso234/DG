@@ -10,6 +10,12 @@ from langgraph.types import interrupt
 
 from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION, risk_of, validate_params
 from flowpilot.domain.models import ActionProposal, utc_now_iso
+from flowpilot.structured_model import (
+    ModelOutputValidationError,
+    ResolutionModelInput,
+    StructuredFlowPilotModel,
+    TriageModelInput,
+)
 from flowpilot.sw_video_ops import SwVideoOpsGateway, status_to_evidence
 
 
@@ -19,6 +25,7 @@ class FlowPilotGraphState(TypedDict, total=False):
     video_id: int
     trace_id: str
     triage: dict[str, Any]
+    resolution_suggestion: dict[str, Any]
     evidence: list[dict[str, Any]]
     proposal: dict[str, Any]
     risk_review: dict[str, Any]
@@ -42,11 +49,40 @@ def _steps(state: FlowPilotGraphState, step: str) -> list[str]:
     return [*state.get("steps", []), step]
 
 
-def build_graph(gateway: SwVideoOpsGateway, *, checkpointer: Any = None, require_approval: bool = False):
-    """构建无 LLM、可测试的 P3 主图；模型替换不改变领域校验边界。"""
+def build_graph(
+    gateway: SwVideoOpsGateway,
+    *,
+    checkpointer: Any = None,
+    require_approval: bool = False,
+    model: StructuredFlowPilotModel | None = None,
+):
+    """构建主图；可选模型只提供受控建议，领域校验不交给模型。"""
 
     async def triage(state: FlowPilotGraphState) -> dict[str, Any]:
-        return {"triage": {"category": "video_processing_stalled", "priority": 4}, "steps": _steps(state, "triage")}
+        if model is None:
+            return {
+                "triage": {"category": "video_processing_stalled", "priority": 4, "source": "deterministic"},
+                "steps": _steps(state, "triage"),
+            }
+        output = await model.triage(
+            TriageModelInput(
+                ticket_id=state["ticket_id"],
+                creator_id=state["creator_id"],
+                video_id=state["video_id"],
+                trace_id=state["trace_id"],
+            )
+        )
+        if output.category != "video_processing_stalled" or not 1 <= output.priority <= 5:
+            raise ModelOutputValidationError("分诊模型输出不符合视频处理卡住场景合同")
+        return {
+            "triage": {
+                "category": output.category,
+                "priority": output.priority,
+                "rationale": output.rationale[:500],
+                "source": "structured-model",
+            },
+            "steps": _steps(state, "triage"),
+        }
 
     async def investigate(state: FlowPilotGraphState) -> dict[str, Any]:
         snapshot = await gateway.get_video_processing_status(
@@ -68,6 +104,25 @@ def build_graph(gateway: SwVideoOpsGateway, *, checkpointer: Any = None, require
                 "missing_lease_evidence",
                 "PROCESSING 任务缺少租约到期时间，不能生成受控恢复提案",
             )
+        suggestion: dict[str, Any] = {"action": SW_VIDEO_RECOVERY_ACTION, "source": "deterministic"}
+        if model is not None:
+            output = await model.resolve(
+                ResolutionModelInput(
+                    ticket_id=state["ticket_id"],
+                    creator_id=state["creator_id"],
+                    video_id=state["video_id"],
+                    trace_id=state["trace_id"],
+                    processing_status=processing_status,
+                    lease_expire_at=evidence[0]["data"].get("lease_expire_at"),
+                )
+            )
+            if output.action != SW_VIDEO_RECOVERY_ACTION:
+                raise ModelOutputValidationError("处置模型建议了不在当前场景白名单内的动作")
+            suggestion = {
+                "action": output.action,
+                "rationale": output.rationale[:500],
+                "source": "structured-model",
+            }
         proposal = ActionProposal(
             id=str(uuid.uuid4()),
             ticket_id=state["ticket_id"],
@@ -83,7 +138,11 @@ def build_graph(gateway: SwVideoOpsGateway, *, checkpointer: Any = None, require
             created_by="flowpilot-resolution-agent",
             created_at=utc_now_iso(),
         )
-        return {"proposal": proposal.to_dict(), "steps": _steps(state, "resolution")}
+        return {
+            "proposal": proposal.to_dict(),
+            "resolution_suggestion": suggestion,
+            "steps": _steps(state, "resolution"),
+        }
 
     async def risk_review(state: FlowPilotGraphState) -> dict[str, Any]:
         proposal = ActionProposal.from_dict(state["proposal"])
