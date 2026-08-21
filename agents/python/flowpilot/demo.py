@@ -129,6 +129,7 @@ async def run_demo(
             "mode": "mock-no-key",
             "ticket": final_ticket_response.json(),
             "proposal": started["proposal"],
+            "agent_run": started["agent_run"],
             "execution": approved["execution"],
             "trace_id": trace_id,
             "graph_steps_before_approval": started["steps"],

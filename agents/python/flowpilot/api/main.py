@@ -358,6 +358,7 @@ def build_app(
             "ticket_target": result.ticket_target.value,
             "evidence": [item.to_dict() for item in result.evidence],
             "proposal": result.proposal.to_dict(),
+            "agent_run": result.agent_run.to_dict(),
             "steps": result.graph_state.get("steps", []),
         }
 
@@ -390,6 +391,11 @@ def build_app(
         actor = _actor_from_request(request)
         record = await _repo(request).execute_proposal(actor, proposal_id)
         return record.to_dict()
+
+    @app.get("/api/tickets/{ticket_id}/runs")
+    async def list_agent_runs(ticket_id: str, request: Request) -> list[dict[str, Any]]:
+        actor = _actor_from_request(request)
+        return [run.to_dict() for run in await _repo(request).list_agent_runs(actor, ticket_id)]
 
     @app.get("/api/audit/{entity}/{entity_id}")
     async def audit_events(entity: str, entity_id: str, request: Request) -> list[dict[str, Any]]:

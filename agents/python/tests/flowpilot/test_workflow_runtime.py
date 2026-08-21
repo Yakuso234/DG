@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flowpilot.domain.models import ActionProposal, Approval, Evidence, ExecutionRecord, Ticket, utc_now_iso
+from flowpilot.domain.models import ActionProposal, AgentRun, Approval, Evidence, ExecutionRecord, Ticket, utc_now_iso
 from flowpilot.domain.rbac import Actor, Role
 from flowpilot.domain.status import TicketStatus
 from flowpilot.sw_video_ops import MockSwVideoOpsGateway, VideoProcessingSnapshot
@@ -14,6 +14,7 @@ class FakeRuntimeRepo:
         self.proposal: ActionProposal | None = None
         self.calls: list[str] = []
         self.status = TicketStatus.NEW
+        self.runs: dict[str, AgentRun] = {}
 
     async def get_ticket(self, _actor: Actor, ticket_id: str) -> Ticket:
         return Ticket(ticket_id, "test", "", 3, status=self.status)
@@ -30,6 +31,10 @@ class FakeRuntimeRepo:
         self.calls.append("proposal")
         self.proposal = proposal
         return proposal
+
+    async def record_agent_run(self, _actor: Actor, run: AgentRun) -> AgentRun:
+        self.calls.append("agent_run")
+        return self.runs.setdefault(run.id, run)
 
     async def approve_proposal(
         self,
@@ -109,6 +114,7 @@ async def test_runtime_shares_persistent_graph_between_start_and_approval(tmp_pa
         "proposal",
         "transition",
         "transition",
+        "agent_run",
         "approval",
         "transition",
         "execution",

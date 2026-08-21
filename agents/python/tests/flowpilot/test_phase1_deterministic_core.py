@@ -16,13 +16,20 @@ import uuid
 import pytest
 
 from flowpilot.action_runner import MockBusinessActionRunner
-from flowpilot.db import ApprovalConflictError, NotFoundError, StatePreconditionError, TicketRepo, VersionConflictError
+from flowpilot.db import (
+    ApprovalConflictError,
+    IdempotencyConflictError,
+    NotFoundError,
+    StatePreconditionError,
+    TicketRepo,
+    VersionConflictError,
+)
 from flowpilot.domain.executor import (
     ApprovalRequiredError,
     ParamValidationError,
     validate_params,
 )
-from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
+from flowpilot.domain.models import ActionProposal, AgentRun, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role
 from flowpilot.domain.status import LEGAL_TRANSITIONS, IllegalTransitionError, TicketStatus
 from flowpilot.mock_business import MockBusinessSystem
@@ -345,6 +352,43 @@ async def test_evidence_and_proposal_retries_are_idempotent(repo: TicketRepo) ->
     admin = _actor(Role.ADMIN)
     assert len(await repo.audit_for(admin, "evidence", evidence.id)) == 1
     assert len(await repo.audit_for(admin, "proposal", proposal.id)) == 1
+
+
+async def test_agent_run_summary_is_queryable_and_replay_keeps_first_latency(repo: TicketRepo) -> None:
+    ticket = await repo.create_ticket(_actor(Role.SUBMITTER), "运行记录", "验证可查询运行摘要")
+    handler = _actor(Role.HANDLER)
+    run = AgentRun(
+        id=str(uuid.uuid4()),
+        ticket_id=ticket.id,
+        agent="flowpilot-main-graph",
+        input_summary="creator_id=7, video_id=9",
+        output={"steps": ["triage", "investigation"], "proposal_id": "proposal-1"},
+        model="deterministic",
+        tokens=None,
+        latency_ms=18,
+        trace_id="trace-agent-run",
+        created_at=utc_now_iso(),
+    )
+
+    first = await repo.record_agent_run(handler, run)
+    replay = await repo.record_agent_run(
+        handler,
+        AgentRun(
+            **{**run.to_dict(), "latency_ms": 47, "created_at": utc_now_iso()},
+        ),
+    )
+
+    assert replay.id == first.id
+    assert replay.latency_ms == 18
+    assert [item.to_dict() for item in await repo.list_agent_runs(handler, ticket.id)] == [first.to_dict()]
+
+    with pytest.raises(IdempotencyConflictError):
+        await repo.record_agent_run(
+            handler,
+            AgentRun(
+                **{**run.to_dict(), "output": {"steps": ["tampered"]}, "created_at": utc_now_iso()},
+            ),
+        )
 
 
 async def test_get_missing_ticket_raises_not_found(repo: TicketRepo) -> None:

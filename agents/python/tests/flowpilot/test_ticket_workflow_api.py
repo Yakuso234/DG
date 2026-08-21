@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 
 from flowpilot.api.main import build_app
-from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
+from flowpilot.domain.models import ActionProposal, AgentRun, Evidence, utc_now_iso
 from flowpilot.domain.status import TicketStatus
 from flowpilot.ticket_workflow import TicketWorkflowStartResult
 
@@ -40,6 +40,18 @@ class FakeTicketWorkflow:
             (evidence,),
             proposal,
             {"steps": ["triage", "investigation", "resolution", "risk_review"]},
+            AgentRun(
+                "run-1",
+                kwargs["ticket_id"],
+                "flowpilot-main-graph",
+                "creator_id=7, video_id=9",
+                {"proposal_id": proposal.id},
+                "FakeStructuredFlowPilotModel",
+                None,
+                12,
+                kwargs["trace_id"],
+                utc_now_iso(),
+            ),
         )
 
 
@@ -57,6 +69,8 @@ async def test_start_workflow_route_binds_business_and_trace_identifiers() -> No
     assert response.json()["ticket_target"] == TicketStatus.WAITING_APPROVAL.value
     assert response.json()["trace_id"] == "trace-1"
     assert response.headers["X-Trace-Id"] == "trace-1"
+    assert response.json()["agent_run"]["id"] == "run-1"
+    assert response.json()["agent_run"]["trace_id"] == "trace-1"
     assert workflow.calls == [
         {"ticket_id": "ticket-1", "creator_id": 7, "video_id": 9, "trace_id": "trace-1", "thread_id": "thread-1"}
     ]

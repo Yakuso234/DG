@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from flowpilot.agent_graph import initial_state
-from flowpilot.domain.models import ActionProposal, Evidence, Ticket
+from flowpilot.domain.models import ActionProposal, AgentRun, Evidence, Ticket, utc_now_iso
 from flowpilot.domain.rbac import Actor
 from flowpilot.domain.status import TicketStatus
 
@@ -20,6 +22,8 @@ class TicketWorkflowRepository(Protocol):
 
     async def create_proposal(self, actor: Actor, proposal: ActionProposal) -> ActionProposal: ...
 
+    async def record_agent_run(self, actor: Actor, run: AgentRun) -> AgentRun: ...
+
 
 class TicketWorkflowStateError(RuntimeError):
     """图未在审批点返回完整且属于当前工单的领域产物。"""
@@ -32,16 +36,18 @@ class TicketWorkflowStartResult:
     evidence: tuple[Evidence, ...]
     proposal: ActionProposal
     graph_state: dict[str, Any]
+    agent_run: AgentRun
     ticket_target: TicketStatus = TicketStatus.WAITING_APPROVAL
 
 
 class TicketWorkflowService:
     """以 handler 身份推进调查，并在人工审批前停止。"""
 
-    def __init__(self, repo: TicketWorkflowRepository, graph: Any, *, handler_actor: Actor) -> None:
+    def __init__(self, repo: TicketWorkflowRepository, graph: Any, *, handler_actor: Actor, model_label: str) -> None:
         self._repo = repo
         self._graph = graph
         self._handler_actor = handler_actor
+        self._model_label = model_label
 
     async def start(
         self,
@@ -65,6 +71,7 @@ class TicketWorkflowService:
             raise TicketWorkflowStateError(f"工单处于 {current.value}，不能启动或恢复调查工作流")
 
         config = {"configurable": {"thread_id": thread_id}}
+        started_at = time.perf_counter()
         graph_state = await self._paused_or_new_state(
             ticket_id=ticket_id,
             creator_id=creator_id,
@@ -82,7 +89,28 @@ class TicketWorkflowService:
             current = TicketStatus.PROPOSED
         if current is TicketStatus.PROPOSED:
             await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.WAITING_APPROVAL)
-        return TicketWorkflowStartResult(ticket_id, thread_id, tuple(evidence_items), proposal, graph_state)
+        run = await self._repo.record_agent_run(
+            self._handler_actor,
+            AgentRun(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"flowpilot-run:{ticket_id}:{thread_id}:{trace_id}")),
+                ticket_id=ticket_id,
+                agent="flowpilot-main-graph",
+                input_summary=f"creator_id={creator_id}, video_id={video_id}",
+                output={
+                    "steps": graph_state.get("steps", []),
+                    "proposal_id": proposal.id,
+                    "proposal_action": proposal.action,
+                    "risk": proposal.risk,
+                    "evidence_count": len(evidence_items),
+                },
+                model=self._model_label,
+                tokens=None,
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                trace_id=trace_id,
+                created_at=utc_now_iso(),
+            ),
+        )
+        return TicketWorkflowStartResult(ticket_id, thread_id, tuple(evidence_items), proposal, graph_state, run)
 
     async def _paused_or_new_state(
         self,

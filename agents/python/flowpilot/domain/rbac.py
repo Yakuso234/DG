@@ -39,6 +39,7 @@ _ROLE_ACTIONS: dict[Role, frozenset[str]] = {
             "ticket.assign",
             "evidence.create",
             "proposal.create",
+            "agent_run.create",
         }
     ),
     Role.APPROVER: frozenset({"ticket.view_any", "proposal.approve", "approval.list"}),
@@ -49,12 +50,15 @@ _ROLE_ACTIONS: dict[Role, frozenset[str]] = {
             "ticket.assign",
             "evidence.create",
             "proposal.create",
+            "agent_run.create",
             "proposal.approve",
             "audit.read",
             "approval.list",
         }
     ),
-    Role.SERVICE: frozenset({"ticket.view_any", "ticket.transition", "execution.run", "audit.write"}),
+    Role.SERVICE: frozenset(
+        {"ticket.view_any", "ticket.transition", "execution.run", "audit.write", "agent_run.create"}
+    ),
 }
 
 

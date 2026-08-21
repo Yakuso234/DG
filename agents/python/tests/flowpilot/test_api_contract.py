@@ -12,6 +12,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from flowpilot.api import build_app
+from flowpilot.db import TicketRepo
+from flowpilot.domain.models import AgentRun, utc_now_iso
+from flowpilot.domain.rbac import Actor, Role
 
 H = lambda uid: {"x-user-id": uid}  # noqa: E731
 SUB = {**H("u-sub"), "x-user-role": "submitter"}
@@ -161,6 +164,28 @@ async def test_audit_endpoint(client: AsyncClient) -> None:
     assert resp.status_code == 200
     actions = {e["action"] for e in resp.json()}
     assert "ticket.create" in actions
+
+
+async def test_agent_run_endpoint_returns_persisted_safe_summary(client: AsyncClient, postgres_pool) -> None:
+    ticket = await _make_ticket(client, "运行轨迹")
+    run = AgentRun(
+        id=str(uuid.uuid4()),
+        ticket_id=ticket["id"],
+        agent="flowpilot-main-graph",
+        input_summary="creator_id=7, video_id=9",
+        output={"steps": ["triage"], "evidence_count": 1},
+        model="deterministic",
+        tokens=None,
+        latency_ms=9,
+        trace_id="trace-run-endpoint",
+        created_at=utc_now_iso(),
+    )
+    saved = await TicketRepo(postgres_pool).record_agent_run(Actor("u-handler", Role.HANDLER), run)
+
+    response = await client.get(f"/api/tickets/{ticket['id']}/runs", headers=ADMIN)
+
+    assert response.status_code == 200
+    assert response.json() == [saved.to_dict()]
 
 
 async def test_unknown_ticket_404(client: AsyncClient) -> None:

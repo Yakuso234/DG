@@ -38,8 +38,9 @@ async def open_workflow_runtime(
     async with AsyncSqliteSaver.from_conn_string(checkpoint_path) as checkpointer:
         await checkpointer.setup()
         graph = build_graph(gateway, checkpointer=checkpointer, require_approval=True, model=model)
+        model_label = "deterministic" if model is None else type(model).__name__
         yield WorkflowRuntime(
-            ticket_workflow=TicketWorkflowService(repo, graph, handler_actor=handler_actor),
+            ticket_workflow=TicketWorkflowService(repo, graph, handler_actor=handler_actor, model_label=model_label),
             approval_workflow=ApprovalWorkflowService(
                 repo,
                 graph,

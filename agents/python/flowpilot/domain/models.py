@@ -94,6 +94,25 @@ class ExecutionRecord:
 
 
 @dataclass(frozen=True)
+class AgentRun:
+    """一次 Agent 工作流的可查询运行摘要，不保存 Prompt 或原始敏感内容。"""
+
+    id: str
+    ticket_id: str
+    agent: str
+    input_summary: str
+    output: dict[str, Any]
+    model: str | None
+    tokens: dict[str, Any] | None
+    latency_ms: int | None
+    trace_id: str
+    created_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class AuditEvent:
     """审计事件：任何业务写操作都必须产生一条。"""
 

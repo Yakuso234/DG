@@ -7,6 +7,7 @@ from flowpilot.domain.executor import (
 )
 from flowpilot.domain.models import (
     ActionProposal,
+    AgentRun,
     Approval,
     AuditEvent,
     Evidence,
@@ -22,6 +23,7 @@ from flowpilot.domain.status import (
 
 __all__ = [
     "ACTION_CATALOG",
+    "AgentRun",
     "ActionProposal",
     "Approval",
     "AuditEvent",

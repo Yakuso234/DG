@@ -111,6 +111,26 @@ investigation, validates and persists Evidence/ActionProposal, then advances
 rejected. The graph must return an interrupt before the service accepts its
 outputs.
 
+The accepted response also contains `agent_run`: a persistent, safe-to-display
+summary for this graph invocation. It includes the stable run ID, graph/model
+label, structured step/proposal summary, TraceId and local elapsed time. It
+does not store prompts, raw model reasoning, authorization headers, or the
+full untrusted Evidence payload. Replaying the same `{ticket_id, thread_id,
+trace_id}` reuses the same run ID and preserves its first persisted latency;
+elapsed time is an observation, not an idempotency conflict condition.
+
+## Query ticket run summaries
+
+```http
+GET /api/tickets/{ticket_id}/runs
+X-User-Id: u-admin
+X-User-Role: admin
+```
+
+The endpoint requires `ticket.view_any` and returns run summaries ordered by
+creation time. It is a local observability/read-model API, not a complete
+OpenTelemetry trace viewer and not a token/cost report for a real provider.
+
 ## Decide and resume
 
 ```http
@@ -136,6 +156,8 @@ Denied decisions move to `ESCALATED` without invoking the executor.
 - Phase 1 request headers are not production authentication; JWT replacement is pending.
 - SQLite checkpoint is for a local single-instance demo, not multi-replica deployment.
 - Start retries reuse a paused checkpoint and treat identical Evidence/Proposal IDs as idempotent.
+- Agent run summaries are PostgreSQL records keyed by stable workflow identity;
+  they support local timeline display but are not yet per-node OTel spans.
 - The complete FlowPilot suite has been verified against PostgreSQL 16 through Testcontainers; this is local integration evidence, not production load evidence.
 - DG's approved recovery client is implemented against SW's existing `recover-expired` API.
 - The Investigation gateway can use a real MCP `ClientSession` over Streamable HTTP; the

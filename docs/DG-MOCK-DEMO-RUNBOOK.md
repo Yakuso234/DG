@@ -38,6 +38,8 @@ uv run python -m flowpilot.demo
 - `ticket.status = "RESOLVED"`
 - `proposal.action = "recover_expired_video_processing"`
 - `execution.status = "succeeded"`
+- `agent_run.trace_id` equals the supplied `trace_id`; it is the persisted
+  graph summary for a later runs/timeline view, not model reasoning content
 - `graph_steps_before_approval` 不含 `approval`，`graph_steps_after_approval` 才出现它
 - `mock_business_operations` 只有一条 `restart_pipeline`，用于说明受控执行已发生；其 `entity_id=901` 是 Mock 业务实体，工单 UUID/creator/video/trace 的权威执行范围仍在 `proposal.params`。
 
@@ -56,8 +58,9 @@ Demo 会将该值同时写入工作流请求头 `X-Trace-Id` 与请求体 `trace
 1. 说明输入是租约过期的 PROCESSING 视频任务，Mock 仅替代外部 SW，不替代数据库或工作流。
 2. 展示审批前步骤：`triage → investigation → resolution → risk_review`；此时没有写操作。
 3. 展示 `ActionProposal` 的固定参数和 high risk，强调参数来自 Evidence 而非模型。
-4. 展示批准后的 `execution.succeeded`、工单 `RESOLVED` 和 Mock 操作日志。
-5. 说明生产化差异：将 Mock gateway/runner 替换为只读 MCP 与受控 SW HTTP adapter，模型仍只提供建议。
+4. 展示 `agent_run`：稳定运行 ID、模型标签、步骤摘要、TraceId 和本次本地耗时；说明不保存 Prompt、推理链或原始证据。
+5. 展示批准后的 `execution.succeeded`、工单 `RESOLVED` 和 Mock 操作日志。
+6. 说明生产化差异：将 Mock gateway/runner 替换为只读 MCP 与受控 SW HTTP adapter，模型仍只提供建议。
 
 ## 清理与故障排查
 

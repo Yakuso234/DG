@@ -14,6 +14,8 @@ async def test_mock_demo_runs_the_persisted_api_workflow(database_url, clean_db,
     assert result["mode"] == "mock-no-key"
     assert result["ticket"]["status"] == "RESOLVED"
     assert result["proposal"]["action"] == "recover_expired_video_processing"
+    assert result["agent_run"]["agent"] == "flowpilot-main-graph"
+    assert result["agent_run"]["trace_id"] == "trace-demo-test"
     assert result["execution"]["status"] == "succeeded"
     assert result["graph_steps_before_approval"] == ["triage", "investigation", "resolution", "risk_review"]
     assert result["graph_steps_after_approval"][-1] == "approval"

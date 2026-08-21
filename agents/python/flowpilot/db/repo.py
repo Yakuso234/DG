@@ -23,6 +23,7 @@ from flowpilot.domain.executor import (
 )
 from flowpilot.domain.models import (
     ActionProposal,
+    AgentRun,
     Approval,
     AuditEvent,
     Evidence,
@@ -80,6 +81,21 @@ def _row_to_execution(row: asyncpg.Record) -> ExecutionRecord:
         result=json.loads(row["result"]) if row["result"] else None,
         started_at=row["started_at"].isoformat() if row["started_at"] else None,
         finished_at=row["finished_at"].isoformat() if row["finished_at"] else None,
+    )
+
+
+def _row_to_agent_run(row: asyncpg.Record) -> AgentRun:
+    return AgentRun(
+        id=str(row["id"]),
+        ticket_id=str(row["ticket_id"]),
+        agent=row["agent"],
+        input_summary=row["input_summary"],
+        output=json.loads(row["output"]) if row["output"] else {},
+        model=row["model"],
+        tokens=json.loads(row["tokens"]) if row["tokens"] else None,
+        latency_ms=int(row["latency_ms"]) if row["latency_ms"] is not None else None,
+        trace_id=row["trace_id"] or "",
+        created_at=row["created_at"].isoformat(),
     )
 
 
@@ -328,6 +344,54 @@ class TicketRepo:
                     {"action": proposal.action, "risk": proposal.risk, "ticket_id": proposal.ticket_id},
                 )
         return proposal
+
+    async def record_agent_run(self, actor: Actor, run: AgentRun) -> AgentRun:
+        """以稳定运行 ID 幂等保存工作流摘要，避免重启恢复重复生成展示记录。"""
+        actor.check("agent_run.create")
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                inserted = await conn.fetchrow(
+                    """
+                    INSERT INTO agent_runs (
+                        id, ticket_id, agent, input_summary, output, model, tokens, latency_ms, trace_id
+                    )
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9)
+                    ON CONFLICT (id) DO NOTHING
+                    RETURNING *
+                    """,
+                    uuid.UUID(run.id),
+                    uuid.UUID(run.ticket_id),
+                    run.agent,
+                    run.input_summary,
+                    json.dumps(run.output, ensure_ascii=False),
+                    run.model,
+                    json.dumps(run.tokens, ensure_ascii=False) if run.tokens is not None else None,
+                    run.latency_ms,
+                    run.trace_id,
+                )
+                if inserted is not None:
+                    return _row_to_agent_run(inserted)
+                existing = await conn.fetchrow("SELECT * FROM agent_runs WHERE id = $1", uuid.UUID(run.id))
+                if existing is None or (
+                    str(existing["ticket_id"]) != run.ticket_id
+                    or existing["agent"] != run.agent
+                    or existing["input_summary"] != run.input_summary
+                    or json.loads(existing["output"]) != run.output
+                    or existing["model"] != run.model
+                    or (json.loads(existing["tokens"]) if existing["tokens"] else None) != run.tokens
+                    or (existing["trace_id"] or "") != run.trace_id
+                ):
+                    raise IdempotencyConflictError(f"AgentRun {run.id} 已存在但内容不一致")
+                # 同一次 checkpoint 重放的时延会自然变化；保留首次落库值，不能
+                # 因观测字段波动把安全重试误判成业务冲突。
+                return _row_to_agent_run(existing)
+
+    async def list_agent_runs(self, actor: Actor, ticket_id: str) -> list[AgentRun]:
+        actor.check("ticket.view_any")
+        rows = await self._pool.fetch(
+            "SELECT * FROM agent_runs WHERE ticket_id = $1 ORDER BY created_at", uuid.UUID(ticket_id)
+        )
+        return [_row_to_agent_run(row) for row in rows]
 
     async def approve_proposal(
         self,
