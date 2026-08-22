@@ -6,7 +6,7 @@
 [![LangGraph](https://img.shields.io/badge/Workflow-LangGraph-1f2937.svg)](https://langchain-ai.github.io/langgraph/)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791.svg)](https://www.postgresql.org/)
 
-DG / FlowPilot 是一个面向企业故障处置的 Python 多 Agent 控制平面，也是我为中国大陆秋招后端 / Python Agent 应用开发岗位重构的个人项目。它把 Agent 置于明确的业务与安全边界中：Agent 负责调查和提出结构化建议；状态机、RBAC、动作合同、审批和幂等由确定性服务端代码负责。
+DG / FlowPilot 是一个面向企业故障处置的 Python 多 Agent 控制平面，也是我秋招后端 / Python Agent 应用开发岗位重构的个人项目。它把 Agent 置于明确的业务与安全边界中：Agent 负责调查和提出结构化建议；状态机、RBAC、动作合同、审批和幂等由确定性服务端代码负责。
 
 第一条闭环围绕“短视频处理任务卡住”：创建工单 → 调查外部状态 → 生成恢复提案 → 风险复核 → 人工审批 → 受控执行 → 审计与运行轨迹查询。
 
