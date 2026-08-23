@@ -89,7 +89,9 @@ class SwVideoOpsHttpGateway:
         if not service_token.strip():
             raise SwVideoOpsAuthError("缺少 SW_VIDEO_SERVICE_TOKEN，拒绝无身份 SW 调用")
         self._base_url, self._service_token, self._service_name = base_url.rstrip("/"), service_token, service_name
-        self._client, self._owns_client = client or httpx.AsyncClient(timeout=5.0), client is None
+        # SW 私有地址是明确配置的服务间直连目标，不能被开发机的 HTTP_PROXY
+        # 重定向到企业代理；否则本地 127.0.0.1 请求也可能返回代理 502。
+        self._client, self._owns_client = client or httpx.AsyncClient(timeout=5.0, trust_env=False), client is None
 
     @classmethod
     def from_env(cls) -> SwVideoOpsHttpGateway:

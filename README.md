@@ -40,7 +40,7 @@ FastAPI 请求
 
 - 实现 `sw-video-ops-mcp` 的 Streamable HTTP `ClientSession` 调查通道，并保留确定性 Mock transport 用于回归。
 - 使用 SQLite checkpoint 持久化审批暂停点；启动与审批 API 共享同一 LangGraph 运行时。
-- 实现受限 `recover_expired_video_processing` 动作合同：固定业务范围、服务身份、TraceId、幂等键和严格响应校验。真实 SW 双进程联调仍是后续可选工作，不把 Mock / HTTP 合同测试表述为生产集成。
+- 实现受限 `recover_expired_video_processing` 动作合同：固定业务范围、服务身份、TraceId、幂等键和严格响应校验；私有 SW HTTP 客户端禁用环境代理，避免本地/内网地址被代理重定向。
 
 ### 4. 补齐可观测、身份与演示能力
 
@@ -56,17 +56,17 @@ FastAPI 请求
 
 真实 Qwen-plus 在扩展后的 30 条固定评测集上顺序运行 3 轮：**90/90 通过、126 次模型调用、32,429 Token**；端到端 P50/P95 为 **3.315s / 6.476s**，Provider 调用 P50/P95 为 **3.309s / 6.469s**。该数据集覆盖合法恢复、状态/租约拒绝和注入文本，属于受控系统评测，不代表开放域准确率或生产 SLA。
 
-已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 单场景闭环，OTLP 已向本地 Aspire 成功导出；但仍没有多轮真实模型评测、生产采样/告警、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
+已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 多轮受控评测，OTLP 已向本地 Aspire 成功导出，DG 已完成一次真实 SW 双进程恢复闭环；但仍没有生产采样/告警、RS256/JWKS 联邦身份或性能 / 成本的生产基线。
 
 | 能力 | 当前状态 |
 |---|---|
 | 确定性工单域、审批、执行、审计 | 已实现并经 PostgreSQL 回归验证 |
 | LangGraph 单图、HITL checkpoint 恢复 | 已实现并验证 |
 | MCP Streamable HTTP 调查客户端 | 已通过 loopback 协议回归验证 |
-| Fake / deterministic / Qwen 模型建议层 | Qwen Provider、真实 Key 单场景和 Token/延迟采集已验证；7 场景真实评测待运行 |
+| Fake / deterministic / Qwen 模型建议层 | Qwen Provider、30 条 × 3 轮真实 Key 评测和 Token/延迟采集已验证 |
 | JWT-local | 已实现；RS256/JWKS/OIDC 待补 |
 | Agent Run / Proposal 查询、OTel 与最小工作台 | 已实现本地观测与 `/flowpilot` 真实只读展示；生产身份、完整前端审批 E2E 与采样告警待补 |
-| DG + SW 实时联调 | 待 SW 入站服务身份收口后再做 |
+| DG + SW 实时联调 | 已完成 1 次隔离过期 lease 的真实闭环：调查、HITL 审批、恢复、审计与重复执行幂等回归；SW 入站服务身份校验仍待补 |
 
 ## 快速演示（不需要模型 API Key）
 

@@ -17,8 +17,8 @@
 DG 的 Investigation 可选择两种只读 transport：默认 `direct-http` 直连上表的
 私有 HTTP，或配置 `FLOWPILOT_SW_OPS_TRANSPORT=mcp` 后以官方 MCP
 `ClientSession` 访问 `SW_VIDEO_MCP_URL`（Streamable HTTP，默认 `/mcp`）。两者
-都归一为相同的 `SwVideoOpsGateway` 合同；MCP client 对服务调用禁用环境代理，
-避免 loopback/private endpoint 被系统代理意外转发。
+都归一为相同的 `SwVideoOpsGateway` 合同；direct HTTP、MCP client 与恢复执行器
+对服务调用均禁用环境代理，避免 loopback/private endpoint 被系统代理意外转发。
 
 DG 只接受 SW 的 `Result<data>` JSON 响应；缺少必要字段、非 JSON 或异常状态统一转为结构化调用失败，不能被模型当作事实。
 
@@ -63,8 +63,11 @@ gateway 发送 `X-Trace-Id`。写动作默认仍使用本地 Mock；只有显式
 `FLOWPILOT_ACTION_RUNNER=sw-video-recovery` 才启用真实 SW 适配器。
 
 SW 当前私有路由只由 Gateway 阻断公网访问，尚未确认上述 Token 和
-`Idempotency-Key` 的服务端验证。因此当前实现能证明 DG 出站身份、DG 侧唯一幂等记录、
-SW 条件更新防重复和 HTTP 合同，不能宣称跨项目零信任或端到端幂等键联调已经完成。
+`Idempotency-Key` 的服务端验证。2026-08-23 已以隔离的过期 `PROCESSING` lease
+完成一次真实 HTTP 闭环：DG Evidence 预检、LangGraph HITL、SW `data=true` 恢复、
+DG 审计和重复执行返回同一 `ExecutionRecord`（`attempts=1`）；之后 SW 任务变为
+`SUCCEEDED`、视频变为 `PUBLISHED`。这证明当前本地契约与 DG 侧幂等路径，仍不能
+表述为跨项目零信任或 SW 服务端幂等键验证。
 
 ## Evidence 归一
 

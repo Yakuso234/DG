@@ -68,7 +68,9 @@ class SwVideoRecoveryActionRunner:
         self._base_url = base_url.strip().rstrip("/")
         self._service_token = service_token.strip()
         self._service_name = service_name.strip()
-        self._client = client or httpx.AsyncClient(timeout=5.0)
+        # 写操作必须与只读调查使用同一条显式服务间直连边界，避免继承
+        # HTTP_PROXY 后错误地经由代理发送私有恢复请求。
+        self._client = client or httpx.AsyncClient(timeout=5.0, trust_env=False)
         self._owns_client = client is None
 
     @classmethod

@@ -98,6 +98,8 @@ web/e2e/screenshots/
 # Codex local collaboration memory (never commit)
 PROJECT_MEMORY.md
 docs/DG-问题与面试复盘.md
+docs/DG-工作流程副记忆.md
+agents/python/.runtime/
 
 # DG local planning and development-baseline records (never commit)
 docs/DG-项目目标与路线图.md
