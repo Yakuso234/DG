@@ -10,7 +10,7 @@ DG / FlowPilot 是一个面向企业故障处置的 Python 多 Agent 控制平�
 
 第一条闭环围绕“短视频处理任务卡住”：创建工单 → 调查外部状态 → 生成恢复提案 → 风险复核 → 人工审批 → 受控执行 → 审计与运行轨迹查询。
 
-> 这是对上游开源项目的授权重构与扩展，不是对其电商功能的简单复述。上游电商模块仍作为迁移参考底座，不能视为 FlowPilot 的已完成能力。
+> 这是对上游开源项目的授权重构与扩展，不是对其电商功能的简单复述。电商 Agent 与 MCP 存量已从当前工作树清理；如需查阅上游实现，可通过 Git 历史恢复，不能视为 FlowPilot 的已完成能力。
 
 ## 我完成的重构与贡献
 
@@ -52,7 +52,9 @@ FastAPI 请求
 
 ## 当前可验证状态
 
-最近一次完整 FlowPilot 回归为 **94 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、OpenTelemetry 安全 span、TraceId、JWT-local、CORS 与 Agent Run 幂等摘要。
+最近一次完整 FlowPilot 回归为 **97 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、OpenTelemetry 安全 span、TraceId、JWT-local、CORS、Agent Run 幂等摘要，以及动作目录审批/RBAC 安全合同。
+
+真实 Qwen-plus 在扩展后的 30 条固定评测集上顺序运行 3 轮：**90/90 通过、126 次模型调用、32,429 Token**；端到端 P50/P95 为 **3.315s / 6.476s**，Provider 调用 P50/P95 为 **3.309s / 6.469s**。该数据集覆盖合法恢复、状态/租约拒绝和注入文本，属于受控系统评测，不代表开放域准确率或生产 SLA。
 
 已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 单场景闭环，OTLP 已向本地 Aspire 成功导出；但仍没有多轮真实模型评测、生产采样/告警、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
 
@@ -178,7 +180,7 @@ uv run ruff format --check flowpilot tests/flowpilot
 uv run pytest tests/flowpilot -q
 ```
 
-测试中的数据库路径使用 Testcontainers 的 PostgreSQL；本项目当前只将 FlowPilot 定向回归作为重构验收证据，不把遗留上游电商全仓测试当作 FlowPilot 的完成证明。
+测试中的数据库路径使用 Testcontainers 的 PostgreSQL；`agents/python` 的默认 pytest 入口只收集 FlowPilot 定向回归，避免将已删除的电商模块误算为当前产品能力。
 
 前端工作台验证：
 
@@ -190,7 +192,7 @@ pnpm test
 pnpm build
 ```
 
-现有上游商城代码仍有 ESLint warning；本阶段新增 FlowPilot 工作台文件不新增 warning，构建、TypeScript 与 Vitest 是本次前端验收证据。
+现有上游商城前端尚未纳入 FlowPilot 运行主线；独立工作台文件不新增 warning，构建、TypeScript 与 Vitest 是本次前端验收证据。
 
 ## 上游项目与致谢
 

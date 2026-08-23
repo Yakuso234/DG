@@ -1,7 +1,7 @@
 [project]
-name = "e-commerce-agents"
+name = "flowpilot"
 version = "0.1.0"
-description = "E-Commerce Multi-Agent Platform built with Microsoft Agent Framework"
+description = "FlowPilot enterprise ticket-resolution agent platform"
 requires-python = ">=3.12"
 dependencies = [
     # Microsoft Agent Framework (accept pre-release/beta versions)
@@ -56,11 +56,8 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv.workspace]
-members = ["packages/mcp-product", "packages/mcp-inventory"]
-
 [tool.hatch.build.targets.wheel]
-packages = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment", "auth_server", "flowpilot"]
+packages = ["shared", "flowpilot"]
 
 [tool.ruff]
 target-version = "py312"
@@ -71,7 +68,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests/flowpilot"]
 addopts = [
     "--strict-markers",
     "--strict-config",
@@ -84,7 +81,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["shared", "orchestrator", "product_discovery", "order_management", "pricing_promotions", "review_sentiment", "inventory_fulfillment", "auth_server", "flowpilot"]
+source = ["shared", "flowpilot"]
 omit = ["**/tests/*", "**/__init__.py"]
 
 [tool.coverage.report]

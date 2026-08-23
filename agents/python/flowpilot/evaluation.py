@@ -35,6 +35,7 @@ class FlowPilotEvalCase:
     error_summary: str | None
     expected_outcome: str
     expected_action: str | None = None
+    expected_rejection_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,11 +80,16 @@ def load_flowpilot_eval_cases(path: str | Path) -> list[FlowPilotEvalCase]:
     if not isinstance(payload, list) or not payload:
         raise ValueError("FlowPilot eval dataset 必须是非空 JSON 数组")
     cases = [FlowPilotEvalCase(**item) for item in payload]
+    ids = [case.id for case in cases]
+    if len(set(ids)) != len(ids):
+        raise ValueError("FlowPilot eval dataset 的 case id 必须唯一")
     for case in cases:
         if case.expected_outcome not in {"proposal", "reject"}:
             raise ValueError(f"case {case.id} 的 expected_outcome 非法")
         if case.expected_outcome == "proposal" and not case.expected_action:
             raise ValueError(f"case {case.id} 缺少 expected_action")
+        if case.expected_outcome == "proposal" and case.expected_rejection_reason is not None:
+            raise ValueError(f"case {case.id} 为 proposal 时不能声明 expected_rejection_reason")
     return cases
 
 
@@ -145,6 +151,34 @@ def _model_measurements(calls: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _summarize_results(
+    results: list[FlowPilotEvalResult], model: StructuredFlowPilotModel | None
+) -> FlowPilotEvalSummary:
+    latencies = [item.latency_ms for item in results]
+    model_latencies = [item.model_latency_ms for item in results if item.model_calls]
+    passed = sum(item.passed for item in results)
+
+    def token_total(field: str) -> int | None:
+        values = [getattr(item, field) for item in results]
+        return sum(values) if values and all(isinstance(value, int) for value in values) else None
+
+    return FlowPilotEvalSummary(
+        total=len(results),
+        passed=passed,
+        pass_rate=round(passed / len(results), 4) if results else 0.0,
+        p50_latency_ms=_percentile(latencies, 0.5),
+        p95_latency_ms=_percentile(latencies, 0.95),
+        model="deterministic" if model is None else type(model).__name__,
+        model_calls=sum(item.model_calls for item in results),
+        input_tokens=token_total("input_tokens"),
+        output_tokens=token_total("output_tokens"),
+        total_tokens=token_total("total_tokens"),
+        p50_model_latency_ms=_percentile(model_latencies, 0.5),
+        p95_model_latency_ms=_percentile(model_latencies, 0.95),
+        results=tuple(results),
+    )
+
+
 class FlowPilotDeterministicEvaluator:
     def __init__(self, model: StructuredFlowPilotModel | None = None) -> None:
         self._model = model
@@ -180,14 +214,16 @@ class FlowPilotDeterministicEvaluator:
             )
         except ResolutionNotApplicableError as exc:
             latency = (time.perf_counter() - started) * 1000
-            passed = case.expected_outcome == "reject"
+            checks = {"expected_rejection": case.expected_outcome == "reject"}
+            if case.expected_rejection_reason is not None:
+                checks["rejection_reason_correct"] = exc.reason == case.expected_rejection_reason
             measurements = _model_measurements(recorder.calls if recorder is not None else [])
             return FlowPilotEvalResult(
                 case_id=case.id,
-                passed=passed,
+                passed=all(checks.values()),
                 latency_ms=latency,
                 outcome="reject",
-                checks={"expected_rejection": passed},
+                checks=checks,
                 detail=exc.reason,
                 **measurements,
             )
@@ -221,46 +257,58 @@ class FlowPilotDeterministicEvaluator:
 
     async def evaluate(self, cases: list[FlowPilotEvalCase]) -> FlowPilotEvalSummary:
         results = [await self.evaluate_case(case) for case in cases]
-        latencies = [item.latency_ms for item in results]
-        model_latencies = [item.model_latency_ms for item in results if item.model_calls]
-        passed = sum(item.passed for item in results)
-
-        def token_total(field: str) -> int | None:
-            values = [getattr(item, field) for item in results]
-            return sum(values) if values and all(isinstance(value, int) for value in values) else None
-
-        return FlowPilotEvalSummary(
-            total=len(results),
-            passed=passed,
-            pass_rate=round(passed / len(results), 4) if results else 0.0,
-            p50_latency_ms=_percentile(latencies, 0.5),
-            p95_latency_ms=_percentile(latencies, 0.95),
-            model="deterministic" if self._model is None else type(self._model).__name__,
-            model_calls=sum(item.model_calls for item in results),
-            input_tokens=token_total("input_tokens"),
-            output_tokens=token_total("output_tokens"),
-            total_tokens=token_total("total_tokens"),
-            p50_model_latency_ms=_percentile(model_latencies, 0.5),
-            p95_model_latency_ms=_percentile(model_latencies, 0.95),
-            results=tuple(results),
-        )
+        return _summarize_results(results, self._model)
 
 
-async def _run(dataset: str, use_structured_model: bool = False) -> int:
+def _summary_metrics(summary: FlowPilotEvalSummary) -> dict[str, Any]:
+    data = summary.to_dict()
+    data.pop("results")
+    return data
+
+
+async def _run(
+    dataset: str,
+    use_structured_model: bool = False,
+    repeat: int = 1,
+    summary_only: bool = False,
+) -> int:
+    if repeat < 1:
+        raise ValueError("--repeat 必须至少为 1")
     model = structured_model_from_env() if use_structured_model else None
     if use_structured_model and model is None:
         raise ValueError("真实模型评测需要 FLOWPILOT_STRUCTURED_MODEL=qwen 或 fake")
-    summary = await FlowPilotDeterministicEvaluator(model).evaluate(load_flowpilot_eval_cases(dataset))
-    print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
-    return 0 if summary.passed == summary.total else 1
+    cases = load_flowpilot_eval_cases(dataset)
+    summaries = [await FlowPilotDeterministicEvaluator(model).evaluate(cases) for _ in range(repeat)]
+    aggregate = _summarize_results([result for summary in summaries for result in summary.results], model)
+    output: dict[str, Any] = aggregate.to_dict()
+    if repeat > 1:
+        output = {
+            "dataset_cases": len(cases),
+            "runs": repeat,
+            "aggregate": aggregate.to_dict(),
+            "per_run": [summary.to_dict() for summary in summaries],
+        }
+    if summary_only:
+        output = _summary_metrics(aggregate)
+        if repeat > 1:
+            output = {
+                "dataset_cases": len(cases),
+                "runs": repeat,
+                "aggregate": _summary_metrics(aggregate),
+                "per_run": [_summary_metrics(summary) for summary in summaries],
+            }
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0 if aggregate.passed == aggregate.total else 1
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run deterministic or structured-model FlowPilot evaluations")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--structured-model-from-env", action="store_true")
+    parser.add_argument("--repeat", type=int, default=1, help="同一数据集顺序运行次数，默认 1")
+    parser.add_argument("--summary-only", action="store_true", help="仅输出聚合指标，不输出逐条结果")
     args = parser.parse_args()
-    return asyncio.run(_run(args.dataset, args.structured_model_from_env))
+    return asyncio.run(_run(args.dataset, args.structured_model_from_env, args.repeat, args.summary_only))
 
 
 if __name__ == "__main__":  # pragma: no cover
