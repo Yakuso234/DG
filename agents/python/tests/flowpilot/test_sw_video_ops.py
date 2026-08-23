@@ -99,8 +99,10 @@ async def test_mock_gateway_mcp_tools_and_evidence_normalization() -> None:
     )
     evidence = status_to_evidence(ticket_id="ticket-1", snapshot=snapshot)
     repeated = status_to_evidence(ticket_id="ticket-1", snapshot=snapshot)
+    another_ticket = status_to_evidence(ticket_id="ticket-2", snapshot=snapshot)
     assert uuid.UUID(evidence.id).version == 5
     assert repeated.id == evidence.id
+    assert another_ticket.id != evidence.id
     assert evidence.source == "sw-video-ops-mcp"
     assert evidence.data["source_system"] == "sw-video-service"
     assert overview["processing_task_count"] == 1

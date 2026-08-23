@@ -205,7 +205,7 @@ class MockSwVideoOpsGateway:
 
 
 def status_to_evidence(*, ticket_id: str, snapshot: VideoProcessingSnapshot) -> Evidence:
-    evidence_key = f"sw-video-status:{snapshot.creator_id}:{snapshot.video_id}:{snapshot.trace_id}"
+    evidence_key = f"sw-video-status:{ticket_id}:{snapshot.creator_id}:{snapshot.video_id}:{snapshot.trace_id}"
     return Evidence(
         id=str(uuid.uuid5(uuid.NAMESPACE_URL, evidence_key)),
         ticket_id=ticket_id,

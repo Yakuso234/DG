@@ -21,3 +21,12 @@ async def test_mock_demo_runs_the_persisted_api_workflow(database_url, clean_db,
     assert result["graph_steps_after_approval"][-1] == "approval"
     assert result["evidence_count"] == 1
     assert result["mock_business_operations"][0]["op"] == "restart_pipeline"
+
+    repeated = await run_demo(
+        database_url=database_url,
+        checkpoint_path=str(tmp_path / "demo.sqlite"),
+        trace_id="trace-demo-test",
+        initialize_schema=False,
+    )
+    assert repeated["ticket"]["id"] != result["ticket"]["id"]
+    assert repeated["ticket"]["status"] == "RESOLVED"

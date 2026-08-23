@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, HTTPStatusError, Response
 
 from flowpilot.action_runner import MockBusinessActionRunner
 from flowpilot.api.main import build_app
@@ -33,6 +33,14 @@ _SUBMITTER = {"x-user-id": "demo-submitter", "x-user-role": "submitter"}
 _HANDLER = {"x-user-id": "demo-handler", "x-user-role": "handler"}
 _APPROVER = {"x-user-id": "demo-approver", "x-user-role": "approver"}
 _ADMIN = {"x-user-id": "demo-admin", "x-user-role": "admin"}
+
+
+def _require_success(response: Response, stage: str) -> None:
+    try:
+        response.raise_for_status()
+    except HTTPStatusError as exc:
+        detail = response.text[:1000]
+        raise RuntimeError(f"{stage}失败（HTTP {response.status_code}）：{detail}") from exc
 
 
 async def _apply_schema(pool: asyncpg.Pool) -> None:
@@ -102,7 +110,7 @@ async def run_demo(
                     json={"title": "Video processing stalled", "description": "Mock SW lease expired", "priority": 4},
                     headers=_SUBMITTER,
                 )
-                ticket_response.raise_for_status()
+                _require_success(ticket_response, "创建工单")
                 ticket = ticket_response.json()
                 thread_id = f"demo-{ticket['id']}"
 
@@ -111,7 +119,7 @@ async def run_demo(
                     json={"creator_id": 7, "video_id": 901, "trace_id": trace_id, "thread_id": thread_id},
                     headers={**_HANDLER, "X-Trace-Id": trace_id},
                 )
-                start_response.raise_for_status()
+                _require_success(start_response, "启动 Agent 工作流")
                 started = start_response.json()
 
                 approval_response = await client.post(
@@ -119,15 +127,15 @@ async def run_demo(
                     json={"decision": "approved", "thread_id": thread_id, "note": "Mock Demo 人工确认"},
                     headers=_APPROVER,
                 )
-                approval_response.raise_for_status()
+                _require_success(approval_response, "审批并恢复工作流")
                 approved = approval_response.json()
 
                 final_ticket_response = await client.get(f"/api/tickets/{ticket['id']}", headers=_ADMIN)
-                final_ticket_response.raise_for_status()
+                _require_success(final_ticket_response, "读取最终工单")
                 evidence_response = await client.get(f"/api/tickets/{ticket['id']}/evidence", headers=_ADMIN)
-                evidence_response.raise_for_status()
+                _require_success(evidence_response, "读取 Evidence")
                 audit_response = await client.get(f"/api/audit/ticket/{ticket['id']}", headers=_ADMIN)
-                audit_response.raise_for_status()
+                _require_success(audit_response, "读取审计记录")
 
         return {
             "mode": (
@@ -172,16 +180,17 @@ async def _main_async(args: argparse.Namespace) -> dict[str, Any]:
     model = structured_model_from_env() if args.structured_model_from_env else None
     if args.structured_model_from_env and model is None:
         raise ValueError("--structured-model-from-env 需要 FLOWPILOT_STRUCTURED_MODEL=qwen 或 fake")
-    result = await run_demo(
-        database_url=args.database_url,
-        checkpoint_path=checkpoint_path,
-        trace_id=args.trace_id,
-        initialize_schema=not args.skip_schema_init,
-        model=model,
-    )
-    if cleanup_checkpoint:
-        Path(checkpoint_path).unlink(missing_ok=True)
-    return result
+    try:
+        return await run_demo(
+            database_url=args.database_url,
+            checkpoint_path=checkpoint_path,
+            trace_id=args.trace_id,
+            initialize_schema=not args.skip_schema_init,
+            model=model,
+        )
+    finally:
+        if cleanup_checkpoint:
+            Path(checkpoint_path).unlink(missing_ok=True)
 
 
 def main() -> None:
