@@ -51,9 +51,9 @@ FastAPI 请求
 
 ## 当前可验证状态
 
-最近一次完整 FlowPilot 回归为 **90 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、TraceId、JWT-local 和 Agent Run 幂等摘要。
+最近一次完整 FlowPilot 回归为 **93 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、OpenTelemetry 安全 span、TraceId、JWT-local 和 Agent Run 幂等摘要。
 
-已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 单场景闭环，但仍没有多轮真实模型评测、OpenTelemetry exporter、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
+已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 单场景闭环，OTLP 已向本地 Aspire 成功导出；但仍没有多轮真实模型评测、生产采样/告警、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
 
 | 能力 | 当前状态 |
 |---|---|
@@ -62,7 +62,7 @@ FastAPI 请求
 | MCP Streamable HTTP 调查客户端 | 已通过 loopback 协议回归验证 |
 | Fake / deterministic / Qwen 模型建议层 | Qwen Provider、真实 Key 单场景和 Token/延迟采集已验证；7 场景真实评测待运行 |
 | JWT-local | 已实现；RS256/JWKS/OIDC 待补 |
-| Agent Run / Proposal 查询 | 已实现；前端 timeline / OTel spans 待补 |
+| Agent Run / Proposal 查询与 OTel spans | 已实现本地观测；前端 timeline / 生产采样告警待补 |
 | DG + SW 实时联调 | 待 SW 入站服务身份收口后再做 |
 
 ## 快速演示（不需要模型 API Key）
@@ -126,6 +126,12 @@ uv run python -m flowpilot.evaluation `
 ```
 
 评测输出分别给出整图延迟、模型调用延迟和输入/输出 Token；成本需要结合实际账户价格计算，项目不会硬编码可能变化的价格。
+
+## OpenTelemetry 本地观测
+
+FlowPilot 提供默认关闭的 OTel 接入：FastAPI、asyncpg、OpenAI/httpx 自动 instrumentation，以及工作流、四个逻辑 Agent、模型调用、审批恢复和受控执行自定义 span。遥测只记录稳定业务 ID、模型名、Token 和 latency，不记录 Prompt、rationale 或 Evidence 正文。
+
+本地 Aspire 启动、环境变量和 span 层级见 [FlowPilot OTel Runbook](docs/DG-OTEL-RUNBOOK.md)。
 
 单独启动 FastAPI（工作流默认关闭，只提供工单域 API）：
 

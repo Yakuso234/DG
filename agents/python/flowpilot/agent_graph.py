@@ -10,6 +10,7 @@ from langgraph.types import interrupt
 
 from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION, risk_of, validate_params
 from flowpilot.domain.models import ActionProposal, utc_now_iso
+from flowpilot.observability import traced_agent_step
 from flowpilot.structured_model import (
     ModelOutputValidationError,
     ResolutionModelInput,
@@ -59,6 +60,7 @@ def build_graph(
 ):
     """构建主图；可选模型只提供受控建议，领域校验不交给模型。"""
 
+    @traced_agent_step("triage")
     async def triage(state: FlowPilotGraphState) -> dict[str, Any]:
         if model is None:
             return {
@@ -88,6 +90,7 @@ def build_graph(
             result["model_calls"] = [*state.get("model_calls", []), output.metrics.to_dict()]
         return result
 
+    @traced_agent_step("investigation")
     async def investigate(state: FlowPilotGraphState) -> dict[str, Any]:
         snapshot = await gateway.get_video_processing_status(
             creator_id=state["creator_id"], video_id=state["video_id"], trace_id=state["trace_id"]
@@ -95,6 +98,7 @@ def build_graph(
         evidence = status_to_evidence(ticket_id=state["ticket_id"], snapshot=snapshot)
         return {"evidence": [evidence.to_dict()], "steps": _steps(state, "investigation")}
 
+    @traced_agent_step("resolution")
     async def resolution(state: FlowPilotGraphState) -> dict[str, Any]:
         evidence = state["evidence"]
         processing_status = evidence[0]["data"]["processing_status"]
@@ -151,6 +155,7 @@ def build_graph(
             result["model_calls"] = [*state.get("model_calls", []), output.metrics.to_dict()]
         return result
 
+    @traced_agent_step("risk_review")
     async def risk_review(state: FlowPilotGraphState) -> dict[str, Any]:
         proposal = ActionProposal.from_dict(state["proposal"])
         validate_params(proposal.action, proposal.params)

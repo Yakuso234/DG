@@ -176,7 +176,14 @@ def build_app(
     ticket_workflow: TicketWorkflowService | None = None,
     auth_config: FlowPilotAuthConfig | None = None,
 ) -> FastAPI:
+    from shared.telemetry import instrument_fastapi
+
+    if pool is None:
+        from shared.telemetry import setup_telemetry
+
+        setup_telemetry(service_name=os.environ.get("OTEL_SERVICE_NAME", "flowpilot-api"))
     app = FastAPI(title="FlowPilot API (Phase 1)", version="0.1.0")
+    instrument_fastapi(app)
     app.state.pool = pool
     app.state.action_runner = action_runner or MockBusinessActionRunner()
     app.state.approval_workflow = approval_workflow

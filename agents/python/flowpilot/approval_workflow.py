@@ -10,6 +10,7 @@ from langgraph.types import Command
 from flowpilot.domain.models import Approval, ExecutionRecord
 from flowpilot.domain.rbac import Actor
 from flowpilot.domain.status import TicketStatus
+from flowpilot.observability import traced_operation
 
 
 class ApprovalWorkflowRepository(Protocol):
@@ -55,6 +56,7 @@ class ApprovalWorkflowService:
         self._service_actor = service_actor
         self._escalation_actor = escalation_actor
 
+    @traced_operation("flowpilot.workflow.approval")
     async def decide(
         self,
         approver: Actor,

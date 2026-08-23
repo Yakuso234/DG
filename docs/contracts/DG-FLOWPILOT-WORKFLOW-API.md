@@ -171,8 +171,10 @@ Denied decisions move to `ESCALATED` without invoking the executor.
 - Phase 1 request headers are not production authentication; JWT replacement is pending.
 - SQLite checkpoint is for a local single-instance demo, not multi-replica deployment.
 - Start retries reuse a paused checkpoint and treat identical Evidence/Proposal IDs as idempotent.
-- Agent run summaries are PostgreSQL records keyed by stable workflow identity;
-  they support local timeline display but are not yet per-node OTel spans.
+- Agent run summaries are PostgreSQL records keyed by stable workflow identity.
+  Local OTel mode adds workflow, logical-agent, model-call, approval, and execution
+  spans plus FastAPI/asyncpg/OpenAI/httpx auto-instrumentation. Production sampling,
+  alerting, and multi-instance trace validation remain pending.
 - The complete FlowPilot suite has been verified against PostgreSQL 16 through Testcontainers; this is local integration evidence, not production load evidence.
 - DG's approved recovery client is implemented against SW's existing `recover-expired` API.
 - The Investigation gateway can use a real MCP `ClientSession` over Streamable HTTP; the

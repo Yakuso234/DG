@@ -34,6 +34,7 @@ from flowpilot.domain.models import (
 )
 from flowpilot.domain.rbac import Actor, PermissionDeniedError
 from flowpilot.domain.status import TicketStatus
+from flowpilot.observability import traced_operation
 
 
 class NotFoundError(LookupError):
@@ -506,6 +507,7 @@ class TicketRepo:
             version=int(version),
         )
 
+    @traced_operation("flowpilot.action.execute")
     async def execute_proposal(self, actor: Actor, proposal_id: str) -> ExecutionRecord:
         """提交执行记录后调用业务适配器，并把成功或失败结果持久化。
 

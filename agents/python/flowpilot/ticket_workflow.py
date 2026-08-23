@@ -11,6 +11,7 @@ from flowpilot.agent_graph import initial_state
 from flowpilot.domain.models import ActionProposal, AgentRun, Evidence, Ticket, utc_now_iso
 from flowpilot.domain.rbac import Actor
 from flowpilot.domain.status import TicketStatus
+from flowpilot.observability import traced_operation
 
 
 class TicketWorkflowRepository(Protocol):
@@ -49,6 +50,7 @@ class TicketWorkflowService:
         self._handler_actor = handler_actor
         self._model_label = model_label
 
+    @traced_operation("flowpilot.workflow.start")
     async def start(
         self,
         *,

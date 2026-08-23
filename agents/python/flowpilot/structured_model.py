@@ -14,6 +14,8 @@ from typing import Any, Literal, Protocol
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from flowpilot.observability import flowpilot_span
+
 
 class ModelOutputValidationError(ValueError):
     """模型返回值不满足当前工单场景的受控合同。"""
@@ -160,38 +162,49 @@ class QwenStructuredFlowPilotModel:
             ),
         }
         started_at = time.perf_counter()
-        try:
-            response = await self._client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": f"{system_prompt}{contracts[task]}"},
-                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0,
+        with flowpilot_span(
+            "flowpilot.model.call",
+            {"gen_ai.operation.name": "chat", "gen_ai.request.model": self.model_name, "flowpilot.model.task": task},
+        ) as span:
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": f"{system_prompt}{contracts[task]}"},
+                        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                )
+            except Exception as exc:
+                raise StructuredModelProviderError(f"Qwen {task} 调用失败（{type(exc).__name__}）") from exc
+            usage = getattr(response, "usage", None)
+            input_tokens = self._token_value(usage, "prompt_tokens")
+            output_tokens = self._token_value(usage, "completion_tokens")
+            total_tokens = self._token_value(usage, "total_tokens")
+            metrics = ModelCallMetrics(
+                task=task,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
             )
-        except Exception as exc:
-            raise StructuredModelProviderError(f"Qwen {task} 调用失败（{type(exc).__name__}）") from exc
+            for key, value in {
+                "gen_ai.usage.input_tokens": input_tokens,
+                "gen_ai.usage.output_tokens": output_tokens,
+                "flowpilot.model.total_tokens": total_tokens,
+                "flowpilot.model.latency_ms": metrics.latency_ms,
+            }.items():
+                if value is not None:
+                    span.set_attribute(key, value)
 
-        usage = getattr(response, "usage", None)
-        input_tokens = self._token_value(usage, "prompt_tokens")
-        output_tokens = self._token_value(usage, "completion_tokens")
-        total_tokens = self._token_value(usage, "total_tokens")
-        metrics = ModelCallMetrics(
-            task=task,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=total_tokens,
-            latency_ms=round((time.perf_counter() - started_at) * 1000),
-        )
-
-        try:
-            content = response.choices[0].message.content
-            if not isinstance(content, str) or not content.strip():
-                raise ValueError("empty content")
-            return schema.model_validate_json(content), metrics
-        except (AttributeError, IndexError, TypeError, ValueError) as exc:
-            raise ModelOutputValidationError(f"Qwen {task} 返回值不满足结构化合同") from exc
+            try:
+                content = response.choices[0].message.content
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("empty content")
+                return schema.model_validate_json(content), metrics
+            except (AttributeError, IndexError, TypeError, ValueError) as exc:
+                raise ModelOutputValidationError(f"Qwen {task} 返回值不满足结构化合同") from exc
 
     @staticmethod
     def _token_value(usage: Any, name: str) -> int | None:
