@@ -158,6 +158,34 @@ async def test_evidence_roundtrip(client: AsyncClient) -> None:
     assert items.json()[0]["source"] == "mock-business-mcp"
 
 
+async def test_proposal_read_endpoints_expose_current_status_with_rbac(client: AsyncClient) -> None:
+    ticket = await _make_ticket(client, "提案查询")
+    proposal = await _walk_to_approval(client, ticket["id"])
+
+    listed = await client.get(f"/api/tickets/{ticket['id']}/proposals", headers=ADMIN)
+    detail = await client.get(f"/api/proposals/{proposal['id']}", headers=APPROVER)
+    denied = await client.get(f"/api/proposals/{proposal['id']}", headers=SUB)
+
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == proposal["id"]
+    assert listed.json()[0]["status"] == "proposed"
+    assert detail.status_code == 200
+    assert detail.json()["ticket_id"] == ticket["id"]
+    assert denied.status_code == 403
+
+    approved = await client.post(
+        f"/api/proposals/{proposal['id']}/approvals",
+        json={"decision": "approved", "note": "查询状态验证"},
+        headers=APPROVER,
+    )
+    assert approved.status_code == 201
+    after = await client.get(f"/api/proposals/{proposal['id']}", headers=ADMIN)
+    assert after.json()["status"] == "approved"
+
+    missing = await client.get(f"/api/proposals/{uuid.uuid4()}", headers=ADMIN)
+    assert missing.status_code == 404
+
+
 async def test_audit_endpoint(client: AsyncClient) -> None:
     ticket = await _make_ticket(client)
     resp = await client.get(f"/api/audit/ticket/{ticket['id']}", headers=ADMIN)
@@ -173,9 +201,9 @@ async def test_agent_run_endpoint_returns_persisted_safe_summary(client: AsyncCl
         ticket_id=ticket["id"],
         agent="flowpilot-main-graph",
         input_summary="creator_id=7, video_id=9",
-        output={"steps": ["triage"], "evidence_count": 1},
-        model="deterministic",
-        tokens=None,
+        output={"steps": ["triage"], "evidence_count": 1, "model_calls": 1, "model_latency_ms": 8},
+        model="qwen-plus",
+        tokens={"input_tokens": 10, "output_tokens": 4, "total_tokens": 14, "calls": 1},
         latency_ms=9,
         trace_id="trace-run-endpoint",
         created_at=utc_now_iso(),

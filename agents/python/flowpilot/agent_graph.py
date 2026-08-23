@@ -30,6 +30,7 @@ class FlowPilotGraphState(TypedDict, total=False):
     proposal: dict[str, Any]
     risk_review: dict[str, Any]
     approval: dict[str, Any]
+    model_calls: list[dict[str, Any]]
     steps: list[str]
 
 
@@ -74,7 +75,7 @@ def build_graph(
         )
         if output.category != "video_processing_stalled" or not 1 <= output.priority <= 5:
             raise ModelOutputValidationError("分诊模型输出不符合视频处理卡住场景合同")
-        return {
+        result: dict[str, Any] = {
             "triage": {
                 "category": output.category,
                 "priority": output.priority,
@@ -83,6 +84,9 @@ def build_graph(
             },
             "steps": _steps(state, "triage"),
         }
+        if output.metrics is not None:
+            result["model_calls"] = [*state.get("model_calls", []), output.metrics.to_dict()]
+        return result
 
     async def investigate(state: FlowPilotGraphState) -> dict[str, Any]:
         snapshot = await gateway.get_video_processing_status(
@@ -138,11 +142,14 @@ def build_graph(
             created_by="flowpilot-resolution-agent",
             created_at=utc_now_iso(),
         )
-        return {
+        result = {
             "proposal": proposal.to_dict(),
             "resolution_suggestion": suggestion,
             "steps": _steps(state, "resolution"),
         }
+        if model is not None and output.metrics is not None:
+            result["model_calls"] = [*state.get("model_calls", []), output.metrics.to_dict()]
+        return result
 
     async def risk_review(state: FlowPilotGraphState) -> dict[str, Any]:
         proposal = ActionProposal.from_dict(state["proposal"])

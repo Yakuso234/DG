@@ -48,7 +48,10 @@ class _FakeCompletions:
         self.requests.append(kwargs)
         if self.error:
             raise self.error
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.contents.pop(0)))])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self.contents.pop(0)))],
+            usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18),
+        )
 
 
 def _qwen_model(completions: _FakeCompletions) -> QwenStructuredFlowPilotModel:
@@ -128,8 +131,17 @@ async def test_qwen_provider_uses_json_mode_and_validates_both_contracts() -> No
     triage = await model.triage(TriageModelInput("ticket-1", 7, 9, "trace-1"))
     resolution = await model.resolve(ResolutionModelInput("ticket-1", 7, 9, "trace-1", "PROCESSING", "expired"))
 
-    assert triage == TriageModelOutput("video_processing_stalled", 4, "lease expired")
-    assert resolution == ResolutionModelOutput("recover_expired_video_processing", "approval required")
+    assert triage.category == "video_processing_stalled"
+    assert triage.priority == 4
+    assert triage.rationale == "lease expired"
+    assert resolution.action == "recover_expired_video_processing"
+    assert resolution.rationale == "approval required"
+    assert triage.metrics is not None
+    assert triage.metrics.input_tokens == 11
+    assert triage.metrics.output_tokens == 7
+    assert triage.metrics.total_tokens == 18
+    assert resolution.metrics is not None
+    assert resolution.metrics.task == "resolve"
     assert all(item["response_format"] == {"type": "json_object"} for item in completions.requests)
     assert all(item["temperature"] == 0 for item in completions.requests)
 

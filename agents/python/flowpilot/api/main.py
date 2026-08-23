@@ -323,6 +323,16 @@ def build_app(
         saved = await _repo(request).create_proposal(actor, proposal)
         return saved.to_dict()
 
+    @app.get("/api/tickets/{ticket_id}/proposals")
+    async def list_proposals(ticket_id: str, request: Request) -> list[dict[str, Any]]:
+        actor = _actor_from_request(request)
+        return [item.to_dict() for item in await _repo(request).list_proposals(actor, ticket_id)]
+
+    @app.get("/api/proposals/{proposal_id}")
+    async def get_proposal(proposal_id: str, request: Request) -> dict[str, Any]:
+        actor = _actor_from_request(request)
+        return (await _repo(request).get_proposal(actor, proposal_id)).to_dict()
+
     @app.post("/api/proposals/{proposal_id}/approvals", status_code=201)
     async def approve_proposal(proposal_id: str, body: ApprovalCreate, request: Request) -> dict[str, Any]:
         actor = _actor_from_request(request)

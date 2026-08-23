@@ -23,6 +23,7 @@ from flowpilot.domain.executor import (
 )
 from flowpilot.domain.models import (
     ActionProposal,
+    ActionProposalView,
     AgentRun,
     Approval,
     AuditEvent,
@@ -95,6 +96,20 @@ def _row_to_agent_run(row: asyncpg.Record) -> AgentRun:
         tokens=json.loads(row["tokens"]) if row["tokens"] else None,
         latency_ms=int(row["latency_ms"]) if row["latency_ms"] is not None else None,
         trace_id=row["trace_id"] or "",
+        created_at=row["created_at"].isoformat(),
+    )
+
+
+def _row_to_proposal_view(row: asyncpg.Record) -> ActionProposalView:
+    return ActionProposalView(
+        id=str(row["id"]),
+        ticket_id=str(row["ticket_id"]),
+        action=row["action"],
+        params=json.loads(row["params"]),
+        evidence_ids=json.loads(row["evidence_ids"]),
+        risk=row["risk"],
+        status=row["status"],
+        created_by=row["created_by"],
         created_at=row["created_at"].isoformat(),
     )
 
@@ -344,6 +359,20 @@ class TicketRepo:
                     {"action": proposal.action, "risk": proposal.risk, "ticket_id": proposal.ticket_id},
                 )
         return proposal
+
+    async def get_proposal(self, actor: Actor, proposal_id: str) -> ActionProposalView:
+        actor.check("ticket.view_any")
+        row = await self._pool.fetchrow("SELECT * FROM action_proposals WHERE id = $1", uuid.UUID(proposal_id))
+        if row is None:
+            raise NotFoundError(f"提案 {proposal_id} 不存在")
+        return _row_to_proposal_view(row)
+
+    async def list_proposals(self, actor: Actor, ticket_id: str) -> list[ActionProposalView]:
+        actor.check("ticket.view_any")
+        rows = await self._pool.fetch(
+            "SELECT * FROM action_proposals WHERE ticket_id = $1 ORDER BY created_at", uuid.UUID(ticket_id)
+        )
+        return [_row_to_proposal_view(row) for row in rows]
 
     async def record_agent_run(self, actor: Actor, run: AgentRun) -> AgentRun:
         """以稳定运行 ID 幂等保存工作流摘要，避免重启恢复重复生成展示记录。"""

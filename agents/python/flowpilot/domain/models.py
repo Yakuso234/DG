@@ -58,6 +58,24 @@ class ActionProposal:
 
 
 @dataclass(frozen=True)
+class ActionProposalView:
+    """持久化提案只读视图，包含审批/执行推进后的当前状态。"""
+
+    id: str
+    ticket_id: str
+    action: str
+    params: dict[str, Any]
+    evidence_ids: list[str]
+    risk: str
+    status: str
+    created_by: str
+    created_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class Approval:
     """审批记录：一个提案的全部决策历史（含版本）。"""
 

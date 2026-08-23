@@ -46,23 +46,23 @@ FastAPI 请求
 
 - API 统一生成或透传 `X-Trace-Id`，并要求工作流 Header 与业务 TraceId 一致。
 - 增加可选 `jwt-local` 模式：校验 HS256 签名、过期时间、issuer、audience、token 类型与角色；默认请求头身份仅用于本地 Demo。
-- 将安全 Agent Run 摘要持久化至 PostgreSQL，提供 `GET /api/tickets/{ticket_id}/runs`；摘要不保存 Prompt、原始 Evidence、推理链、认证头或密钥。
+- 将安全 Agent Run 摘要持久化至 PostgreSQL，提供 `GET /api/tickets/{ticket_id}/runs`；真实 Provider 记录输入/输出 Token 与模型调用耗时，摘要不保存 Prompt、原始 Evidence、推理链、认证头或密钥。
 - 提供无模型 Key 的真实 PostgreSQL Mock Demo，便于复现“调查 → 审批 → 执行 → 审计”主链路。
 
 ## 当前可验证状态
 
-最近一次完整 FlowPilot 回归为 **83 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、TraceId、JWT-local 和 Agent Run 幂等摘要。
+最近一次完整 FlowPilot 回归为 **90 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、TraceId、JWT-local 和 Agent Run 幂等摘要。
 
-已完成的验证不等于生产声明：当前没有默认启用真实模型 provider、OpenTelemetry exporter、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
+已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 单场景闭环，但仍没有多轮真实模型评测、OpenTelemetry exporter、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
 
 | 能力 | 当前状态 |
 |---|---|
 | 确定性工单域、审批、执行、审计 | 已实现并经 PostgreSQL 回归验证 |
 | LangGraph 单图、HITL checkpoint 恢复 | 已实现并验证 |
 | MCP Streamable HTTP 调查客户端 | 已通过 loopback 协议回归验证 |
-| Fake / deterministic / Qwen 模型建议层 | Qwen Provider 与结构化合同测试已实现；真实 Key 调用需本地验证 |
+| Fake / deterministic / Qwen 模型建议层 | Qwen Provider、真实 Key 单场景和 Token/延迟采集已验证；7 场景真实评测待运行 |
 | JWT-local | 已实现；RS256/JWKS/OIDC 待补 |
-| Agent Run 查询 | 已实现；前端 timeline / OTel spans 待补 |
+| Agent Run / Proposal 查询 | 已实现；前端 timeline / OTel spans 待补 |
 | DG + SW 实时联调 | 待 SW 入站服务身份收口后再做 |
 
 ## 快速演示（不需要模型 API Key）
@@ -116,6 +116,16 @@ cd agents/python
 $env:FLOWPILOT_DATABASE_URL = "postgresql://ecommerce:ecommerce_secret@127.0.0.1:5432/ecommerce_agents"
 uv run python -m flowpilot.demo --structured-model-from-env
 ```
+
+运行 7 场景真实模型评测（共 10 次模型调用：7 次分诊、3 次处置）：
+
+```powershell
+uv run python -m flowpilot.evaluation `
+  --dataset evals/datasets/flowpilot_video_ops.json `
+  --structured-model-from-env
+```
+
+评测输出分别给出整图延迟、模型调用延迟和输入/输出 Token；成本需要结合实际账户价格计算，项目不会硬编码可能变化的价格。
 
 单独启动 FastAPI（工作流默认关闭，只提供工单域 API）：
 

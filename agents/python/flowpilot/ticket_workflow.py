@@ -89,6 +89,8 @@ class TicketWorkflowService:
             current = TicketStatus.PROPOSED
         if current is TicketStatus.PROPOSED:
             await self._repo.transition(self._handler_actor, ticket_id, TicketStatus.WAITING_APPROVAL)
+        model_calls = graph_state.get("model_calls", [])
+        tokens = self._summarize_tokens(model_calls)
         run = await self._repo.record_agent_run(
             self._handler_actor,
             AgentRun(
@@ -102,15 +104,33 @@ class TicketWorkflowService:
                     "proposal_action": proposal.action,
                     "risk": proposal.risk,
                     "evidence_count": len(evidence_items),
+                    "model_calls": len(model_calls),
+                    "model_latency_ms": sum(
+                        item["latency_ms"] for item in model_calls if isinstance(item.get("latency_ms"), int)
+                    ),
                 },
                 model=self._model_label,
-                tokens=None,
+                tokens=tokens,
                 latency_ms=round((time.perf_counter() - started_at) * 1000),
                 trace_id=trace_id,
                 created_at=utc_now_iso(),
             ),
         )
         return TicketWorkflowStartResult(ticket_id, thread_id, tuple(evidence_items), proposal, graph_state, run)
+
+    @staticmethod
+    def _summarize_tokens(model_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not model_calls:
+            return None
+        fields = ("input_tokens", "output_tokens", "total_tokens")
+        if not all(isinstance(item.get(field), int) for item in model_calls for field in fields):
+            return None
+        return {
+            "input_tokens": sum(item["input_tokens"] for item in model_calls),
+            "output_tokens": sum(item["output_tokens"] for item in model_calls),
+            "total_tokens": sum(item["total_tokens"] for item in model_calls),
+            "calls": len(model_calls),
+        }
 
     async def _paused_or_new_state(
         self,

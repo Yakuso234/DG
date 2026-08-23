@@ -8,6 +8,12 @@ from flowpilot.agent_graph import build_graph
 from flowpilot.domain.models import ActionProposal, AgentRun, Evidence, Ticket
 from flowpilot.domain.rbac import Actor, Role
 from flowpilot.domain.status import TicketStatus
+from flowpilot.structured_model import (
+    FakeStructuredFlowPilotModel,
+    ModelCallMetrics,
+    ResolutionModelOutput,
+    TriageModelOutput,
+)
 from flowpilot.sw_video_ops import MockSwVideoOpsGateway, VideoProcessingSnapshot
 from flowpilot.ticket_workflow import TicketWorkflowService
 
@@ -86,3 +92,43 @@ async def test_start_workflow_persists_graph_outputs_before_waiting_for_approval
     assert repeated.agent_run.id == result.agent_run.id
     assert repeated.agent_run.latency_ms == result.agent_run.latency_ms
     assert not [call for call in repo.calls[first_call_count:] if call[0] == "transition"]
+
+
+async def test_agent_run_summarizes_structured_model_tokens_and_latency() -> None:
+    gateway = MockSwVideoOpsGateway(
+        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, "expired", None, "now", "seed")]
+    )
+    model = FakeStructuredFlowPilotModel(
+        triage_output=TriageModelOutput(
+            "video_processing_stalled",
+            4,
+            "triage",
+            ModelCallMetrics("triage", 10, 4, 14, 120),
+        ),
+        resolution_output=ResolutionModelOutput(
+            "recover_expired_video_processing",
+            "resolve",
+            ModelCallMetrics("resolve", 12, 5, 17, 180),
+        ),
+    )
+    graph = build_graph(gateway, checkpointer=MemorySaver(), require_approval=True, model=model)
+    repo = FakeTicketWorkflowRepo()
+    service = TicketWorkflowService(
+        repo,
+        graph,
+        handler_actor=Actor("flowpilot-handler", Role.HANDLER),
+        model_label="qwen-plus",
+    )
+
+    result = await service.start(
+        ticket_id="ticket-usage", creator_id=7, video_id=9, trace_id="trace-usage", thread_id="thread-usage"
+    )
+
+    assert result.agent_run.tokens == {
+        "input_tokens": 22,
+        "output_tokens": 9,
+        "total_tokens": 31,
+        "calls": 2,
+    }
+    assert result.agent_run.output["model_calls"] == 2
+    assert result.agent_run.output["model_latency_ms"] == 300

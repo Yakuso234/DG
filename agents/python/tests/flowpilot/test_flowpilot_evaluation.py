@@ -1,6 +1,12 @@
 from pathlib import Path
 
 from flowpilot.evaluation import FlowPilotDeterministicEvaluator, load_flowpilot_eval_cases
+from flowpilot.structured_model import (
+    FakeStructuredFlowPilotModel,
+    ModelCallMetrics,
+    ResolutionModelOutput,
+    TriageModelOutput,
+)
 
 DATASET = Path(__file__).parents[2] / "evals" / "datasets" / "flowpilot_video_ops.json"
 
@@ -32,3 +38,26 @@ async def test_missing_lease_has_distinct_rejection_reason() -> None:
 
     assert result.passed is True
     assert result.detail == "missing_lease_evidence"
+
+
+async def test_structured_model_evaluation_reports_tokens_and_model_latency() -> None:
+    model = FakeStructuredFlowPilotModel(
+        triage_output=TriageModelOutput(
+            "video_processing_stalled", 4, "triage", ModelCallMetrics("triage", 10, 4, 14, 100)
+        ),
+        resolution_output=ResolutionModelOutput(
+            "recover_expired_video_processing", "resolve", ModelCallMetrics("resolve", 12, 5, 17, 200)
+        ),
+    )
+    cases = load_flowpilot_eval_cases(DATASET)
+
+    summary = await FlowPilotDeterministicEvaluator(model).evaluate(cases)
+
+    assert summary.passed == 7
+    assert summary.model == "FakeStructuredFlowPilotModel"
+    assert summary.model_calls == 10
+    assert summary.input_tokens == 106
+    assert summary.output_tokens == 43
+    assert summary.total_tokens == 149
+    assert summary.p50_model_latency_ms == 100
+    assert summary.p95_model_latency_ms == 300

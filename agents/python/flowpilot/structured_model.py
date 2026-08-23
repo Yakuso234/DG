@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, Protocol
 
@@ -23,6 +24,20 @@ class StructuredModelProviderError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ModelCallMetrics:
+    """单次模型调用的安全用量摘要，不包含 Prompt、响应正文或供应商密钥。"""
+
+    task: str
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
+    latency_ms: int
+
+    def to_dict(self) -> dict[str, int | str | None]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class TriageModelInput:
     ticket_id: str
     creator_id: int
@@ -35,6 +50,7 @@ class TriageModelOutput:
     category: str
     priority: int
     rationale: str = ""
+    metrics: ModelCallMetrics | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +67,7 @@ class ResolutionModelInput:
 class ResolutionModelOutput:
     action: str
     rationale: str = ""
+    metrics: ModelCallMetrics | None = None
 
 
 class StructuredFlowPilotModel(Protocol):
@@ -124,7 +141,9 @@ class QwenStructuredFlowPilotModel:
             timeout=timeout_seconds,
         )
 
-    async def _json_completion(self, *, task: str, payload: dict[str, Any], schema: type[BaseModel]) -> BaseModel:
+    async def _json_completion(
+        self, *, task: str, payload: dict[str, Any], schema: type[BaseModel]
+    ) -> tuple[BaseModel, ModelCallMetrics]:
         system_prompt = (
             "你是 FlowPilot 企业工单系统中的受控建议模型。"
             "你只能依据用户给出的 JSON 生成建议，不能生成执行参数或扩大动作范围。"
@@ -140,6 +159,7 @@ class QwenStructuredFlowPilotModel:
                 '"recover_expired_video_processing"，rationale 不超过 500 字。'
             ),
         }
+        started_at = time.perf_counter()
         try:
             response = await self._client.chat.completions.create(
                 model=self.model_name,
@@ -153,23 +173,44 @@ class QwenStructuredFlowPilotModel:
         except Exception as exc:
             raise StructuredModelProviderError(f"Qwen {task} 调用失败（{type(exc).__name__}）") from exc
 
+        usage = getattr(response, "usage", None)
+        input_tokens = self._token_value(usage, "prompt_tokens")
+        output_tokens = self._token_value(usage, "completion_tokens")
+        total_tokens = self._token_value(usage, "total_tokens")
+        metrics = ModelCallMetrics(
+            task=task,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            latency_ms=round((time.perf_counter() - started_at) * 1000),
+        )
+
         try:
             content = response.choices[0].message.content
             if not isinstance(content, str) or not content.strip():
                 raise ValueError("empty content")
-            return schema.model_validate_json(content)
+            return schema.model_validate_json(content), metrics
         except (AttributeError, IndexError, TypeError, ValueError) as exc:
             raise ModelOutputValidationError(f"Qwen {task} 返回值不满足结构化合同") from exc
 
+    @staticmethod
+    def _token_value(usage: Any, name: str) -> int | None:
+        value = getattr(usage, name, None)
+        return value if isinstance(value, int) and value >= 0 else None
+
     async def triage(self, request: TriageModelInput) -> TriageModelOutput:
-        result = await self._json_completion(task="triage", payload=asdict(request), schema=_QwenTriageResponse)
+        result, metrics = await self._json_completion(
+            task="triage", payload=asdict(request), schema=_QwenTriageResponse
+        )
         assert isinstance(result, _QwenTriageResponse)
-        return TriageModelOutput(**result.model_dump())
+        return TriageModelOutput(**result.model_dump(), metrics=metrics)
 
     async def resolve(self, request: ResolutionModelInput) -> ResolutionModelOutput:
-        result = await self._json_completion(task="resolve", payload=asdict(request), schema=_QwenResolutionResponse)
+        result, metrics = await self._json_completion(
+            task="resolve", payload=asdict(request), schema=_QwenResolutionResponse
+        )
         assert isinstance(result, _QwenResolutionResponse)
-        return ResolutionModelOutput(**result.model_dump())
+        return ResolutionModelOutput(**result.model_dump(), metrics=metrics)
 
 
 def structured_model_from_env() -> StructuredFlowPilotModel | None:

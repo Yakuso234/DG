@@ -128,8 +128,23 @@ X-User-Role: admin
 ```
 
 The endpoint requires `ticket.view_any` and returns run summaries ordered by
-creation time. It is a local observability/read-model API, not a complete
-OpenTelemetry trace viewer and not a token/cost report for a real provider.
+creation time. Qwen runs include aggregate input/output/total token usage and
+model-call latency when the provider returns usage metadata. It is a local
+observability/read-model API, not a complete OpenTelemetry trace viewer; cost
+is not inferred from mutable provider pricing.
+
+## Query proposals
+
+```http
+GET /api/tickets/{ticket_id}/proposals
+GET /api/proposals/{proposal_id}
+X-User-Id: u-admin
+X-User-Role: admin
+```
+
+Both endpoints require `ticket.view_any`. The response includes the persisted
+proposal status (`proposed`, `approved`, `denied`, or `executed`) so a workbench
+does not need to infer approval/execution state from audit events.
 
 ## Decide and resume
 
