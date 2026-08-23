@@ -19,6 +19,7 @@ from typing import Any
 
 import asyncpg
 from fastapi import FastAPI, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -169,6 +170,13 @@ class WorkflowStartCreate(BaseModel):
     thread_id: str = Field(min_length=1, max_length=128)
 
 
+def _cors_origins_from_env() -> list[str]:
+    """解析本地工作台允许的浏览器 Origin，不允许通配任意站点。"""
+
+    configured = os.environ.get("FLOWPILOT_CORS_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000")
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+
 def build_app(
     pool: asyncpg.Pool | None = None,
     action_runner: BusinessActionRunner | None = None,
@@ -183,6 +191,13 @@ def build_app(
 
         setup_telemetry(service_name=os.environ.get("OTEL_SERVICE_NAME", "flowpilot-api"))
     app = FastAPI(title="FlowPilot API (Phase 1)", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins_from_env(),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Trace-Id", "X-User-Id", "X-User-Role"],
+    )
     instrument_fastapi(app)
     app.state.pool = pool
     app.state.action_runner = action_runner or MockBusinessActionRunner()

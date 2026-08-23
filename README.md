@@ -48,10 +48,11 @@ FastAPI 请求
 - 增加可选 `jwt-local` 模式：校验 HS256 签名、过期时间、issuer、audience、token 类型与角色；默认请求头身份仅用于本地 Demo。
 - 将安全 Agent Run 摘要持久化至 PostgreSQL，提供 `GET /api/tickets/{ticket_id}/runs`；真实 Provider 记录输入/输出 Token 与模型调用耗时，摘要不保存 Prompt、原始 Evidence、推理链、认证头或密钥。
 - 提供无模型 Key 的真实 PostgreSQL Mock Demo，便于复现“调查 → 审批 → 执行 → 审计”主链路。
+- 新增独立 `/flowpilot` 工作台：直接读取 FlowPilot API 的工单、Evidence、Proposal、Agent Run 与 Audit；审批恢复只在安全运行摘要能定位相同 `thread_id` 时才可操作，避免 UI 错绑 checkpoint。
 
 ## 当前可验证状态
 
-最近一次完整 FlowPilot 回归为 **93 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、OpenTelemetry 安全 span、TraceId、JWT-local 和 Agent Run 幂等摘要。
+最近一次完整 FlowPilot 回归为 **94 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、OpenTelemetry 安全 span、TraceId、JWT-local、CORS 与 Agent Run 幂等摘要。
 
 已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 单场景闭环，OTLP 已向本地 Aspire 成功导出；但仍没有多轮真实模型评测、生产采样/告警、RS256/JWKS 联邦身份或 DG+SW 真实双进程联调，也没有性能 / 成本的生产基线。
 
@@ -62,7 +63,7 @@ FastAPI 请求
 | MCP Streamable HTTP 调查客户端 | 已通过 loopback 协议回归验证 |
 | Fake / deterministic / Qwen 模型建议层 | Qwen Provider、真实 Key 单场景和 Token/延迟采集已验证；7 场景真实评测待运行 |
 | JWT-local | 已实现；RS256/JWKS/OIDC 待补 |
-| Agent Run / Proposal 查询与 OTel spans | 已实现本地观测；前端 timeline / 生产采样告警待补 |
+| Agent Run / Proposal 查询、OTel 与最小工作台 | 已实现本地观测与 `/flowpilot` 真实只读展示；生产身份、完整前端审批 E2E 与采样告警待补 |
 | DG + SW 实时联调 | 待 SW 入站服务身份收口后再做 |
 
 ## 快速演示（不需要模型 API Key）
@@ -133,6 +134,12 @@ FlowPilot 提供默认关闭的 OTel 接入：FastAPI、asyncpg、OpenAI/httpx �
 
 本地 Aspire 启动、环境变量和 span 层级见 [FlowPilot OTel Runbook](docs/DG-OTEL-RUNBOOK.md)。
 
+## FlowPilot 最小工作台
+
+`web/src/app/flowpilot/` 是与上游商城 `(app)` 壳隔离的独立路由，不复用电商登录或数据模型。它只读展示 FlowPilot 的工单、Evidence、Proposal、Agent Run 和 Audit；对于仍处于 `proposed` 的提案，页面只有在 Agent Run 安全摘要保存了同一提案的 `thread_id` 时才会调用既有的审批恢复 API。
+
+本地启动、CORS 配置与边界见 [FlowPilot Workbench Runbook](docs/DG-FLOWPILOT-WORKBENCH-RUNBOOK.md)。Header 身份仅是本机 Demo 边界，不能作为生产认证方案。
+
 单独启动 FastAPI（工作流默认关闭，只提供工单域 API）：
 
 ```powershell
@@ -153,11 +160,13 @@ agents/python/flowpilot/
 ├── db/repo.py                  # PostgreSQL 事务、行锁、幂等、审计、运行摘要
 ├── sw_video_ops_mcp_client.py  # MCP Streamable HTTP ClientSession
 └── sw_video_recovery.py        # 受限 SW 恢复 HTTP adapter
+web/src/app/flowpilot/           # 独立 FlowPilot 工作台（不复用商城 App Shell）
 ```
 
 - [运行时选型 ADR](docs/adr/ADR-001-agent-runtime.md)：MAF 与 LangGraph 同构 Spike 后的选型依据。
 - [工作流 API Contract](docs/contracts/DG-FLOWPILOT-WORKFLOW-API.md)：运行时配置、身份模式、审批与 runs 查询契约。
 - [Mock Demo Runbook](docs/DG-MOCK-DEMO-RUNBOOK.md)：无 Key 主场景复现步骤。
+- [FlowPilot Workbench Runbook](docs/DG-FLOWPILOT-WORKBENCH-RUNBOOK.md)：独立工作台本地展示与安全边界。
 - [FlowPilot 测试](agents/python/tests/flowpilot/)：领域、数据库、API、MCP、工作流与安全边界的验证代码。
 
 ## 开发验证
@@ -170,6 +179,18 @@ uv run pytest tests/flowpilot -q
 ```
 
 测试中的数据库路径使用 Testcontainers 的 PostgreSQL；本项目当前只将 FlowPilot 定向回归作为重构验收证据，不把遗留上游电商全仓测试当作 FlowPilot 的完成证明。
+
+前端工作台验证：
+
+```powershell
+cd web
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm test
+pnpm build
+```
+
+现有上游商城代码仍有 ESLint warning；本阶段新增 FlowPilot 工作台文件不新增 warning，构建、TypeScript 与 Vitest 是本次前端验收证据。
 
 ## 上游项目与致谢
 

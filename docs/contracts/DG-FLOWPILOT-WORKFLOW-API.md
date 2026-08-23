@@ -119,6 +119,12 @@ full untrusted Evidence payload. Replaying the same `{ticket_id, thread_id,
 trace_id}` reuses the same run ID and preserves its first persisted latency;
 elapsed time is an observation, not an idempotency conflict condition.
 
+For newly started runs, `agent_run.output.thread_id` is persisted alongside the
+matching `proposal_id`. It is a stable checkpoint locator needed by the local
+workbench to resume approval safely, not model content. Historical runs without
+this field remain readable but the workbench must disable approval recovery
+rather than guess a thread.
+
 ## Query ticket run summaries
 
 ```http
@@ -172,6 +178,9 @@ Denied decisions move to `ESCALATED` without invoking the executor.
 - SQLite checkpoint is for a local single-instance demo, not multi-replica deployment.
 - Start retries reuse a paused checkpoint and treat identical Evidence/Proposal IDs as idempotent.
 - Agent run summaries are PostgreSQL records keyed by stable workflow identity.
+  New summaries include the opaque checkpoint `thread_id` in their safe output
+  so a workbench can bind a proposal to the same paused graph. This does not
+  retroactively repair historical rows.
   Local OTel mode adds workflow, logical-agent, model-call, approval, and execution
   spans plus FastAPI/asyncpg/OpenAI/httpx auto-instrumentation. Production sampling,
   alerting, and multi-instance trace validation remain pending.

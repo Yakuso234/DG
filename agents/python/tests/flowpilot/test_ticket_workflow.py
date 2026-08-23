@@ -83,6 +83,7 @@ async def test_start_workflow_persists_graph_outputs_before_waiting_for_approval
     assert repo.calls[-2][1][1] is TicketStatus.WAITING_APPROVAL
     assert result.agent_run.model == "deterministic"
     assert result.agent_run.trace_id == "trace-start"
+    assert result.agent_run.output["thread_id"] == "thread-start"
 
     first_call_count = len(repo.calls)
     repeated = await service.start(

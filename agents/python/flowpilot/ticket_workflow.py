@@ -101,6 +101,9 @@ class TicketWorkflowService:
                 agent="flowpilot-main-graph",
                 input_summary=f"creator_id={creator_id}, video_id={video_id}",
                 output={
+                    # 工作台需要用 thread_id 找回同一张图的 checkpoint；它是受限
+                    # 业务标识，不保存 Prompt、Evidence 正文或模型理由。
+                    "thread_id": thread_id,
                     "steps": graph_state.get("steps", []),
                     "proposal_id": proposal.id,
                     "proposal_action": proposal.action,

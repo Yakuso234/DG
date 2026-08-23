@@ -61,6 +61,27 @@ async def test_health(client: AsyncClient) -> None:
     assert resp.json()["service"] == "flowpilot-api"
 
 
+async def test_local_workbench_cors_is_restricted_to_configured_origins(client: AsyncClient) -> None:
+    allowed = await client.options(
+        "/api/tickets",
+        headers={
+            "Origin": "http://127.0.0.1:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    blocked = await client.options(
+        "/api/tickets",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
+    assert blocked.status_code == 400
+
+
 async def test_api_propagates_valid_trace_id_and_rejects_invalid_input(client: AsyncClient) -> None:
     response = await client.post(
         "/api/tickets",
