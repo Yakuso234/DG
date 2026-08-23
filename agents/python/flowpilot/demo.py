@@ -1,4 +1,4 @@
-"""FlowPilot 无 Key 的主场景演示：真实 API/数据库 + Mock SW + Fake Model。"""
+"""FlowPilot 主场景演示：真实 API/数据库 + Mock 外部系统 + 可替换模型。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,11 @@ from flowpilot.action_runner import MockBusinessActionRunner
 from flowpilot.api.main import build_app
 from flowpilot.db.repo import TicketRepo
 from flowpilot.domain.rbac import Actor, Role
-from flowpilot.structured_model import FakeStructuredFlowPilotModel, StructuredFlowPilotModel
+from flowpilot.structured_model import (
+    FakeStructuredFlowPilotModel,
+    StructuredFlowPilotModel,
+    structured_model_from_env,
+)
 from flowpilot.sw_video_ops import MockSwVideoOpsGateway, VideoProcessingSnapshot
 from flowpilot.workflow_runtime import open_workflow_runtime
 
@@ -126,7 +130,11 @@ async def run_demo(
                 audit_response.raise_for_status()
 
         return {
-            "mode": "mock-no-key",
+            "mode": (
+                "mock-no-key"
+                if isinstance(selected_model, FakeStructuredFlowPilotModel)
+                else "mock-external-systems-real-model"
+            ),
             "ticket": final_ticket_response.json(),
             "proposal": started["proposal"],
             "agent_run": started["agent_run"],
@@ -143,12 +151,17 @@ async def run_demo(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="运行 FlowPilot Mock 主场景（不调用 LLM/SW）")
+    parser = argparse.ArgumentParser(description="运行 FlowPilot 主场景（默认不调用 LLM/SW）")
     parser.add_argument("--database-url", default=os.environ.get("FLOWPILOT_DATABASE_URL", ""))
     parser.add_argument("--checkpoint-path", default="")
     parser.add_argument("--trace-id", default="trace-demo-mock-1")
     parser.add_argument(
         "--skip-schema-init", action="store_true", help="已初始化 docker/postgres/init.sql 时跳过幂等 Schema 初始化"
+    )
+    parser.add_argument(
+        "--structured-model-from-env",
+        action="store_true",
+        help="按 FLOWPILOT_STRUCTURED_MODEL 加载真实模型；SW 与业务执行仍保持 Mock",
     )
     return parser
 
@@ -156,11 +169,15 @@ def _parser() -> argparse.ArgumentParser:
 async def _main_async(args: argparse.Namespace) -> dict[str, Any]:
     cleanup_checkpoint = not args.checkpoint_path
     checkpoint_path = args.checkpoint_path or str(Path(tempfile.gettempdir()) / "flowpilot-demo-checkpoint.sqlite")
+    model = structured_model_from_env() if args.structured_model_from_env else None
+    if args.structured_model_from_env and model is None:
+        raise ValueError("--structured-model-from-env 需要 FLOWPILOT_STRUCTURED_MODEL=qwen 或 fake")
     result = await run_demo(
         database_url=args.database_url,
         checkpoint_path=checkpoint_path,
         trace_id=args.trace_id,
         initialize_schema=not args.skip_schema_init,
+        model=model,
     )
     if cleanup_checkpoint:
         Path(checkpoint_path).unlink(missing_ok=True)

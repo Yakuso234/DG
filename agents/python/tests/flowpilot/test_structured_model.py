@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from flowpilot.agent_graph import build_graph, initial_state
@@ -7,7 +9,11 @@ from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION
 from flowpilot.structured_model import (
     FakeStructuredFlowPilotModel,
     ModelOutputValidationError,
+    QwenStructuredFlowPilotModel,
+    ResolutionModelInput,
     ResolutionModelOutput,
+    StructuredModelProviderError,
+    TriageModelInput,
     TriageModelOutput,
     structured_model_from_env,
 )
@@ -30,6 +36,24 @@ def _gateway() -> MockSwVideoOpsGateway:
             )
         ]
     )
+
+
+class _FakeCompletions:
+    def __init__(self, contents: list[str] | None = None, error: Exception | None = None) -> None:
+        self.contents = list(contents or [])
+        self.error = error
+        self.requests: list[dict] = []
+
+    async def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if self.error:
+            raise self.error
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.contents.pop(0)))])
+
+
+def _qwen_model(completions: _FakeCompletions) -> QwenStructuredFlowPilotModel:
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    return QwenStructuredFlowPilotModel(api_key="test-key", client=client)
 
 
 async def test_fake_structured_model_is_visible_but_cannot_control_proposal_scope_or_risk() -> None:
@@ -88,5 +112,50 @@ def test_model_factory_is_explicit_and_defaults_to_deterministic(monkeypatch: py
     assert isinstance(structured_model_from_env(), FakeStructuredFlowPilotModel)
 
     monkeypatch.setenv("FLOWPILOT_STRUCTURED_MODEL", "openai")
-    with pytest.raises(ValueError, match="deterministic 或 fake"):
+    with pytest.raises(ValueError, match="deterministic、fake 或 qwen"):
         structured_model_from_env()
+
+
+async def test_qwen_provider_uses_json_mode_and_validates_both_contracts() -> None:
+    completions = _FakeCompletions(
+        [
+            '{"category":"video_processing_stalled","priority":4,"rationale":"lease expired"}',
+            '{"action":"recover_expired_video_processing","rationale":"approval required"}',
+        ]
+    )
+    model = _qwen_model(completions)
+
+    triage = await model.triage(TriageModelInput("ticket-1", 7, 9, "trace-1"))
+    resolution = await model.resolve(ResolutionModelInput("ticket-1", 7, 9, "trace-1", "PROCESSING", "expired"))
+
+    assert triage == TriageModelOutput("video_processing_stalled", 4, "lease expired")
+    assert resolution == ResolutionModelOutput("recover_expired_video_processing", "approval required")
+    assert all(item["response_format"] == {"type": "json_object"} for item in completions.requests)
+    assert all(item["temperature"] == 0 for item in completions.requests)
+
+
+async def test_qwen_provider_rejects_invalid_json_contract() -> None:
+    model = _qwen_model(_FakeCompletions(['{"category":"billing","priority":9}']))
+
+    with pytest.raises(ModelOutputValidationError, match="结构化合同"):
+        await model.triage(TriageModelInput("ticket-1", 7, 9, "trace-1"))
+
+
+async def test_qwen_provider_sanitizes_provider_errors() -> None:
+    model = _qwen_model(_FakeCompletions(error=RuntimeError("secret provider response")))
+
+    with pytest.raises(StructuredModelProviderError, match="RuntimeError") as captured:
+        await model.triage(TriageModelInput("ticket-1", 7, 9, "trace-1"))
+    assert "secret provider response" not in str(captured.value)
+
+
+def test_qwen_factory_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FLOWPILOT_STRUCTURED_MODEL", "qwen")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="DASHSCOPE_API_KEY"):
+        structured_model_from_env()
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+    model = structured_model_from_env()
+    assert isinstance(model, QwenStructuredFlowPilotModel)
+    assert model.model_name == "qwen-plus"

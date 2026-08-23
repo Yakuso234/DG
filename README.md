@@ -60,7 +60,7 @@ FastAPI 请求
 | 确定性工单域、审批、执行、审计 | 已实现并经 PostgreSQL 回归验证 |
 | LangGraph 单图、HITL checkpoint 恢复 | 已实现并验证 |
 | MCP Streamable HTTP 调查客户端 | 已通过 loopback 协议回归验证 |
-| Fake / deterministic 模型建议层 | 已实现；真实 provider 待接入 |
+| Fake / deterministic / Qwen 模型建议层 | Qwen Provider 与结构化合同测试已实现；真实 Key 调用需本地验证 |
 | JWT-local | 已实现；RS256/JWKS/OIDC 待补 |
 | Agent Run 查询 | 已实现；前端 timeline / OTel spans 待补 |
 | DG + SW 实时联调 | 待 SW 入站服务身份收口后再做 |
@@ -89,6 +89,41 @@ uv run python -m flowpilot.demo
 - `agent_run` 的稳定运行 ID、模型标签、步骤摘要与 TraceId
 
 完整操作、边界和故障排查见 [Mock Demo Runbook](docs/DG-MOCK-DEMO-RUNBOOK.md)。Demo 使用 Fake Model、Mock SW Gateway 和 Mock Executor，不访问真实模型或 SW 服务。
+
+## Qwen Plus 接入与 Python 后端启动
+
+不要把 API Key 写入 `.env.example`、源码或 Git。PowerShell 当前窗口中设置：
+
+```powershell
+cd agents/python
+$env:FLOWPILOT_STRUCTURED_MODEL = "qwen"
+$env:DASHSCOPE_API_KEY = "你的 DashScope API Key"
+$env:FLOWPILOT_QWEN_MODEL = "qwen-plus"
+```
+
+先运行不依赖 Docker / 数据库的两次调用冒烟测试：
+
+```powershell
+uv run python -m flowpilot.qwen_smoke
+```
+
+成功后，启动 PostgreSQL 并运行“真实 Qwen + Mock SW + Mock 执行器”的完整审批闭环：
+
+```powershell
+cd ../..
+docker compose up -d --wait db
+cd agents/python
+$env:FLOWPILOT_DATABASE_URL = "postgresql://ecommerce:ecommerce_secret@127.0.0.1:5432/ecommerce_agents"
+uv run python -m flowpilot.demo --structured-model-from-env
+```
+
+单独启动 FastAPI（工作流默认关闭，只提供工单域 API）：
+
+```powershell
+uv run uvicorn flowpilot.api.main:app --host 127.0.0.1 --port 8090 --reload
+```
+
+浏览 `http://127.0.0.1:8090/docs` 或请求 `http://127.0.0.1:8090/health`。若要让模块级 FastAPI 同时启用完整工作流，还必须配置 `FLOWPILOT_WORKFLOW_ENABLED=true`、checkpoint 路径及 SW HTTP/MCP 网关；初次验证 Qwen 建议使用上面的完整 Mock 演示，避免把模型问题与 SW 联调问题混在一起。
 
 ## 架构与代码入口
 
