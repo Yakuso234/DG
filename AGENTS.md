@@ -26,11 +26,14 @@ UI functionality as completed FlowPilot work. Do not push to `upstream`.
 Keep these local-only files out of Git:
 
 - `PROJECT_MEMORY.md`
+- `docs/DG-工作流程副记忆.md`
 - `docs/DG-问题与面试复盘.md`
+- `docs/DG-项目目标与路线图.md`
 
 Before a pause or context compaction, update `PROJECT_MEMORY.md` in Chinese.
 Only record interview-worthy engineering problems in the local review file.
 
 For current contributor setup and the upstream definition of done, see
-`CONTRIBUTING.md`. Frontend-specific upstream notes remain in
-`docs/frontend.md` until the FlowPilot frontend is rebuilt.
+`CONTRIBUTING.md`. `docs/frontend.md` describes the retained upstream storefront
+and is not the source of truth for the isolated FlowPilot workbench; use
+`docs/DG-FLOWPILOT-WORKBENCH-RUNBOOK.md` for FlowPilot frontend work.
