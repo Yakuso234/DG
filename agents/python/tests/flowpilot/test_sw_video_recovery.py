@@ -106,6 +106,27 @@ async def test_recovery_runner_treats_timeout_and_5xx_as_unknown() -> None:
         with pytest.raises(ActionOutcomeUnknownError):
             await runner.run(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
 
+
+async def test_recovery_runner_can_inject_response_loss_only_after_accepted_once() -> None:
+    proposal = _proposal()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=_payload(proposal))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        runner = SwVideoRecoveryActionRunner(
+            base_url="http://sw-video", service_token="token", client=client, fault_after_accepted_once=True
+        )
+        key = next_idempotency_key(proposal.id, proposal.action)
+        with pytest.raises(ActionOutcomeUnknownError, match="SW 已 ACCEPTED"):
+            await runner.run(proposal, idempotency_key=key)
+        accepted = await runner.run(proposal, idempotency_key=key)
+
+    assert len(requests) == 2
+    assert accepted["business_result"]["outbox_id"] == "outbox-1"
+
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(503))) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
         with pytest.raises(ActionOutcomeUnknownError):

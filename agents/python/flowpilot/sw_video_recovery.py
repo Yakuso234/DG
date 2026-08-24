@@ -65,6 +65,7 @@ class SwVideoRecoveryActionRunner:
         service_token: str,
         service_name: str = "flowpilot",
         client: httpx.AsyncClient | None = None,
+        fault_after_accepted_once: bool = False,
     ) -> None:
         if not base_url.strip():
             raise SwVideoRecoveryError("缺少 SW_VIDEO_BASE_URL，不能调用 SW 恢复接口")
@@ -79,6 +80,8 @@ class SwVideoRecoveryActionRunner:
         # HTTP_PROXY 后错误地经由代理发送私有恢复请求。
         self._client = client or httpx.AsyncClient(timeout=5.0, trust_env=False)
         self._owns_client = client is None
+        # 仅用于本机 DG—SW 对账演练：SW 已原子接受后模拟 DG 丢失响应。
+        self._fault_after_accepted_once = fault_after_accepted_once
 
     @classmethod
     def from_env(cls) -> SwVideoRecoveryActionRunner:
@@ -86,6 +89,8 @@ class SwVideoRecoveryActionRunner:
             base_url=os.environ.get("SW_VIDEO_BASE_URL", ""),
             service_token=os.environ.get("SW_VIDEO_SERVICE_TOKEN", ""),
             service_name=os.environ.get("SW_VIDEO_SERVICE_NAME", "flowpilot"),
+            fault_after_accepted_once=os.environ.get("FLOWPILOT_TEST_FAULT_AFTER_ACCEPT", "false").lower()
+            in {"1", "true", "yes"},
         )
 
     async def aclose(self) -> None:
@@ -207,6 +212,12 @@ class SwVideoRecoveryActionRunner:
         )
         if receipt["status"] == "REJECTED":
             raise SwVideoRecoveryRejectedError(f"SW 原子校验未通过: {receipt['reason'] or 'PRECONDITION_NOT_MET'}")
+        if self._fault_after_accepted_once:
+            self._fault_after_accepted_once = False
+            raise ActionOutcomeUnknownError(
+                "测试故障注入：SW 已 ACCEPTED，但 DG 在持久化结果前模拟丢失响应",
+                result={"adapter": "sw-video-recovery", "accepted_receipt_observed": False},
+            )
         return self._result(proposal, ticket_id=ticket_id, creator_id=creator_id, receipt=receipt)
 
     async def reconcile(self, proposal: ActionProposal, *, idempotency_key: str) -> ReconciliationOutcome:
