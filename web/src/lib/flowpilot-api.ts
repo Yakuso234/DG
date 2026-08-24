@@ -45,6 +45,21 @@ export type FlowPilotRun = {
   created_at: string;
 };
 
+export type FlowPilotExecution = {
+  id: string;
+  proposal_id: string;
+  ticket_id: string;
+  idempotency_key: string;
+  status: string;
+  attempts: number;
+  reconcile_attempts: number;
+  next_reconcile_at: string | null;
+  last_reconciled_at: string | null;
+  result: Record<string, unknown> | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
 export type FlowPilotAuditEvent = {
   id: string;
   entity: string;
@@ -61,6 +76,7 @@ export type FlowPilotTicketSnapshot = {
   ticket: FlowPilotTicket;
   evidence: FlowPilotEvidence[];
   proposals: FlowPilotProposal[];
+  executions: FlowPilotExecution[];
   runs: FlowPilotRun[];
   audit: FlowPilotAuditEvent[];
 };
@@ -122,14 +138,15 @@ export function threadIdForProposal(runs: FlowPilotRun[], proposalId: string): s
 export const flowPilotApi = {
   listTickets: () => request<FlowPilotTicket[]>("/api/tickets"),
   getSnapshot: async (ticketId: string): Promise<FlowPilotTicketSnapshot> => {
-    const [ticket, evidence, proposals, runs, audit] = await Promise.all([
+    const [ticket, evidence, proposals, executions, runs, audit] = await Promise.all([
       request<FlowPilotTicket>(`/api/tickets/${ticketId}`),
       request<FlowPilotEvidence[]>(`/api/tickets/${ticketId}/evidence`),
       request<FlowPilotProposal[]>(`/api/tickets/${ticketId}/proposals`),
+      request<FlowPilotExecution[]>(`/api/tickets/${ticketId}/executions`),
       request<FlowPilotRun[]>(`/api/tickets/${ticketId}/runs`),
       request<FlowPilotAuditEvent[]>(`/api/audit/ticket/${ticketId}`),
     ]);
-    return { ticket, evidence, proposals, runs, audit };
+    return { ticket, evidence, proposals, executions, runs, audit };
   },
   decideWorkflowApproval: (proposalId: string, threadId: string, decision: "approved" | "denied") =>
     request<{ ticket_target: string }>(`/api/workflows/proposals/${proposalId}/approvals`, {
@@ -140,4 +157,6 @@ export const flowPilotApi = {
         note: "FlowPilot local workbench decision",
       }),
     }),
+  reconcileExecution: (executionId: string) =>
+    request<FlowPilotExecution>(`/api/executions/${executionId}/reconcile`, { method: "POST" }),
 };

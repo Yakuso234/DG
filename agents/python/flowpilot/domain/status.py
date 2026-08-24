@@ -16,6 +16,7 @@ class TicketStatus(enum.StrEnum):
     PROPOSED = "PROPOSED"
     WAITING_APPROVAL = "WAITING_APPROVAL"
     EXECUTING = "EXECUTING"
+    RECONCILING = "RECONCILING"
     RESOLVED = "RESOLVED"
     ESCALATED = "ESCALATED"
     FAILED = "FAILED"
@@ -29,7 +30,8 @@ LEGAL_TRANSITIONS: dict[TicketStatus, frozenset[TicketStatus]] = {
     TicketStatus.INVESTIGATING: frozenset({TicketStatus.PROPOSED, TicketStatus.ESCALATED, TicketStatus.FAILED}),
     TicketStatus.PROPOSED: frozenset({TicketStatus.WAITING_APPROVAL, TicketStatus.FAILED}),
     TicketStatus.WAITING_APPROVAL: frozenset({TicketStatus.EXECUTING, TicketStatus.ESCALATED, TicketStatus.FAILED}),
-    TicketStatus.EXECUTING: frozenset({TicketStatus.RESOLVED, TicketStatus.FAILED}),
+    TicketStatus.EXECUTING: frozenset({TicketStatus.RESOLVED, TicketStatus.RECONCILING, TicketStatus.FAILED}),
+    TicketStatus.RECONCILING: frozenset({TicketStatus.RESOLVED, TicketStatus.FAILED, TicketStatus.ESCALATED}),
     TicketStatus.RESOLVED: frozenset(),
     TicketStatus.ESCALATED: frozenset(),
     TicketStatus.FAILED: frozenset(),

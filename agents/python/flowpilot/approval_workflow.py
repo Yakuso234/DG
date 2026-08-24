@@ -81,6 +81,11 @@ class ApprovalWorkflowService:
 
         await self._repo.transition(self._service_actor, approval.ticket_id, TicketStatus.EXECUTING)
         execution = await self._repo.execute_proposal(self._service_actor, approval.proposal_id)
-        target = TicketStatus.RESOLVED if execution.status == "succeeded" else TicketStatus.FAILED
+        if execution.status == "succeeded":
+            target = TicketStatus.RESOLVED
+        elif execution.status == "unknown":
+            target = TicketStatus.RECONCILING
+        else:
+            target = TicketStatus.FAILED
         await self._repo.transition(self._service_actor, approval.ticket_id, target)
         return ApprovalWorkflowResult(approval, graph_state, execution, target)

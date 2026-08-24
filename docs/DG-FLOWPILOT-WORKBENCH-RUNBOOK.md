@@ -1,7 +1,7 @@
 # FlowPilot 最小工作台
 
 `/flowpilot` 是与上游商城页面隔离的本地运维工作台。它展示 FlowPilot
-持久化的工单、Evidence、Proposal、Agent Run 与审计事件；页面不构造
+持久化的工单、Evidence、Proposal、Execution、Agent Run 与审计事件；页面不构造
 Demo Data，也不显示 Prompt、模型推理正文或 API Key。
 
 ## 1. 前置条件
@@ -9,6 +9,9 @@ Demo Data，也不显示 Prompt、模型推理正文或 API Key。
 - PostgreSQL 已运行，且已有 FlowPilot 数据。可先运行
   `python -m flowpilot.demo` 生成一条完整的 Mock 闭环记录。
 - 已安装 `uv` 与 `pnpm`，并在 `web/` 执行过 `pnpm install --frozen-lockfile`。
+- 已存在的 PostgreSQL 需要先应用
+  `docker/postgres/migrations/V20260824__flowpilot_execution_reconciliation.sql`；新建库由
+  `docker/postgres/init.sql` 自动包含该表结构。
 
 ## 2. 启动 API 与工作台
 
@@ -18,6 +21,8 @@ Demo Data，也不显示 Prompt、模型推理正文或 API Key。
 cd agents/python
 $env:FLOWPILOT_DATABASE_URL = "postgresql://ecommerce:ecommerce_secret@127.0.0.1:5432/ecommerce_agents"
 $env:FLOWPILOT_CORS_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000"
+# 默认关闭；真实 SW 对账 Demo 才显式开启。
+$env:FLOWPILOT_RECONCILIATION_ENABLED = "false"
 uv run uvicorn flowpilot.api.main:app --host 127.0.0.1 --port 8090 --reload
 ```
 
@@ -38,6 +43,7 @@ pnpm dev --hostname 127.0.0.1
 - 工单状态、优先级、提交人和版本；
 - 调查 Evidence 的工具名、来源和受限结构化数据；
 - Proposal 的动作、参数、风险与当前持久化状态；
+- Execution 的业务执行次数、对账次数、下次对账时间和脱敏回执摘要；
 - Agent Run 的模型标签、Token（若 Provider 返回）、整图耗时、TraceId 与安全摘要；
 - 审计事件的动作、角色、时间及可展开的 before/after 快照。
 
@@ -55,6 +61,12 @@ Contract 配置 `FLOWPILOT_WORKFLOW_ENABLED`、共享 checkpoint 和调查 Gatew
 
 本机页面用 `x-user-id/x-user-role=admin` 读取，这是 `headers` Demo 模式，不能
 部署为真实认证。生产环境应使用 `jwt-local` 或后续 RS256/JWKS 身份边界。
+
+若 Execution 为 `unknown` 或陈旧 `running`，本机 admin 工作台可调用“立即对账”。
+它只会带原 `Idempotency-Key` 向 SW 查询回执；SW 404 时才允许使用同 key 重发 POST。
+默认调度关闭，开启后间隔、批量与上限分别由
+`FLOWPILOT_RECONCILIATION_INTERVAL_SECONDS`、`FLOWPILOT_RECONCILIATION_BATCH_SIZE`、
+`FLOWPILOT_RECONCILIATION_MAX_ATTEMPTS` 配置（默认 5 秒、50、4）。
 
 ## 5. 验证命令
 

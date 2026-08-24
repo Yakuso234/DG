@@ -13,7 +13,12 @@ from typing import Any
 
 import asyncpg
 
-from flowpilot.action_runner import BusinessActionRunner, MockBusinessActionRunner
+from flowpilot.action_runner import (
+    ActionOutcomeUnknownError,
+    BusinessActionRunner,
+    MockBusinessActionRunner,
+    ReconciliationOutcome,
+)
 from flowpilot.domain.executor import (
     ParamValidationError,
     assert_executable,
@@ -83,6 +88,9 @@ def _row_to_execution(row: asyncpg.Record) -> ExecutionRecord:
         result=json.loads(row["result"]) if row["result"] else None,
         started_at=row["started_at"].isoformat() if row["started_at"] else None,
         finished_at=row["finished_at"].isoformat() if row["finished_at"] else None,
+        reconcile_attempts=int(row["reconcile_attempts"]),
+        next_reconcile_at=row["next_reconcile_at"].isoformat() if row["next_reconcile_at"] else None,
+        last_reconciled_at=row["last_reconciled_at"].isoformat() if row["last_reconciled_at"] else None,
     )
 
 
@@ -423,6 +431,21 @@ class TicketRepo:
         )
         return [_row_to_agent_run(row) for row in rows]
 
+    async def list_executions(self, actor: Actor, ticket_id: str) -> list[ExecutionRecord]:
+        actor.check("ticket.view_any")
+        rows = await self._pool.fetch(
+            "SELECT * FROM executions WHERE ticket_id = $1 ORDER BY started_at NULLS LAST, id",
+            uuid.UUID(ticket_id),
+        )
+        return [_row_to_execution(row) for row in rows]
+
+    async def get_execution(self, actor: Actor, execution_id: str) -> ExecutionRecord:
+        actor.check("ticket.view_any")
+        row = await self._pool.fetchrow("SELECT * FROM executions WHERE id = $1", uuid.UUID(execution_id))
+        if row is None:
+            raise NotFoundError(f"执行记录 {execution_id} 不存在")
+        return _row_to_execution(row)
+
     async def approve_proposal(
         self,
         actor: Actor,
@@ -564,9 +587,19 @@ class TicketRepo:
         assert exec_row is not None
 
         try:
-            result = await self._action_runner.run(proposal)
+            result = await self._action_runner.run(proposal, idempotency_key=idempotency_key)
             outcome_status = "succeeded"
             audit_action = "execution.succeeded"
+        except ActionOutcomeUnknownError as exc:
+            result = {
+                "ok": False,
+                "action": proposal.action,
+                "error_type": type(exc).__name__,
+                "detail": str(exc),
+                **exc.result,
+            }
+            outcome_status = "unknown"
+            audit_action = "execution.unknown"
         except Exception as exc:
             result = {
                 "ok": False,
@@ -581,7 +614,11 @@ class TicketRepo:
             async with conn.transaction():
                 completed = await conn.fetchrow(
                     """
-                    UPDATE executions SET status = $2, result = $3::jsonb, finished_at = NOW()
+                    UPDATE executions
+                    SET status = $2::varchar,
+                        result = $3::jsonb,
+                        finished_at = CASE WHEN $2::text = 'unknown' THEN NULL ELSE NOW() END,
+                        next_reconcile_at = CASE WHEN $2::text = 'unknown' THEN NOW() ELSE NULL END
                     WHERE id = $1 AND status = 'running'
                     RETURNING *
                     """,
@@ -605,6 +642,173 @@ class TicketRepo:
                     {"status": outcome_status, "result": result},
                 )
         return _row_to_execution(completed)
+
+    async def due_reconciliations(
+        self, *, limit: int = 50, running_grace_seconds: int = 30
+    ) -> list[tuple[ExecutionRecord, ActionProposal]]:
+        """读取可安全重复查询的未知执行；stale running 覆盖进程崩溃窗口。"""
+        rows = await self._pool.fetch(
+            """
+            SELECT e.*, p.action, p.params, p.evidence_ids, p.risk, p.created_by, p.created_at AS proposal_created_at
+            FROM executions e
+            JOIN action_proposals p ON p.id = e.proposal_id
+            WHERE (e.status = 'unknown' AND e.next_reconcile_at <= NOW())
+               OR (e.status = 'running' AND e.started_at <= NOW() - make_interval(secs => $1))
+            ORDER BY COALESCE(e.next_reconcile_at, e.started_at), e.id
+            LIMIT $2
+            """,
+            max(1, running_grace_seconds),
+            min(max(1, limit), 200),
+        )
+        return [self._reconciliation_item(row) for row in rows]
+
+    @staticmethod
+    def _reconciliation_item(row: asyncpg.Record) -> tuple[ExecutionRecord, ActionProposal]:
+        return (
+            _row_to_execution(row),
+            ActionProposal(
+                id=str(row["proposal_id"]),
+                ticket_id=str(row["ticket_id"]),
+                action=row["action"],
+                params=json.loads(row["params"]),
+                evidence_ids=json.loads(row["evidence_ids"]),
+                risk=row["risk"],
+                created_by=row["created_by"],
+                created_at=row["proposal_created_at"].isoformat(),
+            ),
+        )
+
+    async def reconciliation_item(self, actor: Actor, execution_id: str) -> tuple[ExecutionRecord, ActionProposal]:
+        actor.check("execution.reconcile")
+        row = await self._pool.fetchrow(
+            """
+            SELECT e.*, p.action, p.params, p.evidence_ids, p.risk, p.created_by, p.created_at AS proposal_created_at
+            FROM executions e JOIN action_proposals p ON p.id = e.proposal_id
+            WHERE e.id = $1
+            """,
+            uuid.UUID(execution_id),
+        )
+        if row is None:
+            raise NotFoundError(f"执行记录 {execution_id} 不存在")
+        return self._reconciliation_item(row)
+
+    async def reconcile_execution(
+        self,
+        actor: Actor,
+        execution_id: str,
+        outcome: ReconciliationOutcome,
+        *,
+        max_attempts: int = 4,
+    ) -> ExecutionRecord:
+        """用条件更新收敛对账结论；重复 worker 只能有一个落库。"""
+        actor.check("execution.reconcile")
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                current = await conn.fetchrow(
+                    "SELECT * FROM executions WHERE id = $1 FOR UPDATE", uuid.UUID(execution_id)
+                )
+                if current is None:
+                    raise NotFoundError(f"执行记录 {execution_id} 不存在")
+                if current["status"] not in {"unknown", "running"}:
+                    return _row_to_execution(current)
+                attempts = int(current["reconcile_attempts"]) + 1
+                if outcome.status == "succeeded":
+                    target, audit_action, ticket_target, next_delay = (
+                        "succeeded",
+                        "execution.reconciled_succeeded",
+                        TicketStatus.RESOLVED,
+                        None,
+                    )
+                elif outcome.status == "failed":
+                    target, audit_action, ticket_target, next_delay = (
+                        "failed",
+                        "execution.reconciled_failed",
+                        TicketStatus.FAILED,
+                        None,
+                    )
+                elif attempts >= max_attempts:
+                    target, audit_action, ticket_target, next_delay = (
+                        "escalated",
+                        "execution.escalated",
+                        TicketStatus.ESCALATED,
+                        None,
+                    )
+                else:
+                    target, audit_action, ticket_target = (
+                        "unknown",
+                        "execution.reconcile_pending",
+                        TicketStatus.RECONCILING,
+                    )
+                    next_delay = (5, 15, 45, 120)[min(attempts - 1, 3)]
+
+                if next_delay is None:
+                    updated = await conn.fetchrow(
+                        """
+                        UPDATE executions
+                        SET status = $2, result = $3::jsonb, reconcile_attempts = $4,
+                            last_reconciled_at = NOW(), next_reconcile_at = NULL, finished_at = NOW()
+                        WHERE id = $1 AND status IN ('unknown', 'running')
+                        RETURNING *
+                        """,
+                        uuid.UUID(execution_id),
+                        target,
+                        json.dumps(outcome.result, ensure_ascii=False),
+                        attempts,
+                    )
+                else:
+                    updated = await conn.fetchrow(
+                        """
+                        UPDATE executions
+                        SET status = 'unknown', result = $2::jsonb, reconcile_attempts = $3,
+                            last_reconciled_at = NOW(), next_reconcile_at = NOW() + make_interval(secs => $4)
+                        WHERE id = $1 AND status IN ('unknown', 'running')
+                        RETURNING *
+                        """,
+                        uuid.UUID(execution_id),
+                        json.dumps(outcome.result, ensure_ascii=False),
+                        attempts,
+                        next_delay,
+                    )
+                if updated is None:
+                    current = await conn.fetchrow("SELECT * FROM executions WHERE id = $1", uuid.UUID(execution_id))
+                    assert current is not None
+                    return _row_to_execution(current)
+
+                if target == "succeeded":
+                    await conn.execute(
+                        "UPDATE action_proposals SET status = 'executed' WHERE id = $1", current["proposal_id"]
+                    )
+                ticket = await conn.fetchrow("SELECT * FROM tickets WHERE id = $1 FOR UPDATE", current["ticket_id"])
+                assert ticket is not None
+                old_ticket_status = TicketStatus(ticket["status"])
+                if old_ticket_status is not ticket_target:
+                    from flowpilot.domain.status import assert_legal_transition
+
+                    assert_legal_transition(old_ticket_status, ticket_target)
+                    await conn.execute(
+                        "UPDATE tickets SET status = $2, version = version + 1, updated_at = NOW() WHERE id = $1",
+                        current["ticket_id"],
+                        ticket_target.value,
+                    )
+                    await _audit(
+                        conn,
+                        actor,
+                        "ticket",
+                        str(current["ticket_id"]),
+                        "ticket.transition",
+                        {"status": old_ticket_status.value, "version": int(ticket["version"])},
+                        {"status": ticket_target.value, "version": int(ticket["version"]) + 1},
+                    )
+                await _audit(
+                    conn,
+                    actor,
+                    "execution",
+                    execution_id,
+                    audit_action,
+                    {"status": current["status"], "reconcile_attempts": int(current["reconcile_attempts"])},
+                    {"status": target, "reconcile_attempts": attempts, "result": outcome.result},
+                )
+        return _row_to_execution(updated)
 
     async def audit_for(self, actor: Actor, entity: str, entity_id: str) -> list[AuditEvent]:
         actor.check("audit.read")

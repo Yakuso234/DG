@@ -185,7 +185,7 @@ Denied decisions move to `ESCALATED` without invoking the executor.
   spans plus FastAPI/asyncpg/OpenAI/httpx auto-instrumentation. Production sampling,
   alerting, and multi-instance trace validation remain pending.
 - The complete FlowPilot suite has been verified against PostgreSQL 16 through Testcontainers; this is local integration evidence, not production load evidence.
-- DG's approved recovery client is implemented against SW's existing `recover-expired` API.
+- DG's approved recovery client uses SW's persistent recovery receipt contract: POST `recover-expired`, then GET `recovery-status` for unknown outcomes.
 - The Investigation gateway can use a real MCP `ClientSession` over Streamable HTTP; the
   local protocol regression starts FastMCP on loopback and keeps the SW gateway mocked.
-- SW inbound token/idempotency-header verification and a live two-project integration run remain pending.
+- JWT/mTLS service authentication remains out of scope. The first DG—SW recovery integration is complete; a response-loss reconciliation run against the new receipt contract remains pending.

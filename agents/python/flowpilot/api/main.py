@@ -12,6 +12,7 @@ lifespan 按环境变量 FLOWPILOT_DATABASE_URL / DATABASE_URL 创建。
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -46,6 +47,7 @@ from flowpilot.domain.executor import (
 from flowpilot.domain.models import ActionProposal, Evidence, utc_now_iso
 from flowpilot.domain.rbac import Actor, PermissionDeniedError, Role, actor_from_headers
 from flowpilot.domain.status import IllegalTransitionError, TicketStatus
+from flowpilot.execution_reconciliation import ExecutionReconciliationService
 from flowpilot.observability import TRACE_ID_HEADER, current_trace_id, is_valid_trace_id, new_trace_id, set_trace_id
 from flowpilot.structured_model import structured_model_from_env
 from flowpilot.sw_video_ops import gateway_from_env
@@ -83,6 +85,14 @@ def _repo(request: Request) -> TicketRepo:
     if pool is None:
         raise RuntimeError("DB 池未初始化（lifespan 失败）")
     return TicketRepo(pool, request.app.state.action_runner)
+
+
+def _reconciliation(request: Request) -> ExecutionReconciliationService:
+    service: ExecutionReconciliationService | None = request.app.state.reconciliation_service
+    if service is None:
+        service = ExecutionReconciliationService(_repo(request), request.app.state.action_runner)
+        request.app.state.reconciliation_service = service
+    return service
 
 
 def _actor_from_request(request: Request) -> Actor:
@@ -204,6 +214,11 @@ def build_app(
     app.state.approval_workflow = approval_workflow
     app.state.ticket_workflow = ticket_workflow
     app.state.auth_config = auth_config or FlowPilotAuthConfig.from_env()
+    app.state.reconciliation_service = (
+        ExecutionReconciliationService(TicketRepo(pool, app.state.action_runner), app.state.action_runner)
+        if pool is not None
+        else None
+    )
     _register_error_handlers(app)
 
     @app.middleware("http")
@@ -242,6 +257,36 @@ def build_app(
                         raise RuntimeError(
                             f"FLOWPILOT_ACTION_RUNNER 只能是 mock 或 sw-video-recovery，实际为 {runner_mode!r}"
                         )
+                reconcile_enabled = os.environ.get("FLOWPILOT_RECONCILIATION_ENABLED", "false").lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                }
+                reconcile_interval = max(1, int(os.environ.get("FLOWPILOT_RECONCILIATION_INTERVAL_SECONDS", "5")))
+                reconcile_batch_size = max(
+                    1, min(200, int(os.environ.get("FLOWPILOT_RECONCILIATION_BATCH_SIZE", "50")))
+                )
+                reconcile_max_attempts = max(1, int(os.environ.get("FLOWPILOT_RECONCILIATION_MAX_ATTEMPTS", "4")))
+                app.state.reconciliation_service = ExecutionReconciliationService(
+                    TicketRepo(app.state.pool, app.state.action_runner),
+                    app.state.action_runner,
+                    max_attempts=reconcile_max_attempts,
+                )
+                reconcile_task: asyncio.Task[None] | None = None
+                if reconcile_enabled:
+
+                    async def _reconcile_loop() -> None:
+                        while True:
+                            try:
+                                await app.state.reconciliation_service.run_once(limit=reconcile_batch_size)
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception:
+                                # 单批异常不能终止后台对账；明细由 execution 审计与 OTel 查询。
+                                pass
+                            await asyncio.sleep(reconcile_interval)
+
+                    reconcile_task = asyncio.create_task(_reconcile_loop(), name="flowpilot-reconciliation")
                 enabled = os.environ.get("FLOWPILOT_WORKFLOW_ENABLED", "false").lower() in {"1", "true", "yes"}
                 try:
                     if enabled:
@@ -273,7 +318,14 @@ def build_app(
                         app.state.approval_workflow = runtime.approval_workflow
                     yield
                 finally:
+                    if reconcile_task is not None:
+                        reconcile_task.cancel()
+                        try:
+                            await reconcile_task
+                        except asyncio.CancelledError:
+                            pass
                     app.state.pool = None
+                    app.state.reconciliation_service = None
                     if enabled:
                         app.state.ticket_workflow = None
                         app.state.approval_workflow = None
@@ -423,6 +475,17 @@ def build_app(
         actor = _actor_from_request(request)
         record = await _repo(request).execute_proposal(actor, proposal_id)
         return record.to_dict()
+
+    @app.get("/api/tickets/{ticket_id}/executions")
+    async def list_executions(ticket_id: str, request: Request) -> list[dict[str, Any]]:
+        actor = _actor_from_request(request)
+        return [item.to_dict() for item in await _repo(request).list_executions(actor, ticket_id)]
+
+    @app.post("/api/executions/{execution_id}/reconcile")
+    async def reconcile_execution(execution_id: str, request: Request) -> dict[str, Any]:
+        actor = _actor_from_request(request)
+        actor.check("execution.reconcile")
+        return (await _reconciliation(request).reconcile(execution_id, actor=actor)).to_dict()
 
     @app.get("/api/tickets/{ticket_id}/runs")
     async def list_agent_runs(ticket_id: str, request: Request) -> list[dict[str, Any]]:

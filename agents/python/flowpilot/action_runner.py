@@ -7,7 +7,8 @@ MockBusinessSystem，P2 再以同一协议替换为 SW 的受限 HTTP 调用。
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 
 from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION
 from flowpilot.domain.models import ActionProposal
@@ -15,12 +16,31 @@ from flowpilot.mock_business import MockBusinessSystem
 
 
 class BusinessActionRunner(Protocol):
-    async def run(self, proposal: ActionProposal) -> dict[str, Any]:
+    async def run(self, proposal: ActionProposal, *, idempotency_key: str) -> dict[str, Any]:
         """执行已通过领域校验的结构化动作，或抛出可审计异常。"""
+
+    async def reconcile(self, proposal: ActionProposal, *, idempotency_key: str) -> ReconciliationOutcome:
+        """查询外部副作用；不得为同一 Proposal 生成新的幂等键。"""
 
 
 class UnsupportedBusinessActionError(RuntimeError):
     """当前业务适配器不支持该动作，禁止伪造成功结果。"""
+
+
+class ActionOutcomeUnknownError(RuntimeError):
+    """远端是否已产生副作用无法确认，必须进入对账而非直接失败。"""
+
+    def __init__(self, message: str, *, result: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.result = result or {}
+
+
+@dataclass(frozen=True)
+class ReconciliationOutcome:
+    """外部回执的归一化结论，不携带认证 Header 或密钥。"""
+
+    status: Literal["succeeded", "failed", "unknown"]
+    result: dict[str, Any]
 
 
 class MockBusinessActionRunner:
@@ -29,7 +49,7 @@ class MockBusinessActionRunner:
     def __init__(self, business: MockBusinessSystem | None = None) -> None:
         self.business = business or MockBusinessSystem()
 
-    async def run(self, proposal: ActionProposal) -> dict[str, Any]:
+    async def run(self, proposal: ActionProposal, *, idempotency_key: str) -> dict[str, Any]:
         entity_id = (
             str(proposal.params["video_id"])
             if proposal.action == SW_VIDEO_RECOVERY_ACTION
@@ -48,4 +68,23 @@ class MockBusinessActionRunner:
         else:
             raise UnsupportedBusinessActionError(f"Mock 业务适配器不支持动作 {proposal.action!r}")
 
-        return {"ok": True, "adapter": "mock-business", "action": proposal.action, "business_result": result}
+        return {
+            "ok": True,
+            "adapter": "mock-business",
+            "action": proposal.action,
+            "idempotency_key": idempotency_key,
+            "business_result": result,
+        }
+
+    async def reconcile(self, proposal: ActionProposal, *, idempotency_key: str) -> ReconciliationOutcome:
+        """Mock 不产生网络未知窗口；意外进入时交给人工，而不伪造成功。"""
+        return ReconciliationOutcome(
+            status="unknown",
+            result={
+                "ok": False,
+                "adapter": "mock-business",
+                "action": proposal.action,
+                "idempotency_key": idempotency_key,
+                "detail": "mock runner 不存在可查询的远端回执",
+            },
+        )

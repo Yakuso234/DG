@@ -22,6 +22,7 @@ import {
   threadIdForProposal,
   type FlowPilotAuditEvent,
   type FlowPilotEvidence,
+  type FlowPilotExecution,
   type FlowPilotProposal,
   type FlowPilotRun,
   type FlowPilotTicket,
@@ -52,7 +53,7 @@ function StatusBadge({ status }: { status: string }) {
     ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
     : status === "FAILED" || status === "ESCALATED" || status === "denied"
       ? "border-destructive/30 bg-destructive/10 text-destructive"
-      : status === "WAITING_APPROVAL" || status === "proposed"
+    : status === "WAITING_APPROVAL" || status === "RECONCILING" || status === "unknown" || status === "proposed"
         ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
         : "border-border bg-muted text-muted-foreground";
   return <Badge variant="outline" className={tone}>{status}</Badge>;
@@ -65,6 +66,7 @@ export function FlowPilotWorkbench() {
   const [loadingTickets, setLoadingTickets] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [decisionInFlight, setDecisionInFlight] = useState<string | null>(null);
+  const [reconcileInFlight, setReconcileInFlight] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadTickets = useCallback(async () => {
@@ -120,6 +122,19 @@ export function FlowPilotWorkbench() {
     }
   }
 
+  async function reconcile(execution: FlowPilotExecution) {
+    if (!snapshot) return;
+    setReconcileInFlight(execution.id);
+    try {
+      await flowPilotApi.reconcileExecution(execution.id);
+      await Promise.all([loadTickets(), loadSnapshot(snapshot.ticket.id)]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "立即对账失败");
+    } finally {
+      setReconcileInFlight(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-muted/30 text-foreground">
       <header className="border-b bg-background">
@@ -169,6 +184,7 @@ export function FlowPilotWorkbench() {
               <div className="grid gap-5 xl:grid-cols-2">
                 <EvidencePanel evidence={snapshot.evidence} />
                 <ProposalPanel proposals={snapshot.proposals} runs={snapshot.runs} busyId={decisionInFlight} onDecide={decide} />
+                <ExecutionPanel executions={snapshot.executions} busyId={reconcileInFlight} onReconcile={reconcile} />
                 <RunPanel runs={snapshot.runs} />
                 <AuditPanel events={snapshot.audit} />
               </div>
@@ -194,6 +210,10 @@ function EvidencePanel({ evidence }: { evidence: FlowPilotEvidence[] }) {
 
 function ProposalPanel({ proposals, runs, busyId, onDecide }: { proposals: FlowPilotProposal[]; runs: FlowPilotRun[]; busyId: string | null; onDecide: (proposal: FlowPilotProposal, decision: "approved" | "denied") => Promise<void>; }) {
   return <Card><CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" /> Action Proposals</CardTitle><CardDescription>模型建议只进入受控合同，执行仍需审批、状态机与幂等校验</CardDescription></CardHeader><CardContent className="space-y-3">{proposals.length === 0 ? <Empty text="该工单尚无提案。" /> : proposals.map((proposal) => { const threadId = threadIdForProposal(runs, proposal.id); const canDecide = proposal.status === "proposed" && !!threadId; const busy = busyId === proposal.id; return <div key={proposal.id} className="rounded-lg border p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-mono text-sm font-medium">{proposal.action}</p><p className="mt-1 text-xs text-muted-foreground">{proposal.created_by} · {formatTime(proposal.created_at)}</p></div><div className="flex gap-2"><StatusBadge status={proposal.status} /><Badge variant="outline" className={proposal.risk === "high" ? "border-amber-500/30 text-amber-700 dark:text-amber-300" : ""}>{proposal.risk} risk</Badge></div></div><div className="mt-3"><JsonBlock value={proposal.params} /></div>{proposal.status === "proposed" && <div className="mt-3">{canDecide ? <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={() => void onDecide(proposal, "approved")}>{busy ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}批准并恢复</Button><Button size="sm" variant="destructive" disabled={busy} onClick={() => void onDecide(proposal, "denied")}><XCircle />拒绝并升级</Button></div> : <p className="text-xs text-amber-700 dark:text-amber-300">历史 Agent Run 未记录 thread_id；为避免恢复错误 checkpoint，已禁用审批操作。</p>}</div>}</div>; })}</CardContent></Card>;
+}
+
+function ExecutionPanel({ executions, busyId, onReconcile }: { executions: FlowPilotExecution[]; busyId: string | null; onReconcile: (execution: FlowPilotExecution) => Promise<void>; }) {
+  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><RefreshCw className="size-4 text-primary" /> Executions</CardTitle><CardDescription>未知结果会先进入 RECONCILING，沿用原幂等键查询 SW 回执，不盲目新建副作用。</CardDescription></CardHeader><CardContent className="space-y-3">{executions.length === 0 ? <Empty text="该工单尚无执行记录。" /> : executions.map((item) => <div key={item.id} className="rounded-lg border p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-mono text-sm font-medium">{item.id}</p><p className="mt-1 text-xs text-muted-foreground">业务执行 {item.attempts} 次 · 对账 {item.reconcile_attempts} 次</p></div><StatusBadge status={item.status} /></div><div className="mt-3 grid gap-2 text-xs sm:grid-cols-3"><Metric label="下次对账" value={formatTime(item.next_reconcile_at)} /><Metric label="最近对账" value={formatTime(item.last_reconciled_at)} /><Metric label="完成时间" value={formatTime(item.finished_at)} /></div>{item.result && <details className="mt-3"><summary className="cursor-pointer text-xs text-primary">查看安全结果/回执摘要</summary><div className="mt-2"><JsonBlock value={item.result} /></div></details>}{(item.status === "unknown" || item.status === "running") && <Button className="mt-3" size="sm" variant="outline" disabled={busyId === item.id} onClick={() => void onReconcile(item)}>{busyId === item.id ? <Loader2 className="animate-spin" /> : <RefreshCw />}立即对账</Button>}</div>)}</CardContent></Card>;
 }
 
 function RunPanel({ runs }: { runs: FlowPilotRun[] }) {

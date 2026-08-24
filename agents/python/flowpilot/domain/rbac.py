@@ -54,10 +54,18 @@ _ROLE_ACTIONS: dict[Role, frozenset[str]] = {
             "proposal.approve",
             "audit.read",
             "approval.list",
+            "execution.reconcile",
         }
     ),
     Role.SERVICE: frozenset(
-        {"ticket.view_any", "ticket.transition", "execution.run", "audit.write", "agent_run.create"}
+        {
+            "ticket.view_any",
+            "ticket.transition",
+            "execution.run",
+            "execution.reconcile",
+            "audit.write",
+            "agent_run.create",
+        }
     ),
 }
 
@@ -92,7 +100,13 @@ def can_transition_to(role: Role, target: TicketStatus) -> bool:
             TicketStatus.FAILED,
         }
     if role is Role.SERVICE:
-        return target in {TicketStatus.EXECUTING, TicketStatus.RESOLVED, TicketStatus.FAILED}
+        return target in {
+            TicketStatus.EXECUTING,
+            TicketStatus.RECONCILING,
+            TicketStatus.RESOLVED,
+            TicketStatus.FAILED,
+            TicketStatus.ESCALATED,
+        }
     return False
 
 

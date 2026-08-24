@@ -551,13 +551,17 @@ CREATE TABLE IF NOT EXISTS executions (
     ticket_id        UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     idempotency_key  VARCHAR(255) NOT NULL UNIQUE,
     status           VARCHAR(16) NOT NULL DEFAULT 'pending'
-                     CHECK (status IN ('pending', 'running', 'succeeded', 'failed')),
+                     CHECK (status IN ('pending', 'running', 'unknown', 'succeeded', 'failed', 'escalated')),
     attempts         INTEGER NOT NULL DEFAULT 0,
     result           JSONB,
     started_at       TIMESTAMPTZ,
-    finished_at      TIMESTAMPTZ
+    finished_at      TIMESTAMPTZ,
+    reconcile_attempts INTEGER NOT NULL DEFAULT 0,
+    next_reconcile_at  TIMESTAMPTZ,
+    last_reconciled_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_executions_ticket ON executions(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_executions_reconcile_due ON executions(status, next_reconcile_at);
 
 -- Agent 运行记录：模型、Token、时延、Trace ID（Phase 3 填充，Phase 1 建表）。
 CREATE TABLE IF NOT EXISTS agent_runs (

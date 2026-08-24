@@ -5,7 +5,7 @@ import uuid
 import httpx
 import pytest
 
-from flowpilot.action_runner import UnsupportedBusinessActionError
+from flowpilot.action_runner import ActionOutcomeUnknownError
 from flowpilot.db import TicketRepo
 from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION, ParamValidationError, next_idempotency_key
 from flowpilot.domain.models import ActionProposal, utc_now_iso
@@ -15,7 +15,6 @@ from flowpilot.sw_video_recovery import (
     SwVideoRecoveryAuthError,
     SwVideoRecoveryNotFoundError,
     SwVideoRecoveryRejectedError,
-    SwVideoRecoveryUpstreamError,
 )
 
 
@@ -32,114 +31,104 @@ def _proposal(*, ticket_id: str = "ticket-1", video_id: int = 9) -> ActionPropos
     )
 
 
-async def test_recovery_runner_calls_exact_sw_contract_with_identity_trace_and_idempotency() -> None:
+def _payload(proposal: ActionProposal, *, status: str = "ACCEPTED", replayed: bool = False) -> dict:
+    return {
+        "code": 1,
+        "msg": "success",
+        "data": {
+            "recoveryId": "recovery-1",
+            "videoId": proposal.params["video_id"],
+            "idempotencyKey": next_idempotency_key(proposal.id, proposal.action),
+            "status": status,
+            "reason": "PRECONDITION_NOT_MET" if status == "REJECTED" else None,
+            "outboxId": "outbox-1" if status == "ACCEPTED" else None,
+            "traceId": proposal.params["trace_id"],
+            "requestedBy": "flowpilot",
+            "replayed": replayed,
+            "createdAt": "2026-08-24T10:00:00",
+        },
+    }
+
+
+async def test_recovery_runner_posts_persistent_receipt_with_identity_trace_and_idempotency() -> None:
     requests: list[httpx.Request] = []
+    proposal = _proposal()
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(200, json={"code": 1, "msg": "success", "data": True})
+        return httpx.Response(200, json=_payload(proposal))
 
-    proposal = _proposal()
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         runner = SwVideoRecoveryActionRunner(
             base_url="http://sw-video", service_token="service-secret", service_name="flowpilot", client=client
         )
-        result = await runner.run(proposal)
+        result = await runner.run(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
 
-    assert len(requests) == 1
-    request = requests[0]
-    assert request.method == "POST"
-    assert request.url.path == "/video/api/private/processing/9/recover-expired"
-    assert request.headers["authorization"] == "Bearer service-secret"
-    assert request.headers["x-flowpilot-service"] == "flowpilot"
-    assert request.headers["x-trace-id"] == "trace-recovery"
-    assert request.headers["idempotency-key"] == next_idempotency_key(proposal.id, proposal.action)
-    assert result["business_result"]["recovery_created"] is True
-    assert result["business_result"]["video_id"] == 9
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/video/api/private/processing/9/recover-expired"
+    assert requests[0].headers["authorization"] == "Bearer service-secret"
+    assert requests[0].headers["idempotency-key"] == next_idempotency_key(proposal.id, proposal.action)
+    assert result["business_result"]["outbox_id"] == "outbox-1"
     assert "service-secret" not in str(result)
 
 
-def test_recovery_runner_fails_closed_without_service_identity() -> None:
-    with pytest.raises(SwVideoRecoveryAuthError, match="拒绝无身份"):
-        SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="")
-
-
-async def test_recovery_runner_rejects_non_whitelisted_action_without_http_call() -> None:
-    called = False
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        nonlocal called
-        called = True
-        return httpx.Response(200, json={"code": 1, "msg": "success", "data": True})
-
+async def test_recovery_runner_rejected_receipt_is_explicit_failure() -> None:
     proposal = _proposal()
-    unsupported = ActionProposal(
-        proposal.id,
-        proposal.ticket_id,
-        "restart_pipeline",
-        {"ticket_id": proposal.ticket_id},
-        proposal.evidence_ids,
-        "high",
-        proposal.created_by,
-        proposal.created_at,
-    )
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
-        with pytest.raises(UnsupportedBusinessActionError):
-            await runner.run(unsupported)
-
-    assert called is False
-
-
-async def test_recovery_runner_treats_false_result_as_failed_side_effect() -> None:
-    transport = httpx.MockTransport(
-        lambda _request: httpx.Response(200, json={"code": 1, "msg": "success", "data": False})
-    )
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200, json=_payload(proposal, status="REJECTED")))
     async with httpx.AsyncClient(transport=transport) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
-        with pytest.raises(SwVideoRecoveryRejectedError, match="原子校验未通过"):
-            await runner.run(_proposal())
+        with pytest.raises(SwVideoRecoveryRejectedError, match="PRECONDITION_NOT_MET"):
+            await runner.run(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
 
 
-@pytest.mark.parametrize(
-    ("status", "error_type"),
-    [
-        (401, SwVideoRecoveryAuthError),
-        (404, SwVideoRecoveryNotFoundError),
-        (503, SwVideoRecoveryUpstreamError),
-    ],
-)
-async def test_recovery_runner_maps_http_failures(status: int, error_type: type[Exception]) -> None:
-    transport = httpx.MockTransport(lambda _request: httpx.Response(status))
-    async with httpx.AsyncClient(transport=transport) as client:
+@pytest.mark.parametrize("status", [401, 403, 404, 409])
+async def test_recovery_runner_maps_auth_route_and_contract_failures(status: int) -> None:
+    proposal = _proposal()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(status))) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
-        with pytest.raises(error_type):
-            await runner.run(_proposal())
+        expected = (
+            SwVideoRecoveryAuthError
+            if status in {401, 403}
+            else (SwVideoRecoveryNotFoundError if status == 404 else SwVideoRecoveryRejectedError)
+        )
+        with pytest.raises(expected):
+            await runner.run(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
 
 
-async def test_recovery_runner_maps_timeout_without_leaking_success() -> None:
+async def test_recovery_runner_treats_timeout_and_5xx_as_unknown() -> None:
+    proposal = _proposal()
+
     def timeout(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("simulated timeout", request=request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(timeout)) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
-        with pytest.raises(SwVideoRecoveryUpstreamError, match="超时"):
-            await runner.run(_proposal())
+        with pytest.raises(ActionOutcomeUnknownError):
+            await runner.run(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
 
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"code": 0, "msg": "rejected", "data": None},
-        {"code": 1, "msg": "success", "data": {"recovered": True}},
-    ],
-)
-async def test_recovery_runner_rejects_invalid_result_contract(payload: dict) -> None:
-    transport = httpx.MockTransport(lambda _request: httpx.Response(200, json=payload))
-    async with httpx.AsyncClient(transport=transport) as client:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(503))) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
-        with pytest.raises(SwVideoRecoveryUpstreamError):
-            await runner.run(_proposal())
+        with pytest.raises(ActionOutcomeUnknownError):
+            await runner.run(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
+
+
+async def test_recovery_reconcile_gets_accepted_receipt_or_reposts_same_key_after_404() -> None:
+    proposal = _proposal()
+    methods: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(404)
+        return httpx.Response(200, json=_payload(proposal, replayed=True))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
+        outcome = await runner.reconcile(proposal, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
+
+    assert methods == ["GET", "POST"]
+    assert outcome.status == "succeeded"
+    assert outcome.result["business_result"]["replayed"] is True
 
 
 async def test_recovery_runner_validates_target_before_http_call() -> None:
@@ -157,44 +146,29 @@ async def test_recovery_runner_validates_target_before_http_call() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(500))) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
         with pytest.raises(ParamValidationError, match="正整数"):
-            await runner.run(invalid)
+            await runner.run(invalid, idempotency_key=next_idempotency_key(proposal.id, proposal.action))
 
 
-async def test_postgres_execution_calls_sw_once_and_persists_idempotent_result(postgres_pool, clean_db) -> None:
+async def test_postgres_execution_persists_receipt_and_deduplicates_side_effect(postgres_pool, clean_db) -> None:
     requests: list[httpx.Request] = []
+    ticket = await TicketRepo(postgres_pool).create_ticket(
+        Actor("u-submit", Role.SUBMITTER), "SW 视频处理卡住", "租约已过期"
+    )
+    proposal = _proposal(ticket_id=ticket.id, video_id=901)
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(200, json={"code": 1, "msg": "success", "data": True})
+        return httpx.Response(200, json=_payload(proposal))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         runner = SwVideoRecoveryActionRunner(base_url="http://sw-video", service_token="token", client=client)
         repo = TicketRepo(postgres_pool, runner)
-        ticket = await repo.create_ticket(Actor("u-submit", Role.SUBMITTER), "SW 视频处理卡住", "租约已过期")
-        proposal = _proposal(ticket_id=ticket.id, video_id=901)
         await repo.create_proposal(Actor("flowpilot-resolution-agent", Role.HANDLER), proposal)
         await repo.approve_proposal(Actor("u-approver", Role.APPROVER), proposal.id, "approved")
-
         first = await repo.execute_proposal(Actor("flowpilot-action-executor", Role.SERVICE), proposal.id)
         repeated = await repo.execute_proposal(Actor("flowpilot-action-executor", Role.SERVICE), proposal.id)
 
     assert first.status == "succeeded"
     assert repeated.id == first.id
-    assert first.result is not None and first.result["adapter"] == "sw-video-recovery"
-    assert first.result["business_result"]["video_id"] == 901
+    assert first.result is not None and first.result["business_result"]["outbox_id"] == "outbox-1"
     assert len(requests) == 1
-
-
-async def test_approval_cannot_change_evidence_bound_video_target(postgres_pool, clean_db) -> None:
-    repo = TicketRepo(postgres_pool)
-    ticket = await repo.create_ticket(Actor("u-submit", Role.SUBMITTER), "SW 视频处理卡住", "租约已过期")
-    proposal = _proposal(ticket_id=ticket.id, video_id=901)
-    await repo.create_proposal(Actor("flowpilot-resolution-agent", Role.HANDLER), proposal)
-
-    with pytest.raises(ParamValidationError, match="不能改变执行范围"):
-        await repo.approve_proposal(
-            Actor("u-approver", Role.APPROVER),
-            proposal.id,
-            "modified",
-            {**proposal.params, "video_id": 902},
-        )

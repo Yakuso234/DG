@@ -138,7 +138,7 @@ FlowPilot 提供默认关闭的 OTel 接入：FastAPI、asyncpg、OpenAI/httpx �
 
 ## FlowPilot 最小工作台
 
-`web/src/app/flowpilot/` 是与上游商城 `(app)` 壳隔离的独立路由，不复用电商登录或数据模型。它只读展示 FlowPilot 的工单、Evidence、Proposal、Agent Run 和 Audit；对于仍处于 `proposed` 的提案，页面只有在 Agent Run 安全摘要保存了同一提案的 `thread_id` 时才会调用既有的审批恢复 API。
+`web/src/app/flowpilot/` 是与上游商城 `(app)` 壳隔离的独立路由，不复用电商登录或数据模型。它展示 FlowPilot 的工单、Evidence、Proposal、Execution、Agent Run 和 Audit；对于仍处于 `proposed` 的提案，页面只有在 Agent Run 安全摘要保存了同一提案的 `thread_id` 时才会调用既有的审批恢复 API。对 `unknown/running` Execution，Demo admin 可显式触发同 key 对账。
 
 本地启动、CORS 配置与边界见 [FlowPilot Workbench Runbook](docs/DG-FLOWPILOT-WORKBENCH-RUNBOOK.md)。Header 身份仅是本机 Demo 边界，不能作为生产认证方案。
 
@@ -158,6 +158,7 @@ agents/python/flowpilot/
 ├── agent_graph.py              # Triage / Investigation / Resolution / Risk Review 图
 ├── ticket_workflow.py          # 启动图、持久化 Evidence/Proposal/Agent Run
 ├── approval_workflow.py        # 审批落库、恢复 checkpoint、受控执行
+├── execution_reconciliation.py # 未知外部结果的回执查询、安全重放与升级
 ├── domain/                     # 状态机、RBAC、动作合同、领域对象
 ├── db/repo.py                  # PostgreSQL 事务、行锁、幂等、审计、运行摘要
 ├── sw_video_ops_mcp_client.py  # MCP Streamable HTTP ClientSession

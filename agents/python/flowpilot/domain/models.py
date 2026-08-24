@@ -101,11 +101,14 @@ class ExecutionRecord:
     proposal_id: str
     ticket_id: str
     idempotency_key: str
-    status: str  # pending | running | succeeded | failed
+    status: str  # pending | running | unknown | succeeded | failed | escalated
     attempts: int
     result: dict[str, Any] | None
     started_at: str | None
     finished_at: str | None
+    reconcile_attempts: int = 0
+    next_reconcile_at: str | None = None
+    last_reconciled_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

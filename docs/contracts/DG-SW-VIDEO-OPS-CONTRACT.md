@@ -42,9 +42,18 @@ DG 只接受 SW 的 `Result<data>` JSON 响应；缺少必要字段、非 JSON �
 这些字段由调查证据绑定。审批人不能通过 `modified_params` 更换工单、创作者、
 视频或 TraceId；若目标需要变化，必须重新调查并生成新提案。
 
-SW 返回 `Result<Boolean>`。只有 `code=1 && data=true` 才记为执行成功；
-`data=false` 表示任务已恢复、尚未过期或状态发生竞态变化，DG 会持久化为执行失败，
-不能把 HTTP 200 误判成业务成功。
+SW 返回持久化的 `Result<VideoRecoveryOperationResponse>`，其中回执状态只能是
+`ACCEPTED` 或 `REJECTED`，并包含 `recoveryId`、`outboxId`（仅 ACCEPTED）、
+原始幂等键与 TraceId。DG 只有在 `ACCEPTED` 时记为成功；`REJECTED` 是明确的
+业务失败。timeout、5xx、断连或成功报文无法解析时不能把 HTTP 状态当业务结论，
+必须把 Execution 置为 `unknown`，通过同一幂等键查询：
+
+```text
+GET /video/api/private/processing/{videoId}/recovery-status
+```
+
+查询 `ACCEPTED` 补写成功，`REJECTED` 明确失败；仅在 404 时用原 key 安全重发 POST。
+完整字段和对账状态机见 `DG-SW-RECOVERY-RECONCILIATION-CONTRACT.md`。
 
 ## 服务身份与追踪
 
@@ -62,12 +71,10 @@ client 发往 MCP server，TraceId 作为工具参数传递，再由 server 的�
 gateway 发送 `X-Trace-Id`。写动作默认仍使用本地 Mock；只有显式设置
 `FLOWPILOT_ACTION_RUNNER=sw-video-recovery` 才启用真实 SW 适配器。
 
-SW 当前私有路由只由 Gateway 阻断公网访问，尚未确认上述 Token 和
-`Idempotency-Key` 的服务端验证。2026-08-23 已以隔离的过期 `PROCESSING` lease
-完成一次真实 HTTP 闭环：DG Evidence 预检、LangGraph HITL、SW `data=true` 恢复、
-DG 审计和重复执行返回同一 `ExecutionRecord`（`attempts=1`）；之后 SW 任务变为
-`SUCCEEDED`、视频变为 `PUBLISHED`。这证明当前本地契约与 DG 侧幂等路径，仍不能
-表述为跨项目零信任或 SW 服务端幂等键验证。
+SW 当前私有路由只由 Gateway 隔离公网；JWT/mTLS 不在本轮范围。SW 本地实现会持久化
+`Idempotency-Key` 回执并验证其与 video/service 的一致性，但这不等同于生产服务身份
+认证或跨项目 exactly-once。2026-08-23 已以隔离的过期 `PROCESSING` lease 完成一次
+真实 HTTP 闭环；后续对账演练需按 SW `DEMO_RUNBOOK.md` 暂停自动恢复扫描。
 
 ## Evidence 归一
 
