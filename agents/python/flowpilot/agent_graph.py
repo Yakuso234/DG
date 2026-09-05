@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -25,8 +26,11 @@ class FlowPilotGraphState(TypedDict, total=False):
     creator_id: int
     video_id: int
     trace_id: str
+    ticket_title: str
+    ticket_description: str
     triage: dict[str, Any]
     resolution_suggestion: dict[str, Any]
+    diagnosis: dict[str, Any]
     evidence: list[dict[str, Any]]
     proposal: dict[str, Any]
     risk_review: dict[str, Any]
@@ -35,20 +39,41 @@ class FlowPilotGraphState(TypedDict, total=False):
     steps: list[str]
 
 
-class ResolutionNotApplicableError(ValueError):
-    """当前证据不满足自动生成恢复提案的确定性前置条件。"""
-
-    def __init__(self, reason: str, detail: str) -> None:
-        super().__init__(detail)
-        self.reason = reason
-
-
-def initial_state(*, ticket_id: str, creator_id: int, video_id: int, trace_id: str) -> FlowPilotGraphState:
-    return {"ticket_id": ticket_id, "creator_id": creator_id, "video_id": video_id, "trace_id": trace_id, "steps": []}
+def initial_state(
+    *,
+    ticket_id: str,
+    creator_id: int,
+    video_id: int,
+    trace_id: str,
+    ticket_title: str = "",
+    ticket_description: str = "",
+) -> FlowPilotGraphState:
+    return {
+        "ticket_id": ticket_id,
+        "creator_id": creator_id,
+        "video_id": video_id,
+        "trace_id": trace_id,
+        "ticket_title": ticket_title[:500],
+        "ticket_description": ticket_description[:2000],
+        "steps": [],
+    }
 
 
 def _steps(state: FlowPilotGraphState, step: str) -> list[str]:
     return [*state.get("steps", []), step]
+
+
+def _lease_is_expired(raw: Any, *, now: datetime) -> bool | None:
+    """返回租约是否已过期；None 代表格式不可信，必须失败关闭。"""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed < now.astimezone(UTC)
 
 
 def build_graph(
@@ -57,6 +82,7 @@ def build_graph(
     checkpointer: Any = None,
     require_approval: bool = False,
     model: StructuredFlowPilotModel | None = None,
+    now: datetime | None = None,
 ):
     """构建主图；可选模型只提供受控建议，领域校验不交给模型。"""
 
@@ -73,6 +99,8 @@ def build_graph(
                 creator_id=state["creator_id"],
                 video_id=state["video_id"],
                 trace_id=state["trace_id"],
+                ticket_title=state.get("ticket_title", ""),
+                ticket_description=state.get("ticket_description", ""),
             )
         )
         if output.category != "video_processing_stalled" or not 1 <= output.priority <= 5:
@@ -101,18 +129,37 @@ def build_graph(
     @traced_agent_step("resolution")
     async def resolution(state: FlowPilotGraphState) -> dict[str, Any]:
         evidence = state["evidence"]
-        processing_status = evidence[0]["data"]["processing_status"]
+        data = evidence[0]["data"]
+        processing_status = data["processing_status"]
+        base = {"evidence_ids": [evidence[0]["id"]], "source": "deterministic"}
         if processing_status != "PROCESSING":
-            raise ResolutionNotApplicableError(
-                "non_processing_status",
-                f"当前 P3 只为 PROCESSING 卡住场景生成恢复提案，实际为 {processing_status!r}",
+            return {
+                "diagnosis": {**base, "decision": "escalate", "reason": "non_processing_status"},
+                "resolution_suggestion": {"decision": "escalate", "source": "deterministic"},
+                "steps": _steps(state, "resolution"),
+            }
+        lease_raw = data.get("lease_expire_at")
+        lease_state = _lease_is_expired(lease_raw, now=now or datetime.now(UTC))
+        if lease_state is None:
+            reason = (
+                "missing_lease_evidence"
+                if not isinstance(lease_raw, str) or not lease_raw.strip()
+                else "invalid_lease_evidence"
             )
-        if not evidence[0]["data"].get("lease_expire_at"):
-            raise ResolutionNotApplicableError(
-                "missing_lease_evidence",
-                "PROCESSING 任务缺少租约到期时间，不能生成受控恢复提案",
-            )
-        suggestion: dict[str, Any] = {"action": SW_VIDEO_RECOVERY_ACTION, "source": "deterministic"}
+            return {
+                "diagnosis": {**base, "decision": "escalate", "reason": reason},
+                "resolution_suggestion": {"decision": "escalate", "source": "deterministic"},
+                "steps": _steps(state, "resolution"),
+            }
+        if not lease_state:
+            return {
+                "diagnosis": {**base, "decision": "wait", "reason": "lease_not_expired"},
+                "resolution_suggestion": {"decision": "wait", "source": "deterministic"},
+                "steps": _steps(state, "resolution"),
+            }
+
+        suggestion: dict[str, Any] = {"decision": "recover", "source": "deterministic"}
+        diagnosis: dict[str, Any] = {**base, "decision": "recover", "reason": "expired_lease_confirmed"}
         if model is not None:
             output = await model.resolve(
                 ResolutionModelInput(
@@ -120,17 +167,34 @@ def build_graph(
                     creator_id=state["creator_id"],
                     video_id=state["video_id"],
                     trace_id=state["trace_id"],
+                    ticket_title=state.get("ticket_title", ""),
+                    ticket_description=state.get("ticket_description", ""),
                     processing_status=processing_status,
-                    lease_expire_at=evidence[0]["data"].get("lease_expire_at"),
+                    lease_expire_at=data.get("lease_expire_at"),
+                    retry_count=data.get("retry_count"),
+                    error_summary=data.get("error_summary"),
                 )
             )
-            if output.action != SW_VIDEO_RECOVERY_ACTION:
-                raise ModelOutputValidationError("处置模型建议了不在当前场景白名单内的动作")
             suggestion = {
-                "action": output.action,
+                "decision": output.decision,
                 "rationale": output.rationale[:500],
                 "source": "structured-model",
             }
+            diagnosis = {
+                **base,
+                "decision": output.decision,
+                "reason": f"model_{output.decision}",
+                "source": "structured-model",
+            }
+            if output.decision != "recover":
+                result: dict[str, Any] = {
+                    "diagnosis": diagnosis,
+                    "resolution_suggestion": suggestion,
+                    "steps": _steps(state, "resolution"),
+                }
+                if output.metrics is not None:
+                    result["model_calls"] = [*state.get("model_calls", []), output.metrics.to_dict()]
+                return result
         proposal = ActionProposal(
             id=str(uuid.uuid4()),
             ticket_id=state["ticket_id"],
@@ -149,6 +213,7 @@ def build_graph(
         result = {
             "proposal": proposal.to_dict(),
             "resolution_suggestion": suggestion,
+            "diagnosis": diagnosis,
             "steps": _steps(state, "resolution"),
         }
         if model is not None and output.metrics is not None:
@@ -165,6 +230,13 @@ def build_graph(
             "steps": _steps(state, "risk_review"),
         }
 
+    @traced_agent_step("escalation")
+    async def escalation(state: FlowPilotGraphState) -> dict[str, Any]:
+        return {"steps": _steps(state, "escalation")}
+
+    def route_after_resolution(state: FlowPilotGraphState) -> str:
+        return "risk_review" if isinstance(state.get("proposal"), dict) else "escalation"
+
     async def await_approval(state: FlowPilotGraphState) -> dict[str, Any]:
         decision = interrupt(
             {"ticket_id": state["ticket_id"], "proposal": state["proposal"], "risk": state["risk_review"]}
@@ -178,12 +250,18 @@ def build_graph(
     builder.add_node("investigation", investigate)
     builder.add_node("resolution", resolution)
     builder.add_node("risk_review", risk_review)
+    builder.add_node("escalation", escalation)
     if require_approval:
         builder.add_node("await_approval", await_approval)
     builder.add_edge(START, "triage")
     builder.add_edge("triage", "investigation")
     builder.add_edge("investigation", "resolution")
-    builder.add_edge("resolution", "risk_review")
+    builder.add_conditional_edges(
+        "resolution",
+        route_after_resolution,
+        {"risk_review": "risk_review", "escalation": "escalation"},
+    )
+    builder.add_edge("escalation", END)
     if require_approval:
         builder.add_edge("risk_review", "await_approval")
         builder.add_edge("await_approval", END)

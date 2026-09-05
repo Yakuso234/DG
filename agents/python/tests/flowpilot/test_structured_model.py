@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from flowpilot.agent_graph import build_graph, initial_state
-from flowpilot.domain.executor import SW_VIDEO_RECOVERY_ACTION
 from flowpilot.structured_model import (
     FakeStructuredFlowPilotModel,
     ModelOutputValidationError,
@@ -62,7 +61,7 @@ def _qwen_model(completions: _FakeCompletions) -> QwenStructuredFlowPilotModel:
 async def test_fake_structured_model_is_visible_but_cannot_control_proposal_scope_or_risk() -> None:
     model = FakeStructuredFlowPilotModel(
         triage_output=TriageModelOutput("video_processing_stalled", 5, "model suggested high priority"),
-        resolution_output=ResolutionModelOutput(SW_VIDEO_RECOVERY_ACTION, "model suggested recovery"),
+        resolution_output=ResolutionModelOutput("recover", "model suggested recovery"),
     )
 
     state = await build_graph(_gateway(), model=model).ainvoke(
@@ -76,7 +75,7 @@ async def test_fake_structured_model_is_visible_but_cannot_control_proposal_scop
         "source": "structured-model",
     }
     assert state["resolution_suggestion"] == {
-        "action": SW_VIDEO_RECOVERY_ACTION,
+        "decision": "recover",
         "rationale": "model suggested recovery",
         "source": "structured-model",
     }
@@ -89,13 +88,16 @@ async def test_fake_structured_model_is_visible_but_cannot_control_proposal_scop
     assert state["proposal"]["risk"] == "high"
 
 
-async def test_model_cannot_suggest_an_out_of_contract_action() -> None:
-    model = FakeStructuredFlowPilotModel(resolution_output=ResolutionModelOutput("delete_video", "unsafe"))
+async def test_model_can_only_defer_or_request_approval_without_changing_action_scope() -> None:
+    model = FakeStructuredFlowPilotModel(resolution_output=ResolutionModelOutput("escalate", "needs an operator"))
 
-    with pytest.raises(ModelOutputValidationError, match="白名单"):
-        await build_graph(_gateway(), model=model).ainvoke(
-            initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-model-action")
-        )
+    state = await build_graph(_gateway(), model=model).ainvoke(
+        initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-model-action")
+    )
+
+    assert "proposal" not in state
+    assert state["diagnosis"]["decision"] == "escalate"
+    assert state["diagnosis"]["reason"] == "model_escalate"
 
 
 async def test_model_cannot_return_invalid_triage_contract() -> None:
@@ -123,18 +125,31 @@ async def test_qwen_provider_uses_json_mode_and_validates_both_contracts() -> No
     completions = _FakeCompletions(
         [
             '{"category":"video_processing_stalled","priority":4,"rationale":"lease expired"}',
-            '{"action":"recover_expired_video_processing","rationale":"approval required"}',
+            '{"decision":"recover","rationale":"approval required"}',
         ]
     )
     model = _qwen_model(completions)
 
     triage = await model.triage(TriageModelInput("ticket-1", 7, 9, "trace-1"))
-    resolution = await model.resolve(ResolutionModelInput("ticket-1", 7, 9, "trace-1", "PROCESSING", "expired"))
+    resolution = await model.resolve(
+        ResolutionModelInput(
+            "ticket-1",
+            7,
+            9,
+            "trace-1",
+            "lease expired",
+            "retry after callback timeout",
+            "PROCESSING",
+            "expired",
+            1,
+            "callback timeout",
+        )
+    )
 
     assert triage.category == "video_processing_stalled"
     assert triage.priority == 4
     assert triage.rationale == "lease expired"
-    assert resolution.action == "recover_expired_video_processing"
+    assert resolution.decision == "recover"
     assert resolution.rationale == "approval required"
     assert triage.metrics is not None
     assert triage.metrics.input_tokens == 11
@@ -144,6 +159,7 @@ async def test_qwen_provider_uses_json_mode_and_validates_both_contracts() -> No
     assert resolution.metrics.task == "resolve"
     assert all(item["response_format"] == {"type": "json_object"} for item in completions.requests)
     assert all(item["temperature"] == 0 for item in completions.requests)
+    assert "error_summary" in completions.requests[1]["messages"][1]["content"]
 
 
 async def test_qwen_provider_rejects_invalid_json_contract() -> None:

@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from flowpilot.agent_graph import ResolutionNotApplicableError, build_graph, initial_state
+from flowpilot.agent_graph import build_graph, initial_state
 from flowpilot.structured_model import (
     ResolutionModelInput,
     ResolutionModelOutput,
@@ -36,6 +36,9 @@ class FlowPilotEvalCase:
     expected_outcome: str
     expected_action: str | None = None
     expected_rejection_reason: str | None = None
+    expected_diagnosis_decision: str | None = None
+    ticket_title: str = ""
+    ticket_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -84,12 +87,16 @@ def load_flowpilot_eval_cases(path: str | Path) -> list[FlowPilotEvalCase]:
     if len(set(ids)) != len(ids):
         raise ValueError("FlowPilot eval dataset 的 case id 必须唯一")
     for case in cases:
-        if case.expected_outcome not in {"proposal", "reject"}:
+        if case.expected_outcome not in {"proposal", "reject", "defer"}:
             raise ValueError(f"case {case.id} 的 expected_outcome 非法")
         if case.expected_outcome == "proposal" and not case.expected_action:
             raise ValueError(f"case {case.id} 缺少 expected_action")
-        if case.expected_outcome == "proposal" and case.expected_rejection_reason is not None:
-            raise ValueError(f"case {case.id} 为 proposal 时不能声明 expected_rejection_reason")
+        if case.expected_outcome == "proposal" and (
+            case.expected_rejection_reason is not None or case.expected_diagnosis_decision not in {None, "recover"}
+        ):
+            raise ValueError(f"case {case.id} 为 proposal 时不能声明非 recover 诊断")
+        if case.expected_outcome == "defer" and case.expected_diagnosis_decision not in {"wait", "escalate"}:
+            raise ValueError(f"case {case.id} 的 defer 用例必须声明 wait 或 escalate")
     return cases
 
 
@@ -203,34 +210,44 @@ class FlowPilotDeterministicEvaluator:
         )
         recorder = _RecordingModel(self._model) if self._model is not None else None
         started = time.perf_counter()
-        try:
-            state = await build_graph(gateway, model=recorder).ainvoke(
-                initial_state(
-                    ticket_id=ticket_id,
-                    creator_id=case.creator_id,
-                    video_id=case.video_id,
-                    trace_id=trace_id,
-                )
+        state = await build_graph(gateway, model=recorder).ainvoke(
+            initial_state(
+                ticket_id=ticket_id,
+                creator_id=case.creator_id,
+                video_id=case.video_id,
+                trace_id=trace_id,
+                ticket_title=case.ticket_title,
+                ticket_description=case.ticket_description,
             )
-        except ResolutionNotApplicableError as exc:
-            latency = (time.perf_counter() - started) * 1000
-            checks = {"expected_rejection": case.expected_outcome == "reject"}
+        )
+
+        latency = (time.perf_counter() - started) * 1000
+        evidence = state["evidence"][0]
+        diagnosis = state["diagnosis"]
+        proposal = state.get("proposal")
+        if not isinstance(proposal, dict):
+            checks = {
+                "expected_defer": case.expected_outcome in {"reject", "defer"},
+                "diagnosis_decision_correct": (
+                    diagnosis.get("decision") == case.expected_diagnosis_decision
+                    if case.expected_diagnosis_decision is not None
+                    else diagnosis.get("decision") in {"wait", "escalate"}
+                ),
+                "evidence_source": evidence["source"] == "sw-video-ops-mcp",
+                "evidence_referenced": diagnosis.get("evidence_ids") == [evidence["id"]],
+                "trace_preserved": evidence["data"]["trace_id"] == trace_id,
+            }
             if case.expected_rejection_reason is not None:
-                checks["rejection_reason_correct"] = exc.reason == case.expected_rejection_reason
-            measurements = _model_measurements(recorder.calls if recorder is not None else [])
+                checks["rejection_reason_correct"] = diagnosis.get("reason") == case.expected_rejection_reason
             return FlowPilotEvalResult(
                 case_id=case.id,
                 passed=all(checks.values()),
                 latency_ms=latency,
-                outcome="reject",
+                outcome="reject" if case.expected_outcome == "reject" else "defer",
                 checks=checks,
-                detail=exc.reason,
-                **measurements,
+                detail=str(diagnosis.get("reason", "")),
+                **_model_measurements(recorder.calls if recorder is not None else []),
             )
-
-        latency = (time.perf_counter() - started) * 1000
-        evidence = state["evidence"][0]
-        proposal = state["proposal"]
         checks = {
             "expected_proposal": case.expected_outcome == "proposal",
             "action_correct": proposal["action"] == case.expected_action,
@@ -245,6 +262,7 @@ class FlowPilotDeterministicEvaluator:
             "evidence_referenced": proposal["evidence_ids"] == [evidence["id"]],
             "risk_authoritative": state["risk_review"]["authoritative_risk"] == "high",
             "trace_preserved": evidence["data"]["trace_id"] == trace_id,
+            "diagnosis_decision_correct": diagnosis.get("decision") == "recover",
         }
         return FlowPilotEvalResult(
             case_id=case.id,

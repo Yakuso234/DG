@@ -19,15 +19,28 @@ async def run_smoke() -> dict[str, object]:
     if not isinstance(model, QwenStructuredFlowPilotModel):
         raise ValueError("Qwen 冒烟测试需要设置 FLOWPILOT_STRUCTURED_MODEL=qwen")
 
-    triage = await model.triage(TriageModelInput("smoke-ticket", 7, 901, "trace-qwen-smoke"))
+    triage = await model.triage(
+        TriageModelInput(
+            "smoke-ticket",
+            7,
+            901,
+            "trace-qwen-smoke",
+            "视频处理卡住",
+            "lease 已过期，需判断是否进入人工审批",
+        )
+    )
     resolution = await model.resolve(
         ResolutionModelInput(
             "smoke-ticket",
             7,
             901,
             "trace-qwen-smoke",
+            "视频处理卡住",
+            "lease 已过期，需判断是否进入人工审批",
             "PROCESSING",
             "2026-08-20 09:00:00",
+            1,
+            "callback timeout",
         )
     )
     return {

@@ -97,7 +97,7 @@ async def test_start_workflow_persists_graph_outputs_before_waiting_for_approval
 
 async def test_agent_run_summarizes_structured_model_tokens_and_latency() -> None:
     gateway = MockSwVideoOpsGateway(
-        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, "expired", None, "now", "seed")]
+        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, "2026-08-18T00:00:00Z", None, "now", "seed")]
     )
     model = FakeStructuredFlowPilotModel(
         triage_output=TriageModelOutput(
@@ -107,7 +107,7 @@ async def test_agent_run_summarizes_structured_model_tokens_and_latency() -> Non
             ModelCallMetrics("triage", 10, 4, 14, 120),
         ),
         resolution_output=ResolutionModelOutput(
-            "recover_expired_video_processing",
+            "recover",
             "resolve",
             ModelCallMetrics("resolve", 12, 5, 17, 180),
         ),
@@ -133,3 +133,35 @@ async def test_agent_run_summarizes_structured_model_tokens_and_latency() -> Non
     }
     assert result.agent_run.output["model_calls"] == 2
     assert result.agent_run.output["model_latency_ms"] == 300
+
+
+async def test_start_workflow_persists_evidence_and_escalates_when_lease_is_not_expired() -> None:
+    gateway = MockSwVideoOpsGateway(
+        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 0, "2099-01-01T00:00:00Z", None, "now", "seed")]
+    )
+    repo = FakeTicketWorkflowRepo()
+    service = TicketWorkflowService(
+        repo,
+        build_graph(gateway, checkpointer=MemorySaver(), require_approval=True),
+        handler_actor=Actor("flowpilot-handler", Role.HANDLER),
+        model_label="deterministic",
+    )
+
+    result = await service.start(
+        ticket_id="ticket-future-lease",
+        creator_id=7,
+        video_id=9,
+        trace_id="trace-future-lease",
+        thread_id="future-lease",
+    )
+
+    assert result.proposal is None
+    assert result.ticket_target is TicketStatus.ESCALATED
+    assert result.agent_run.output["diagnosis"] == {
+        "evidence_ids": [result.evidence[0].id],
+        "source": "deterministic",
+        "decision": "wait",
+        "reason": "lease_not_expired",
+    }
+    assert [call[0] for call in repo.calls] == ["transition", "transition", "evidence", "transition", "agent_run"]
+    assert repo.calls[-2][1][1] is TicketStatus.ESCALATED

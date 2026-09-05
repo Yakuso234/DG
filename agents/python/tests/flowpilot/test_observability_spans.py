@@ -67,7 +67,19 @@ async def test_agent_nodes_emit_low_sensitivity_spans(monkeypatch: pytest.Monkey
     monkeypatch.setattr(observability, "_tracer", lambda: tracer)
     observability.set_trace_id("trace-span-test")
     gateway = MockSwVideoOpsGateway(
-        [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, "expired", "secret error", "now", "seed")]
+        [
+            VideoProcessingSnapshot(
+                7,
+                9,
+                "PROCESSING",
+                "PROCESSING",
+                1,
+                "2020-01-01T00:00:00+00:00",
+                "secret error",
+                "now",
+                "seed",
+            )
+        ]
     )
 
     await build_graph(gateway).ainvoke(

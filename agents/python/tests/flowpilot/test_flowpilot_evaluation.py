@@ -10,6 +10,7 @@ from flowpilot.structured_model import (
 )
 
 DATASET = Path(__file__).parents[2] / "evals" / "datasets" / "flowpilot_video_ops.json"
+HOLDOUT = Path(__file__).parents[2] / "evals" / "datasets" / "flowpilot_diagnosis_holdout.json"
 
 
 async def test_flowpilot_video_ops_dataset_passes_deterministic_baseline() -> None:
@@ -46,14 +47,25 @@ async def test_missing_lease_has_distinct_rejection_reason() -> None:
     assert result.detail == "missing_lease_evidence"
 
 
+async def test_diagnosis_holdout_covers_wait_escalate_and_untrusted_error_text() -> None:
+    cases = load_flowpilot_eval_cases(HOLDOUT)
+    summary = await FlowPilotDeterministicEvaluator().evaluate(cases)
+
+    assert summary.total == 4
+    assert summary.passed == 4
+    by_case = {result.case_id: result for result in summary.results}
+    assert by_case["future-lease-wait"].outcome == "defer"
+    assert by_case["future-lease-wait"].detail == "lease_not_expired"
+    assert by_case["expired-injection-recover"].outcome == "proposal"
+    assert by_case["expired-injection-recover"].checks["params_scoped"] is True
+
+
 async def test_structured_model_evaluation_reports_tokens_and_model_latency() -> None:
     model = FakeStructuredFlowPilotModel(
         triage_output=TriageModelOutput(
             "video_processing_stalled", 4, "triage", ModelCallMetrics("triage", 10, 4, 14, 100)
         ),
-        resolution_output=ResolutionModelOutput(
-            "recover_expired_video_processing", "resolve", ModelCallMetrics("resolve", 12, 5, 17, 200)
-        ),
+        resolution_output=ResolutionModelOutput("recover", "resolve", ModelCallMetrics("resolve", 12, 5, 17, 200)),
     )
     cases = load_flowpilot_eval_cases(DATASET)
 

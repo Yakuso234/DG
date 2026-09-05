@@ -8,7 +8,7 @@
 
 DG / FlowPilot 是一个面向企业故障处置的 Python 多 Agent 控制平面，也是我秋招后端 / Python Agent 应用开发岗位重构的个人项目。它把 Agent 置于明确的业务与安全边界中：Agent 负责调查和提出结构化建议；状态机、RBAC、动作合同、审批和幂等由确定性服务端代码负责。
 
-第一条闭环围绕“短视频处理任务卡住”：创建工单 → 调查外部状态 → 生成恢复提案 → 风险复核 → 人工审批 → 受控执行 → 审计与运行轨迹查询。
+第一条闭环围绕“短视频处理任务卡住”：创建工单 → 调查外部状态 → 确定性校验状态与租约 → 恢复提案或转人工 → 风险复核 → 人工审批 → 受控执行 → 审计与运行轨迹查询。
 
 > 这是对上游开源项目的授权重构与扩展，不是对其电商功能的简单复述。电商 Agent 与 MCP 存量已从当前工作树清理；如需查阅上游实现，可通过 Git 历史恢复，不能视为 FlowPilot 的已完成能力。
 
@@ -24,16 +24,16 @@ DG / FlowPilot 是一个面向企业故障处置的 Python 多 Agent 控制平�
 
 ```text
 FastAPI 请求
-  -> LangGraph：Triage -> Investigation -> Resolution -> Risk Review
-  -> Evidence / Proposal 持久化
-  -> interrupt() 暂停等待人工审批
-  -> Command(resume) 恢复
-  -> Service Actor 受控执行
-  -> PostgreSQL 审计与 Agent Run 摘要
+  -> LangGraph：Triage -> Investigation -> Resolution
+  -> 状态 / lease 确定性门禁
+  -> [可恢复] Risk Review -> interrupt() 审批 -> Service Actor 执行
+  -> [等待或升级] Evidence / Agent Run 持久化 -> ESCALATED
+  -> PostgreSQL 审计与运行轨迹查询
 ```
 
 - Investigation 通过统一 Gateway 获取带来源和 TraceId 的 Evidence。
-- 模型端口只允许提出结构化分诊 / 动作建议；服务端从 Evidence 构造 `ticket_id`、`creator_id`、`video_id`、`trace_id`，并从 `ACTION_CATALOG` 重算风险。
+- 模型端口只允许提出结构化分诊 / `recover|wait|escalate` 建议；服务端先验证 `PROCESSING + 可解析且已过期的 lease`，再从 Evidence 构造 `ticket_id`、`creator_id`、`video_id`、`trace_id`，并从 `ACTION_CATALOG` 重算风险。
+- 工单标题、描述和错误摘要可提供给模型解释，但都按不可信业务文本处理；模型不能生成参数、扩大范围、跳过审批或覆盖服务端门禁。
 - 高风险恢复动作必须先落审批，再以 service Actor 执行；审批者不能越过职责分离直接执行。
 
 ### 3. 建立 MCP、审批恢复与外部动作边界
@@ -52,9 +52,9 @@ FastAPI 请求
 
 ## 当前可验证状态
 
-最近一次完整 FlowPilot 回归为 **97 passed**，覆盖 PostgreSQL/Testcontainers、FastAPI ASGI 契约、LangGraph/SQLite checkpoint、MCP loopback、Mock Demo、Qwen 用量聚合、OpenTelemetry 安全 span、TraceId、JWT-local、CORS、Agent Run 幂等摘要，以及动作目录审批/RBAC 安全合同。
+本次“诊断/转人工”合同变更已通过 **50 项无需 Docker 的 FlowPilot 回归**、改动文件 Ruff/格式检查，以及 **4/4 条确定性诊断保留集**（未来 lease 等待、非法 lease 升级、终态升级、含注入文本的过期 lease 恢复）。数据库/Testcontainers 路径另有 40 项，当前 Docker Desktop 未运行，未把它们记为已通过。
 
-真实 Qwen-plus 在扩展后的 30 条固定评测集上顺序运行 3 轮：**90/90 通过、126 次模型调用、32,429 Token**；端到端 P50/P95 为 **3.315s / 6.476s**，Provider 调用 P50/P95 为 **3.309s / 6.469s**。该数据集覆盖合法恢复、状态/租约拒绝和注入文本，属于受控系统评测，不代表开放域准确率或生产 SLA。
+历史 Qwen-plus 基线曾在旧版 action-only 合同的 30 条固定集顺序运行 3 轮，得到 **90/90 通过、126 次模型调用、32,429 Token**；端到端 P50/P95 为 **3.315s / 6.476s**，Provider 调用 P50/P95 为 **3.309s / 6.469s**。本次升级为 `recover|wait|escalate` 决策合同后，真实 Qwen 评测需要用当前 Key 重新运行；历史数据不能替代新合同的验证。
 
 已完成的验证不等于生产声明：Qwen Provider 已完成真实 Key 多轮受控评测，OTLP 已向本地 Aspire 成功导出，DG 已完成一次真实 SW 双进程恢复闭环；但仍没有生产采样/告警、RS256/JWKS 联邦身份或性能 / 成本的生产基线。
 
@@ -63,7 +63,7 @@ FastAPI 请求
 | 确定性工单域、审批、执行、审计 | 已实现并经 PostgreSQL 回归验证 |
 | LangGraph 单图、HITL checkpoint 恢复 | 已实现并验证 |
 | MCP Streamable HTTP 调查客户端 | 已通过 loopback 协议回归验证 |
-| Fake / deterministic / Qwen 模型建议层 | Qwen Provider、30 条 × 3 轮真实 Key 评测和 Token/延迟采集已验证 |
+| Fake / deterministic / Qwen 模型建议层 | deterministic 诊断门禁与保留集已验证；Qwen 有历史 30 条 × 3 轮基线，当前决策合同待重新实测 |
 | JWT-local | 已实现；RS256/JWKS/OIDC 待补 |
 | Agent Run / Proposal 查询、OTel 与最小工作台 | 已实现本地观测与 `/flowpilot` 真实只读展示；生产身份、完整前端审批 E2E 与采样告警待补 |
 | DG + SW 实时联调 | 已完成 1 次隔离过期 lease 的真实闭环：调查、HITL 审批、恢复、审计与重复执行幂等回归；SW 入站服务身份校验仍待补 |
@@ -120,12 +120,19 @@ $env:FLOWPILOT_DATABASE_URL = "postgresql://ecommerce:ecommerce_secret@127.0.0.1
 uv run python -m flowpilot.demo --structured-model-from-env
 ```
 
-运行 7 场景真实模型评测（共 10 次模型调用：7 次分诊、3 次处置）：
+运行当前 30 场景真实模型评测（每轮固定为 30 次分诊加 12 次处置调用）：
 
 ```powershell
 uv run python -m flowpilot.evaluation `
   --dataset evals/datasets/flowpilot_video_ops.json `
   --structured-model-from-env
+```
+
+也可以先运行不需要模型 Key 的诊断保留集：
+
+```powershell
+uv run python -m flowpilot.evaluation `
+  --dataset evals/datasets/flowpilot_diagnosis_holdout.json
 ```
 
 评测输出分别给出整图延迟、模型调用延迟和输入/输出 Token；成本需要结合实际账户价格计算，项目不会硬编码可能变化的价格。

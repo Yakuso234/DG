@@ -13,8 +13,9 @@ HANDLER_HEADERS = {"x-user-id": "u-handler", "x-user-role": "handler"}
 
 
 class FakeTicketWorkflow:
-    def __init__(self) -> None:
+    def __init__(self, *, returns_proposal: bool = True) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.returns_proposal = returns_proposal
 
     async def start(self, **kwargs: Any) -> TicketWorkflowStartResult:
         self.calls.append(kwargs)
@@ -38,20 +39,25 @@ class FakeTicketWorkflow:
             kwargs["ticket_id"],
             kwargs["thread_id"],
             (evidence,),
-            proposal,
-            {"steps": ["triage", "investigation", "resolution", "risk_review"]},
+            proposal if self.returns_proposal else None,
+            {
+                "steps": ["triage", "investigation", "resolution", "risk_review"]
+                if self.returns_proposal
+                else ["triage", "investigation", "resolution", "escalation"],
+            },
             AgentRun(
                 "run-1",
                 kwargs["ticket_id"],
                 "flowpilot-main-graph",
                 "creator_id=7, video_id=9",
-                {"proposal_id": proposal.id},
+                {"proposal_id": proposal.id if self.returns_proposal else None},
                 "FakeStructuredFlowPilotModel",
                 None,
                 12,
                 kwargs["trace_id"],
                 utc_now_iso(),
             ),
+            ticket_target=TicketStatus.WAITING_APPROVAL if self.returns_proposal else TicketStatus.ESCALATED,
         )
 
 
@@ -87,6 +93,22 @@ async def test_workflow_rejects_mismatched_request_and_business_trace_ids() -> N
 
     assert response.status_code == 422
     assert "X-Trace-Id" in response.json()["detail"]
+
+
+async def test_start_workflow_route_returns_null_proposal_for_safe_escalation() -> None:
+    workflow = FakeTicketWorkflow(returns_proposal=False)
+    transport = httpx.ASGITransport(app=build_app(ticket_workflow=workflow))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/workflows/tickets/ticket-1/start",
+            headers={**HANDLER_HEADERS, "X-Trace-Id": "trace-1"},
+            json={"creator_id": 7, "video_id": 9, "trace_id": "trace-1", "thread_id": "thread-1"},
+        )
+
+    assert response.status_code == 202
+    assert response.json()["ticket_target"] == TicketStatus.ESCALATED.value
+    assert response.json()["proposal"] is None
+    assert response.json()["steps"][-1] == "escalation"
 
 
 async def test_start_workflow_route_fails_closed_when_runtime_missing() -> None:

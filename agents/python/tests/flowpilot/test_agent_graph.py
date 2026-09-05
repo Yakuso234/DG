@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
@@ -33,24 +32,53 @@ async def test_langgraph_main_flow_generates_evidence_and_high_risk_proposal() -
     assert state["risk_review"] == {"approved_for_human_review": True, "authoritative_risk": "high"}
 
 
-async def test_langgraph_refuses_non_processing_scenario() -> None:
+async def test_langgraph_escalates_non_processing_scenario_without_proposal() -> None:
     gateway = MockSwVideoOpsGateway(
         [VideoProcessingSnapshot(7, 9, "PUBLISHED", "SUCCEEDED", 0, None, None, "2026-08-19 09:00:00", "seed")]
     )
-    with pytest.raises(ValueError, match="PROCESSING"):
-        await build_graph(gateway).ainvoke(
-            initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-p3")
-        )
+    state = await build_graph(gateway).ainvoke(
+        initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-p3")
+    )
+
+    assert "proposal" not in state
+    assert state["diagnosis"] == {
+        "evidence_ids": [state["evidence"][0]["id"]],
+        "source": "deterministic",
+        "decision": "escalate",
+        "reason": "non_processing_status",
+    }
+    assert state["steps"][-1] == "escalation"
 
 
-async def test_langgraph_refuses_processing_task_without_lease_evidence() -> None:
+async def test_langgraph_escalates_processing_task_without_lease_evidence() -> None:
     gateway = MockSwVideoOpsGateway(
         [VideoProcessingSnapshot(7, 9, "PROCESSING", "PROCESSING", 1, None, None, "2026-08-19 09:00:00", "seed")]
     )
-    with pytest.raises(ValueError, match="租约到期时间"):
-        await build_graph(gateway).ainvoke(
-            initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-missing-lease")
-        )
+    state = await build_graph(gateway).ainvoke(
+        initial_state(ticket_id="ticket-1", creator_id=7, video_id=9, trace_id="trace-missing-lease")
+    )
+
+    assert "proposal" not in state
+    assert state["diagnosis"]["decision"] == "escalate"
+    assert state["diagnosis"]["reason"] == "missing_lease_evidence"
+
+
+async def test_langgraph_waits_when_lease_is_not_expired() -> None:
+    gateway = MockSwVideoOpsGateway(
+        [
+            VideoProcessingSnapshot(
+                7, 9, "PROCESSING", "PROCESSING", 1, "2099-01-01T00:00:00Z", None, "2026-08-19T09:00:00Z", "seed"
+            )
+        ]
+    )
+
+    state = await build_graph(gateway).ainvoke(
+        initial_state(ticket_id="ticket-future-lease", creator_id=7, video_id=9, trace_id="trace-future-lease")
+    )
+
+    assert "proposal" not in state
+    assert state["diagnosis"]["decision"] == "wait"
+    assert state["diagnosis"]["reason"] == "lease_not_expired"
 
 
 async def test_langgraph_interrupts_and_resumes_human_approval() -> None:

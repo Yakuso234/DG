@@ -441,7 +441,7 @@ def build_app(
             "trace_id": trace_id,
             "ticket_target": result.ticket_target.value,
             "evidence": [item.to_dict() for item in result.evidence],
-            "proposal": result.proposal.to_dict(),
+            "proposal": result.proposal.to_dict() if result.proposal is not None else None,
             "agent_run": result.agent_run.to_dict(),
             "steps": result.graph_state.get("steps", []),
         }
